@@ -54,7 +54,7 @@ RUN npm install -g \
     @modelcontextprotocol/server-brave-search
 
 # Install uv for dynamic MCP server installation (uvx is included with uv)
-RUN pip install --no-cache-dir uv
+RUN pip install --no-cache-dir --break-system-packages uv
 
 # Ensure uv cache directory exists and is writable
 RUN mkdir -p /tmp/uv-cache && chmod 777 /tmp/uv-cache

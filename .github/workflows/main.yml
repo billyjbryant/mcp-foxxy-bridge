@@ -36,6 +36,7 @@ jobs:
       with:
         repo-token: "${{ secrets.GITHUB_TOKEN }}"
         configuration-path: .github/labeler.yml
+        sync-labels: false
 
     - name: Add comprehensive labeling
       uses: actions/github-script@v7
@@ -319,7 +320,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.10', '3.11', '3.12', '3.13']
+        python-version: ['3.11', '3.12', '3.13']
     steps:
     - uses: actions/checkout@v4
 
