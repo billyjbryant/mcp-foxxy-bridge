@@ -35,7 +35,7 @@ assignees: ''
 
 ## 🌍 Environment
 
-**Bridge Version:** 
+**Bridge Version:**
 <!-- Run `mcp-foxxy-bridge --version` -->
 
 **Configuration:**

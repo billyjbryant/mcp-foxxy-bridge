@@ -47,7 +47,7 @@ Actions → CI/CD Pipeline → Run workflow → Enable "test PyPI"
 ## No Manual Version Management
 
 ❌ **Don't manually edit version numbers**
-❌ **Don't create Git tags manually** 
+❌ **Don't create Git tags manually**
 ❌ **Don't create GitHub releases manually**
 
 ✅ **Use conventional commits**
@@ -120,7 +120,7 @@ The release process automatically:
 1. **Updates CHANGELOG.md** with the new version entry
 2. **Categorizes changes** based on conventional commit messages:
    - **Features**: `feat:` commits
-   - **Bug Fixes**: `fix:` commits  
+   - **Bug Fixes**: `fix:` commits
    - **Documentation**: `docs:` commits
    - **Other Changes**: All other commit types
 3. **Commits the updated changelog** back to the repository
@@ -141,7 +141,7 @@ For better changelog generation, use conventional commit format:
 **Examples:**
 ```bash
 git commit -m "feat(bridge): add environment variable expansion"
-git commit -m "fix(server): resolve connection timeout issues"  
+git commit -m "fix(server): resolve connection timeout issues"
 git commit -m "docs: update installation instructions"
 git commit -m "chore: bump dependencies"
 ```
@@ -160,7 +160,7 @@ For major releases or complex changes, you can manually update the "Unreleased" 
 
 The project follows [Keep a Changelog](https://keepachangelog.com/) format:
 - **Added** for new features
-- **Changed** for changes in existing functionality  
+- **Changed** for changes in existing functionality
 - **Deprecated** for soon-to-be removed features
 - **Removed** for now removed features
 - **Fixed** for any bug fixes

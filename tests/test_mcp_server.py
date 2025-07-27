@@ -18,7 +18,12 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
-from mcp_foxxy_bridge.mcp_server import MCPServerSettings, create_single_instance_routes, run_mcp_server
+from mcp_foxxy_bridge.mcp_server import (
+    MCPServerSettings,
+    _global_status,
+    create_single_instance_routes,
+    run_mcp_server,
+)
 
 
 def create_starlette_app(
@@ -195,14 +200,21 @@ def mock_stdio_params() -> StdioServerParameters:
 
 
 class AsyncContextManagerMock:  # noqa: D101
-    def __init__(self, mock) -> None:  # noqa: ANN001, D107
+    def __init__(self, mock) -> None:  # noqa: ANN001
+        """Initialize the async context manager mock."""
         self.mock = mock
 
-    async def __aenter__(self):  # noqa: ANN204, D105
+    async def __aenter__(self):  # noqa: ANN204
+        """Enter the async context manager."""
         return self.mock
 
-    async def __aexit__(self, *args):  # noqa: ANN002, ANN204, D105
-        pass
+    async def __aexit__(self, *args):  # noqa: ANN002, ANN204
+        """Exit the async context manager.
+
+        Args:
+            *args: Standard arguments for the context manager protocol.
+                Not used in this implementation.
+        """
 
 
 def setup_async_context_mocks() -> tuple[
@@ -520,8 +532,6 @@ async def test_run_mcp_server_global_status_updates(
     mock_stdio_params: StdioServerParameters,
 ) -> None:
     """Test run_mcp_server updates global status correctly."""
-    from mcp_foxxy_bridge.mcp_server import _global_status
-
     # Clear global status before test
     _global_status["server_instances"].clear()
 

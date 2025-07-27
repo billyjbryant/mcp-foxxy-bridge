@@ -21,45 +21,93 @@ on:
 jobs:
   # Validation jobs (run on PRs)
   validate-pr:
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
       contents: read
+      issues: write
+      statuses: write
     steps:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
+
+    - name: Auto-label PR based on files
+      uses: actions/labeler@v5
+      with:
+        repo-token: "${{ secrets.GITHUB_TOKEN }}"
+        configuration-path: .github/labeler.yml
+
+    - name: Add comprehensive labeling
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const pr = context.payload.pull_request;
+          const currentLabels = pr.labels.map(label => label.name);
+
+          // Count different types of labels
+          const typeLabels = currentLabels.filter(label => label.startsWith('type:'));
+          const areaLabels = currentLabels.filter(label => label.startsWith('area:'));
+
+          // If 3+ types or areas, add comprehensive label and suggest minor release
+          if (typeLabels.length >= 3 || areaLabels.length >= 3) {
+            // Add comprehensive label
+            if (!currentLabels.includes('type: comprehensive')) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                labels: ['type: comprehensive']
+              });
+            }
+
+            // Auto-suggest minor release for comprehensive changes
+            const releaseLabels = currentLabels.filter(label => label.startsWith('release:'));
+            if (releaseLabels.length === 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                labels: ['release: minor']
+              });
+            }
+          }
 
     - name: Validate PR labels
       id: validate-labels
       uses: actions/github-script@v7
       with:
         script: |
-          const pr = context.payload.pull_request;
-          const labels = pr.labels.map(label => label.name);
-          
+          // Re-fetch labels after auto-labeling
+          const { data: updatedPr } = await github.rest.pulls.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: context.payload.pull_request.number
+          });
+          const labels = updatedPr.labels.map(label => label.name);
+
           const releaseLabels = labels.filter(label => label.startsWith('release:'));
           const typeLabels = labels.filter(label => label.startsWith('type:'));
           const hasBreakingChange = labels.includes('breaking change');
-          
+
           let missingLabels = [];
           let warnings = [];
-          
+
           if (releaseLabels.length === 0) {
             missingLabels.push('**Release Impact**: Must have one of: `release: major`, `release: minor`, `release: patch`, or `release: skip`');
           } else if (releaseLabels.length > 1) {
             warnings.push('**Multiple release labels**: ' + releaseLabels.join(', '));
           }
-          
+
           if (typeLabels.length === 0) {
             missingLabels.push('**Change Type**: Must have one type label (e.g., `type: feature`, `type: bug`)');
           }
-          
+
           if (hasBreakingChange && !releaseLabels.includes('release: major')) {
             warnings.push('**Breaking change** detected but not labeled as `release: major`');
           }
-          
+
           core.setOutput('missing_labels', missingLabels.length > 0);
           core.setOutput('validation_message', JSON.stringify({
             missingLabels,
@@ -67,7 +115,7 @@ jobs:
             releaseLabels: releaseLabels.join(', ') || 'None',
             typeLabels: typeLabels.join(', ') || 'None'
           }));
-          
+
           return missingLabels.length === 0;
 
     - name: Validate conventional commits
@@ -80,19 +128,19 @@ jobs:
             repo: context.repo.repo,
             pull_number: context.payload.pull_request.number
           });
-          
+
           const conventionalPattern = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .{1,50}/;
           const breakingPattern = /BREAKING CHANGE:|!:/;
-          
+
           let invalidCommits = [];
           let hasFeature = false;
           let hasFix = false;
           let hasBreaking = false;
-          
+
           for (const commit of commits) {
             const message = commit.commit.message;
             const firstLine = message.split('\n')[0];
-            
+
             if (conventionalPattern.test(firstLine)) {
               if (firstLine.startsWith('feat')) hasFeature = true;
               if (firstLine.startsWith('fix')) hasFix = true;
@@ -104,7 +152,7 @@ jobs:
               });
             }
           }
-          
+
           core.setOutput('has_invalid_commits', invalidCommits.length > 0);
           core.setOutput('commit_validation', JSON.stringify({
             invalidCommits,
@@ -113,14 +161,8 @@ jobs:
             hasBreaking,
             totalCommits: commits.length
           }));
-          
-          return invalidCommits.length === 0;
 
-    - name: Auto-label PR based on files
-      uses: actions/labeler@v5
-      with:
-        repo-token: "${{ secrets.GITHUB_TOKEN }}"
-        configuration-path: .github/labeler.yml
+          return invalidCommits.length === 0;
 
     - name: Label PR size
       uses: codelytv/pr-size-labeler@v1
@@ -142,16 +184,16 @@ jobs:
         script: |
           const labelValidation = JSON.parse('${{ steps.validate-labels.outputs.validation_message }}');
           const commitValidation = JSON.parse('${{ steps.validate-commits.outputs.commit_validation }}');
-          
+
           const hasLabelIssues = labelValidation.missingLabels.length > 0;
           const hasLabelWarnings = labelValidation.warnings.length > 0;
           const hasCommitIssues = commitValidation.invalidCommits.length > 0;
           const hasAnyIssues = hasLabelIssues || hasCommitIssues;
-          
+
           // Determine overall status
           let overallStatus = '✅ **All validations passed!**';
           let statusColor = '🟢';
-          
+
           if (hasAnyIssues) {
             overallStatus = '❌ **Validation failed - issues need to be fixed**';
             statusColor = '🔴';
@@ -159,10 +201,10 @@ jobs:
             overallStatus = '⚠️ **Validation passed with warnings**';
             statusColor = '🟡';
           }
-          
+
           let commentBody = `## 🔍 PR Validation Results\n\n`;
           commentBody += `${statusColor} ${overallStatus}\n\n`;
-          
+
           // Show validation details
           commentBody += `### 📊 Validation Summary\n\n`;
           commentBody += `| Check | Status | Details |\n`;
@@ -170,19 +212,19 @@ jobs:
           commentBody += `| Release Labels | ${hasLabelIssues ? '❌ Missing' : '✅ Valid'} | ${labelValidation.releaseLabels || 'None'} |\n`;
           commentBody += `| Type Labels | ${labelValidation.typeLabels === 'None' ? '❌ Missing' : '✅ Valid'} | ${labelValidation.typeLabels} |\n`;
           commentBody += `| Commit Format | ${hasCommitIssues ? '❌ Invalid' : '✅ Valid'} | ${commitValidation.totalCommits - commitValidation.invalidCommits.length}/${commitValidation.totalCommits} commits valid |\n\n`;
-          
+
           // Label issues (blocking)
           if (hasLabelIssues) {
             commentBody += `### ❌ Missing Required Labels\n\n`;
             commentBody += `${labelValidation.missingLabels.join('\n')}\n\n`;
           }
-          
+
           // Label warnings (non-blocking)
           if (hasLabelWarnings) {
             commentBody += `### ⚠️ Label Warnings\n\n`;
             commentBody += `${labelValidation.warnings.join('\n')}\n\n`;
           }
-          
+
           // Commit issues (blocking)
           if (hasCommitIssues) {
             commentBody += `### ❌ Invalid Commit Messages\n\n`;
@@ -192,7 +234,7 @@ jobs:
             }
             commentBody += '\n';
           }
-          
+
           // Success section for valid PRs
           if (!hasAnyIssues && !hasLabelWarnings) {
             commentBody += `### 🎉 Everything looks great!\n\n`;
@@ -200,43 +242,43 @@ jobs:
             commentBody += `- ✅ All commit messages follow conventional format\n`;
             commentBody += `- ✅ Ready for review and merge\n\n`;
           }
-          
+
           // Always show quick reference
           commentBody += `<details>\n<summary>📚 Quick Reference Guide</summary>\n\n`;
           commentBody += `**Required Labels:**\n`;
           commentBody += `- **Release Impact**: \`release: major\` (breaking) | \`release: minor\` (features) | \`release: patch\` (fixes) | \`release: skip\` (no release)\n`;
           commentBody += `- **Change Type**: \`type: feature\` | \`type: bug\` | \`type: documentation\` | \`type: refactor\` | \`type: test\` | \`type: chore\`\n\n`;
-          
+
           commentBody += `**Conventional Commit Format:**\n`;
           commentBody += `\`\`\`\n<type>(<scope>): <description>\n\`\`\`\n\n`;
-          
+
           commentBody += `**Examples:**\n`;
           commentBody += `- \`feat(bridge): add environment variable expansion\`\n`;
           commentBody += `- \`fix(server): resolve connection timeout\`\n`;
           commentBody += `- \`docs: update installation guide\`\n`;
           commentBody += `- \`chore: update dependencies\`\n\n`;
-          
+
           commentBody += `**Quick Fixes:**\n`;
           commentBody += `- **Missing labels**: Maintainers can add them, or request specific ones in comments\n`;
           commentBody += `- **Invalid commits**: Use \`git rebase -i\` to edit commit messages\n`;
           commentBody += `- **Need help**: Comment on this PR for assistance\n`;
           commentBody += `</details>\n\n`;
-          
+
           commentBody += `---\n`;
           commentBody += `*Last updated: ${new Date().toISOString()} • [Workflow run](${context.payload.repository.html_url}/actions/runs/${context.runId})*`;
-          
+
           // Find existing validation comment
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: context.issue.number
           });
-          
-          const existingComment = comments.find(comment => 
-            comment.user.login === 'github-actions[bot]' && 
+
+          const existingComment = comments.find(comment =>
+            comment.user.login === 'github-actions[bot]' &&
             comment.body.includes('🔍 PR Validation Results')
           );
-          
+
           if (existingComment) {
             // Update existing comment
             await github.rest.issues.updateComment({
@@ -264,7 +306,7 @@ jobs:
           const missingLabels = '${{ steps.validate-labels.outputs.missing_labels }}' === 'true';
           const invalidCommits = '${{ steps.validate-commits.outputs.has_invalid_commits }}' === 'true';
           const isValid = !missingLabels && !invalidCommits;
-          
+
           await github.rest.repos.createCommitStatus({
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -279,7 +321,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.10', '3.11', '3.12', '3.13']
+        python-version: ['3.11', '3.12', '3.13']
     steps:
     - uses: actions/checkout@v4
 
@@ -298,7 +340,7 @@ jobs:
         node-version: '18'
 
     - name: Install dependencies
-      run: uv sync --all-extras --dev
+      run: uv sync --dev
 
     - name: Run type checking
       run: uv run mypy src/
@@ -341,7 +383,7 @@ jobs:
       run: uv python install 3.12
 
     - name: Install build dependencies
-      run: uv tool install hatch
+      run: uv tool install --force hatch
 
     - name: Test package build
       run: |
@@ -351,7 +393,9 @@ jobs:
 
     - name: Test wheel installation
       run: |
-        uv pip install --system --find-links dist/ mcp-foxxy-bridge
+        uv venv test-env
+        source test-env/bin/activate
+        uv pip install --find-links dist/ mcp-foxxy-bridge
         mcp-foxxy-bridge --version
 
   test-docker:
@@ -408,7 +452,7 @@ jobs:
       run: uv python install 3.12
 
     - name: Install build dependencies
-      run: uv tool install hatch
+      run: uv tool install --force hatch
 
     - name: Run semantic-release (dry-run)
       if: github.event.inputs.dry_run == 'true'

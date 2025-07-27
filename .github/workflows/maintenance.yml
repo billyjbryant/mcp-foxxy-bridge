@@ -56,7 +56,7 @@ jobs:
         CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
         echo "Changed files:"
         echo "$CHANGED_FILES"
-        
+
         # Check for specific file changes
         if echo "$CHANGED_FILES" | grep -q "^\.github/labels\.yml$"; then
           echo "labels_changed=true" >> $GITHUB_OUTPUT
@@ -64,28 +64,28 @@ jobs:
         else
           echo "labels_changed=false" >> $GITHUB_OUTPUT
         fi
-        
+
         if echo "$CHANGED_FILES" | grep -q "^\.github/labeler\.yml$"; then
           echo "labeler_changed=true" >> $GITHUB_OUTPUT
           echo "🤖 Auto-labeler configuration changed"
         else
           echo "labeler_changed=false" >> $GITHUB_OUTPUT
         fi
-        
+
         if echo "$CHANGED_FILES" | grep -q "^\.github/ISSUE_TEMPLATE/\|^\.github/pull_request_template\.md$"; then
           echo "templates_changed=true" >> $GITHUB_OUTPUT
           echo "📝 Issue/PR templates changed"
         else
           echo "templates_changed=false" >> $GITHUB_OUTPUT
         fi
-        
+
         if echo "$CHANGED_FILES" | grep -q "^\.releaserc\.json$"; then
           echo "release_config_changed=true" >> $GITHUB_OUTPUT
           echo "🚀 Release configuration changed"
         else
           echo "release_config_changed=false" >> $GITHUB_OUTPUT
         fi
-        
+
         if echo "$CHANGED_FILES" | grep -q "^codecov\.yml$"; then
           echo "codecov_changed=true" >> $GITHUB_OUTPUT
           echo "📊 Codecov configuration changed"
@@ -190,9 +190,9 @@ jobs:
           if ('${{ needs.detect-changes.outputs.labeler_changed }}' === 'true') {
             changes.push('🤖 Auto-labeler configuration (.github/labeler.yml)');
           }
-          
+
           const body = `✅ **Configuration validation completed**\n\nThe following configurations were validated:\n\n${changes.map(c => `- ${c}`).join('\n')}\n\nAll configurations are valid and ready for use.`;
-          
+
           await github.rest.repos.createCommitComment({
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -203,7 +203,7 @@ jobs:
   update-dependencies:
     runs-on: ubuntu-latest
     if: |
-      github.event_name == 'schedule' || 
+      github.event_name == 'schedule' ||
       github.event.inputs.update_dependencies == 'true' ||
       github.event.inputs.force_all == 'true'
     permissions:
@@ -253,18 +253,18 @@ jobs:
         title: 'chore(deps): update dependencies'
         body: |
           ## 📦 Dependency Updates
-          
+
           This PR updates the UV lock file with the latest compatible versions of all dependencies.
-          
+
           ### Changes
           - Updated `uv.lock` with latest package versions
           - All tests pass with updated dependencies
-          
+
           ### Testing
           - ✅ Type checking passed
-          - ✅ Linting passed  
+          - ✅ Linting passed
           - ✅ Tests passed
-          
+
           This is an automated PR created by the maintenance workflow.
         branch: chore/update-dependencies
         labels: |
@@ -281,10 +281,10 @@ jobs:
       run: |
         # Wait a moment for the PR to be created
         sleep 10
-        
+
         # Get the PR number
         PR_NUMBER=$(gh pr list --author "github-actions[bot]" --head chore/update-dependencies --json number --jq '.[0].number')
-        
+
         if [ "$PR_NUMBER" != "null" ] && [ -n "$PR_NUMBER" ]; then
           echo "Found PR #$PR_NUMBER, enabling auto-merge"
           gh pr merge $PR_NUMBER --auto --squash
@@ -306,23 +306,23 @@ jobs:
         script: |
           const owner = context.repo.owner;
           const repo = context.repo.repo;
-          
+
           // Get all artifacts
           const artifacts = await github.rest.actions.listArtifactsForRepo({
             owner,
             repo,
             per_page: 100
           });
-          
+
           // Delete artifacts older than 30 days
           const thirtyDaysAgo = new Date();
           thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-          
+
           let deletedCount = 0;
-          
+
           for (const artifact of artifacts.data.artifacts) {
             const createdAt = new Date(artifact.created_at);
-            
+
             if (createdAt < thirtyDaysAgo) {
               try {
                 await github.rest.actions.deleteArtifact({
@@ -335,12 +335,12 @@ jobs:
               } catch (error) {
                 console.log(`Failed to delete artifact ${artifact.id}: ${error.message}`);
               }
-              
+
               // Rate limiting: wait between deletions
               await new Promise(resolve => setTimeout(resolve, 100));
             }
           }
-          
+
           console.log(`Deleted ${deletedCount} old artifacts`);
 
   security-audit:
@@ -369,7 +369,7 @@ jobs:
       run: |
         # Check for known vulnerabilities in dependencies
         uv pip list --format=json > requirements.json
-        
+
         # Use pip-audit if available, or just report current packages
         if command -v pip-audit &> /dev/null; then
           pip-audit --format=json --output=audit-results.json
@@ -386,20 +386,20 @@ jobs:
         script: |
           const title = `🔒 Security Audit Alert - ${new Date().toISOString().split('T')[0]}`;
           const body = `## Security Audit Results
-          
+
           The automated security audit has detected potential vulnerabilities in our dependencies.
-          
+
           **Action Required:**
           1. Review the failing workflow logs
           2. Update vulnerable packages
           3. Test the application thoroughly
           4. Create a security release if needed
-          
+
           **Workflow:** [${context.workflow}](${context.payload.repository.html_url}/actions/runs/${context.runId})
           **Date:** ${new Date().toISOString()}
-          
+
           This issue was created automatically by the maintenance workflow.`;
-          
+
           await github.rest.issues.create({
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -421,7 +421,7 @@ jobs:
             'setup-labels': '${{ needs.setup-labels.result }}',
             'validate-config-changes': '${{ needs.validate-config-changes.result }}'
           };
-          
+
           const changes = {
             labels: '${{ needs.detect-changes.outputs.labels_changed }}',
             labeler: '${{ needs.detect-changes.outputs.labeler_changed }}',
@@ -429,34 +429,34 @@ jobs:
             release_config: '${{ needs.detect-changes.outputs.release_config_changed }}',
             codecov: '${{ needs.detect-changes.outputs.codecov_changed }}'
           };
-          
+
           const actionsPerformed = [];
           const changesDetected = [];
-          
+
           // Track what changed
           if (changes.labels === 'true') changesDetected.push('🏷️ Labels configuration');
           if (changes.labeler === 'true') changesDetected.push('🤖 Auto-labeler rules');
           if (changes.templates === 'true') changesDetected.push('📝 Issue/PR templates');
           if (changes.release_config === 'true') changesDetected.push('🚀 Release configuration');
           if (changes.codecov === 'true') changesDetected.push('📊 Codecov settings');
-          
+
           // Track what actions were performed
           if (jobs['setup-labels'] === 'success') actionsPerformed.push('✅ Updated GitHub labels');
           if (jobs['validate-config-changes'] === 'success') actionsPerformed.push('✅ Validated configurations');
-          
+
           // Only create summary if there were changes
           if (changesDetected.length > 0) {
             let body = `## 🔧 Automatic Maintenance Summary\n\n`;
             body += `**Configuration changes detected:**\n${changesDetected.map(c => `- ${c}`).join('\n')}\n\n`;
-            
+
             if (actionsPerformed.length > 0) {
               body += `**Maintenance actions completed:**\n${actionsPerformed.map(a => `- ${a}`).join('\n')}\n\n`;
             }
-            
+
             body += `**Commit:** ${context.sha.substring(0, 7)}\n`;
             body += `**Workflow:** [${context.workflow}](${context.payload.repository.html_url}/actions/runs/${context.runId})\n\n`;
             body += `*This maintenance was triggered automatically by configuration file changes.*`;
-            
+
             await github.rest.repos.createCommitComment({
               owner: context.repo.owner,
               repo: context.repo.repo,

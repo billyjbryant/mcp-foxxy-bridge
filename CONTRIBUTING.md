@@ -196,9 +196,9 @@ def test_config_loading():
    **Commit Message Format:**
    ```
    <type>(<scope>): <description>
-   
+
    [optional body]
-   
+
    [optional footer]
    ```
 
@@ -314,14 +314,14 @@ The project uses automated versioning based on Git tags:
 1. **Prepare the release**
    - Ensure all changes are merged to `main`
    - Run tests locally to verify everything works
-   
+
 2. **Releases happen automatically via semantic-release**
    - Push conventional commits to `main` branch
    - Semantic-release analyzes commits and creates releases
    - No manual intervention needed for most releases
-   
+
 3. **Manual testing (if needed)**
-   - Go to Actions → "CI/CD Pipeline" workflow  
+   - Go to Actions → "CI/CD Pipeline" workflow
    - Use dry-run mode to preview releases
    - Use test PyPI option for testing
 

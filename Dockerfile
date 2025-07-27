@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Then, add the rest of the project source code and install it
 # Installing separately from its dependencies allows optimal layer caching
-ADD . /app
+COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 
@@ -37,8 +37,10 @@ RUN apk add --no-cache \
 RUN addgroup -g 1001 -S app && \
     adduser -S app -u 1001 -G app
 
-# Copy the virtual environment from build stage
+# Copy the virtual environment and the source code from build stage
 COPY --from=uv --chown=app:app /app/.venv /app/.venv
+COPY --from=uv --chown=app:app /app/src /app/src
+COPY --from=uv --chown=app:app /app/pyproject.toml /app/pyproject.toml
 
 # Create app directory and set ownership
 WORKDIR /app
@@ -47,6 +49,12 @@ RUN chown -R app:app /app
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
 
+# Fix broken symlinks in venv by pointing to the correct Python
+RUN rm -f /app/.venv/bin/python /app/.venv/bin/python3 /app/.venv/bin/python3.12
+RUN ln -s /usr/bin/python3 /app/.venv/bin/python
+RUN ln -s python /app/.venv/bin/python3
+RUN ln -s python /app/.venv/bin/python3.12
+
 # Install commonly used MCP servers globally
 RUN npm install -g \
     @modelcontextprotocol/server-github \
@@ -54,7 +62,7 @@ RUN npm install -g \
     @modelcontextprotocol/server-brave-search
 
 # Install uv for dynamic MCP server installation (uvx is included with uv)
-RUN pip install --no-cache-dir uv
+RUN pip install --no-cache-dir --break-system-packages uv
 
 # Ensure uv cache directory exists and is writable
 RUN mkdir -p /tmp/uv-cache && chmod 777 /tmp/uv-cache
@@ -73,6 +81,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/status || exit 1
 
-# Default command
-ENTRYPOINT ["mcp-foxxy-bridge"]
+# Default command - use the installed console script
+ENTRYPOINT ["/app/.venv/bin/mcp-foxxy-bridge"]
 CMD ["--port", "8080", "--host", "0.0.0.0"]

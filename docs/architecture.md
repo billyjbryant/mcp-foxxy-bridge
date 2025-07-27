@@ -12,16 +12,16 @@ graph LR
         C2[VS Code]
         C3[Custom Apps]
     end
-    
+
     subgraph "MCP Foxxy Bridge"
         SSE[SSE Server<br/>Port 8080]
         BS[Bridge Server<br/>Aggregator]
         SM[Server Manager<br/>Connections]
-        
+
         SSE --> BS
         BS --> SM
     end
-    
+
     subgraph "MCP Servers"
         S1[GitHub Server]
         S2[Filesystem]
@@ -29,11 +29,11 @@ graph LR
         S4[Brave Search]
         S5[Custom Servers]
     end
-    
+
     C1 --> SSE
     C2 --> SSE
     C3 --> SSE
-    
+
     SM --> S1
     SM --> S2
     SM --> S3
@@ -231,10 +231,10 @@ context managers:
 async with contextlib.AsyncExitStack() as stack:
     # Enter stdio_client context
     read_stream, write_stream = await stack.enter_async_context(stdio_client(params))
-    
-    # Enter ClientSession context  
+
+    # Enter ClientSession context
     session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
-    
+
     # Both contexts remain active until stack exits
 ```
 
@@ -330,18 +330,18 @@ interface ServerConfig {
   args: string[];
   env: Record<string, string>;
   timeout: number;
-  
+
   // Reliability
   retryAttempts: number;
   retryDelay: number;
   healthCheck: HealthCheckConfig;
-  
+
   // Routing
   toolNamespace?: string;
   resourceNamespace?: string;
   promptNamespace?: string;
   priority: number;
-  
+
   // Metadata
   tags: string[];
 }

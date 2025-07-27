@@ -73,7 +73,7 @@
             "label": "Python wheel"
           },
           {
-            "path": "dist/*.tar.gz", 
+            "path": "dist/*.tar.gz",
             "label": "Source distribution"
           }
         ]

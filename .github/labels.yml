@@ -3,7 +3,7 @@
   color: "d73a4a"
   description: "Creates a major version release (breaking changes)"
 
-- name: "release: minor"  
+- name: "release: minor"
   color: "0075ca"
   description: "Creates a minor version release (new features)"
 
@@ -56,6 +56,10 @@
   color: "f9d0c4"
   description: "Build system or external dependencies"
 
+- name: "type: comprehensive"
+  color: "8b4513"
+  description: "Comprehensive changes affecting multiple areas/types"
+
 # Priority Labels
 - name: "priority: critical"
   color: "b60205"
@@ -99,6 +103,10 @@
   description: "On hold pending decision or external factor"
 
 # Area Labels
+- name: "area: core"
+  color: "c2e0c6"
+  description: "Core application functionality"
+
 - name: "area: bridge"
   color: "c2e0c6"
   description: "Bridge core functionality"

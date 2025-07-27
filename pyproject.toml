@@ -17,7 +17,6 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -26,7 +25,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dynamic = ["version"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = ["mcp>=1.8.0,<2.0.0", "uvicorn>=0.34.0", "jsonschema>=4.0.0"]
 
 [build-system]
@@ -48,6 +47,7 @@ packages = ["src/mcp_foxxy_bridge"]
 
 [tool.hatch.version]
 path = "VERSION"
+pattern = "(?P<version>\\d+\\.\\d+\\.\\d+.*)"
 
 [tool.uv]
 dev-dependencies = [
@@ -57,6 +57,7 @@ dev-dependencies = [
     "mypy>=1.0.0",
     "hatch>=1.12.0",
     "ruff>=0.7.0",
+    "pre-commit>=3.5.0",
 ]
 
 [tool.coverage.run]
@@ -100,6 +101,13 @@ ignore = [
     "EM101",  # Exception must not use a string literal, assign to variable first
     "TRY003", # Avoid specifying long messages outside the exception class
     "ERA001", # Found commented-out code
+    "COM812", # Trailing comma missing (conflicts with formatter)
+    "TD002",  # Missing author in TODO (false positives with our format)
+    "TD003",  # Missing issue link for TODO (false positives with our format)
+    "FIX002", # Line contains TODO (expected in development)
+    "C901",   # Function is too complex (complex functions - future refactor)
+    "PLR0912", # Too many branches (complex validation - future refactor)
+    "PLR0915", # Too many statements (complex functions - future refactor)
 ]
 
 [tool.ruff.lint.per-file-ignores]

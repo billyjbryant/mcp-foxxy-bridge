@@ -32,7 +32,7 @@ and how to resolve them.
    # Install missing MCP servers
    npm install -g @modelcontextprotocol/server-github
    npm install -g @modelcontextprotocol/server-filesystem
-   
+
    # Or use npx to auto-install
    npx -y @modelcontextprotocol/server-github
    ```
@@ -42,7 +42,7 @@ and how to resolve them.
    ```bash
    # Check required environment variables
    echo $GITHUB_TOKEN
-   
+
    # Set if missing
    export GITHUB_TOKEN=your_token_here
    ```
@@ -52,7 +52,7 @@ and how to resolve them.
    ```bash
    # Check file permissions
    ls -la /path/to/directory
-   
+
    # Fix permissions if needed
    chmod 755 /path/to/directory
    ```
@@ -119,7 +119,7 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081
    ```bash
    # For local access only (default)
    mcp-foxxy-bridge --bridge-config config.json --host 127.0.0.1
-   
+
    # For network access
    mcp-foxxy-bridge --bridge-config config.json --host 0.0.0.0
    ```
@@ -129,7 +129,7 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081
    ```bash
    # Allow port through firewall (Linux)
    sudo ufw allow 8080
-   
+
    # Check firewall rules
    sudo ufw status
    ```
@@ -162,7 +162,7 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081
    ```bash
    # Check if variable exists
    printenv | grep GITHUB_TOKEN
-   
+
    # Set if missing
    export GITHUB_TOKEN=your_token_here
    ```
@@ -178,7 +178,7 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081
    ```bash
    # Use absolute path
    mcp-foxxy-bridge --bridge-config /full/path/to/config.json
-   
+
    # Or relative to current directory
    ls -la config.json
    ```
@@ -201,7 +201,7 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081
    ```bash
    # Check JSON validity
    python -m json.tool config.json
-   
+
    # Or use jq
    jq . config.json
    ```
@@ -298,7 +298,7 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081
    ```bash
    # Ensure config file exists
    ls -la ./config.json
-   
+
    # Use absolute paths in volume mounts
    docker run -v $(pwd)/config.json:/app/config/config.json:ro ...
    ```

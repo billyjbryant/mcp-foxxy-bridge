@@ -23,7 +23,6 @@ coverage.xml
 .venv.*
 
 # Documentation
-*.md
 docs/
 
 # IDE

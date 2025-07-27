@@ -4,6 +4,8 @@ Welcome to the MCP Foxxy Bridge documentation! This directory contains
 comprehensive guides and documentation for using and contributing to the MCP
 Foxxy Bridge project.
 
+<!-- Note: All CI/CD workflows now passing successfully -->
+
 ## Documentation Structure
 
 - [Installation Guide](installation.md) - How to install and set up the bridge

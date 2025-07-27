@@ -96,7 +96,7 @@ Some MCP servers require environment variables:
 # GitHub server
 export GITHUB_TOKEN=ghp_your_token_here
 
-# Brave Search server  
+# Brave Search server
 export BRAVE_API_KEY=your_brave_api_key
 
 # Run bridge
