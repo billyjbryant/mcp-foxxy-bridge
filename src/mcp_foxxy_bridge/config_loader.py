@@ -94,20 +94,20 @@ class BridgeServerConfig:
     name: str
     enabled: bool = True
     command: str = ""
-    args: list[str] = None
-    env: dict[str, str] = None
+    args: Optional[list[str]] = None
+    env: Optional[dict[str, str]] = None
     timeout: int = 60
     transport_type: str = "stdio"
     retry_attempts: int = 3
     retry_delay: int = 1000  # milliseconds
-    health_check: HealthCheckConfig = None
+    health_check: Optional[HealthCheckConfig] = None
     tool_namespace: Optional[str] = None
     resource_namespace: Optional[str] = None
     prompt_namespace: Optional[str] = None
     priority: int = 100
-    tags: list[str] = None
+    tags: Optional[list[str]] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.args is None:
             self.args = []
         if self.env is None:
@@ -139,10 +139,10 @@ class BridgeConfig:
     """Configuration for bridge-specific behavior."""
     conflict_resolution: str = "namespace"  # priority, namespace, first, error
     default_namespace: bool = True
-    aggregation: AggregationConfig = None
-    failover: FailoverConfig = None
+    aggregation: Optional[AggregationConfig] = None
+    failover: Optional[FailoverConfig] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.aggregation is None:
             self.aggregation = AggregationConfig()
         if self.failover is None:
@@ -153,9 +153,9 @@ class BridgeConfig:
 class BridgeConfiguration:
     """Complete bridge configuration including all servers and bridge settings."""
     servers: dict[str, BridgeServerConfig]
-    bridge: BridgeConfig = None
+    bridge: Optional[BridgeConfig] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.bridge is None:
             self.bridge = BridgeConfig()
 
