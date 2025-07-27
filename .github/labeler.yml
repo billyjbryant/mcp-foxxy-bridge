@@ -1,25 +1,13 @@
-# Auto-labeling configuration based on file changes
+# Auto-labeling configuration - simplified to reduce complexity
 
-# Area labels
-'area: bridge':
+# Core area labels (consolidated)
+'area: core':
   - changed-files:
-    - any-glob-to-any-file: 'src/mcp_foxxy_bridge/bridge_server.py'
-  - changed-files:
-    - any-glob-to-any-file: 'src/mcp_foxxy_bridge/proxy_server.py'
-  - changed-files:
-    - any-glob-to-any-file: 'src/mcp_foxxy_bridge/server_manager.py'
-
-'area: server':
-  - changed-files:
-    - any-glob-to-any-file: 'src/mcp_foxxy_bridge/mcp_server.py'
-  - changed-files:
-    - any-glob-to-any-file: 'src/mcp_foxxy_bridge/sse_client.py'
-  - changed-files:
-    - any-glob-to-any-file: 'src/mcp_foxxy_bridge/streamablehttp_client.py'
+    - any-glob-to-any-file: ['src/mcp_foxxy_bridge/**/*.py']
 
 'area: config':
   - changed-files:
-    - any-glob-to-any-file: ['src/mcp_foxxy_bridge/config_loader.py', 'docs/examples/**/*', 'config.json', '**/*config*.json']
+    - any-glob-to-any-file: ['src/mcp_foxxy_bridge/config_loader.py', '**/*config*.json']
 
 'area: docker':
   - changed-files:
@@ -27,7 +15,7 @@
 
 'area: docs':
   - changed-files:
-    - any-glob-to-any-file: ['docs/**/*', 'README.md', 'CONTRIBUTING.md', 'CHANGELOG.md']
+    - any-glob-to-any-file: ['docs/**/*', '**/*.md']
 
 'area: tests':
   - changed-files:
@@ -35,30 +23,26 @@
 
 'area: ci/cd':
   - changed-files:
-    - any-glob-to-any-file: ['.github/workflows/**/*', '.github/labels.yml', '.github/labeler.yml', '.releaserc.json', 'codecov.yml']
+    - any-glob-to-any-file: ['.github/**/*', '.releaserc.json', 'codecov.yml']
 
-# Type labels based on file patterns
+# Type labels (simplified)
 'type: documentation':
   - changed-files:
-    - any-glob-to-any-file: ['docs/**/*', 'README.md', 'CONTRIBUTING.md', '**/*.md']
+    - any-glob-to-any-file: ['docs/**/*', '**/*.md']
 
 'type: test':
   - changed-files:
     - any-glob-to-any-file: ['tests/**/*', 'test_*.py', '*_test.py']
 
-'type: ci':
-  - changed-files:
-    - any-glob-to-any-file: ['.github/workflows/**/*', '.github/labels.yml', '.github/labeler.yml']
-
 'type: build':
   - changed-files:
-    - any-glob-to-any-file: ['pyproject.toml', 'Dockerfile', 'docker-compose.yml', '.releaserc.json', 'uv.lock', 'poetry.lock']
+    - any-glob-to-any-file: ['pyproject.toml', 'Dockerfile', '*.lock']
 
 'type: chore':
   - changed-files:
-    - any-glob-to-any-file: ['.gitignore', '.gitmessage', 'VERSION', '.env*']
+    - any-glob-to-any-file: ['.gitignore', 'VERSION', '.env*']
 
 # Dependencies
 'dependencies':
   - changed-files:
-    - any-glob-to-any-file: ['pyproject.toml', 'uv.lock', 'poetry.lock', 'package.json', 'package-lock.json']
+    - any-glob-to-any-file: ['pyproject.toml', '*.lock', 'package.json']
