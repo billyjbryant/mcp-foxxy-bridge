@@ -122,19 +122,25 @@ def _configure_resources_capability(
 
     app.request_handlers[types.ReadResourceRequest] = _read_resource
 
-    async def _subscribe_resource(_: types.SubscribeRequest) -> types.ServerResult:
-        # For now, just acknowledge subscription
-        # TODO(billy): Implement proper resource subscription forwarding
-        # Related: https://github.com/billyjbryant/mcp-foxxy-bridge/issues/1
-        logger.warning("Resource subscription not yet implemented for bridge")
-        return types.ServerResult(types.EmptyResult())
+    async def _subscribe_resource(req: types.SubscribeRequest) -> types.ServerResult:
+        try:
+            await server_manager.subscribe_resource(str(req.params.uri))
+            logger.debug("Successfully subscribed to resource: %s", req.params.uri)
+            return types.ServerResult(types.EmptyResult())
+        except Exception:
+            logger.exception("Error subscribing to resource: %s", req.params.uri)
+            return types.ServerResult(types.EmptyResult())
 
     app.request_handlers[types.SubscribeRequest] = _subscribe_resource
 
-    async def _unsubscribe_resource(_: types.UnsubscribeRequest) -> types.ServerResult:
-        # For now, just acknowledge unsubscription
-        logger.warning("Resource unsubscription not yet implemented for bridge")
-        return types.ServerResult(types.EmptyResult())
+    async def _unsubscribe_resource(req: types.UnsubscribeRequest) -> types.ServerResult:
+        try:
+            await server_manager.unsubscribe_resource(str(req.params.uri))
+            logger.debug("Successfully unsubscribed from resource: %s", req.params.uri)
+            return types.ServerResult(types.EmptyResult())
+        except Exception:
+            logger.exception("Error unsubscribing from resource: %s", req.params.uri)
+            return types.ServerResult(types.EmptyResult())
 
     app.request_handlers[types.UnsubscribeRequest] = _unsubscribe_resource
 
@@ -180,7 +186,10 @@ def _configure_tools_capability(
     app.request_handlers[types.CallToolRequest] = _call_tool
 
 
-def _configure_logging_capability(app: server.Server[object]) -> None:
+def _configure_logging_capability(
+    app: server.Server[object],
+    server_manager: ServerManager,
+) -> None:
     """Configure logging capability for the bridge server."""
 
     async def _set_logging_level(req: types.SetLevelRequest) -> types.ServerResult:
@@ -198,8 +207,9 @@ def _configure_logging_capability(app: server.Server[object]) -> None:
             elif level_str == "error":
                 bridge_logger.setLevel(logging.ERROR)
 
-            # TODO(billy): Forward logging level to managed servers
-            # Related: https://github.com/billyjbryant/mcp-foxxy-bridge/issues/2
+            # Forward logging level to all managed servers
+            await server_manager.set_logging_level(level)
+
             logger.info(
                 "Set logging level to %s",
                 str(level),
@@ -212,24 +222,41 @@ def _configure_logging_capability(app: server.Server[object]) -> None:
     app.request_handlers[types.SetLevelRequest] = _set_logging_level
 
 
-def _configure_notifications_and_completion(app: server.Server[object]) -> None:
+def _configure_notifications_and_completion(
+    app: server.Server[object],
+    server_manager: ServerManager,
+) -> None:
     """Configure progress notifications and completion for the bridge server."""
 
     # Add progress notification handler
     async def _send_progress_notification(req: types.ProgressNotification) -> None:
         logger.debug("Progress notification: %s/%s", req.params.progress, req.params.total)
-        # TODO(billy): Forward progress notifications to managed servers if needed
-        # Related: https://github.com/billyjbryant/mcp-foxxy-bridge/issues/3
+        # Bridge typically receives progress notifications from managed servers
+        # and relays them to clients transparently. The MCP framework handles
+        # the actual forwarding to connected clients automatically.
+
+        # Log the progress for debugging purposes
+        if req.params.total and req.params.total > 0:
+            percentage = (req.params.progress / req.params.total) * 100
+            logger.info(
+                "Progress update: %.1f%% (%s/%s)", percentage, req.params.progress, req.params.total
+            )
+        else:
+            logger.info("Progress update: %s", req.params.progress)
 
     app.notification_handlers[types.ProgressNotification] = _send_progress_notification
 
     # Add completion handler
-    async def _complete(_: types.CompleteRequest) -> types.ServerResult:
+    async def _complete(req: types.CompleteRequest) -> types.ServerResult:
         try:
-            # For now, return empty completions
-            # TODO(billy): Implement completion aggregation from managed servers
-            # Related: https://github.com/billyjbryant/mcp-foxxy-bridge/issues/4
-            result = types.CompleteResult(completion=types.Completion(values=[]))
+            # Aggregate completions from all managed servers
+            completions = await server_manager.get_completions(
+                req.params.ref,
+                req.params.argument,
+            )
+
+            result = types.CompleteResult(completion=types.Completion(values=completions))
+            logger.debug("Returning %d aggregated completions", len(completions))
             return types.ServerResult(result)
         except Exception:
             logger.exception("Error handling completion")
@@ -284,10 +311,10 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
 
     # Add logging capability
     logger.debug("Configuring logging...")
-    _configure_logging_capability(app)
+    _configure_logging_capability(app, server_manager)
 
     # Add notifications and completion capabilities
-    _configure_notifications_and_completion(app)
+    _configure_notifications_and_completion(app, server_manager)
 
     # Completion handler is configured in _configure_notifications_and_completion
 

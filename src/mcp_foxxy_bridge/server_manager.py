@@ -33,6 +33,7 @@ from typing import Any
 from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from pydantic import AnyUrl
 
 from .config_loader import BridgeConfig, BridgeConfiguration, BridgeServerConfig
 
@@ -608,3 +609,188 @@ class ServerManager:
                 },
             }
         return status
+
+    async def subscribe_resource(self, resource_uri: str) -> None:
+        """Subscribe to a resource across all relevant servers."""
+        logger.debug("Subscribing to resource: %s", resource_uri)
+
+        # Parse namespace from URI to find target server
+        if "://" in resource_uri:
+            namespace, actual_uri = resource_uri.split("://", 1)
+            # Find server that provides this namespaced resource
+            for server in self.get_active_servers():
+                server_namespace = server.get_effective_namespace(
+                    "resources", self.bridge_config.bridge
+                )
+                if server_namespace == namespace and any(
+                    resource.uri == actual_uri for resource in server.resources
+                ):
+                    if server.session:
+                        try:
+                            await server.session.subscribe_resource(AnyUrl(actual_uri))
+                            logger.debug(
+                                "Subscribed to resource '%s' on server '%s'",
+                                actual_uri,
+                                server.name,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Failed to subscribe to resource '%s' on server '%s'",
+                                actual_uri,
+                                server.name,
+                            )
+                    break
+        else:
+            # No namespace, subscribe on all servers that have this resource
+            actual_uri = resource_uri
+            subscribed_count = 0
+            for server in self.get_active_servers():
+                if (
+                    any(resource.uri == actual_uri for resource in server.resources)
+                    and server.session
+                ):
+                    try:
+                        await server.session.subscribe_resource(AnyUrl(actual_uri))
+                        logger.debug(
+                            "Subscribed to resource '%s' on server '%s'",
+                            actual_uri,
+                            server.name,
+                        )
+                        subscribed_count += 1
+                    except Exception:
+                        logger.exception(
+                            "Failed to subscribe to resource '%s' on server '%s'",
+                            actual_uri,
+                            server.name,
+                        )
+
+            if subscribed_count == 0:
+                logger.warning("No servers found with resource: %s", resource_uri)
+
+    async def unsubscribe_resource(self, resource_uri: str) -> None:
+        """Unsubscribe from a resource across all relevant servers."""
+        logger.debug("Unsubscribing from resource: %s", resource_uri)
+
+        # Parse namespace from URI to find target server
+        if "://" in resource_uri:
+            namespace, actual_uri = resource_uri.split("://", 1)
+            # Find server that provides this namespaced resource
+            for server in self.get_active_servers():
+                server_namespace = server.get_effective_namespace(
+                    "resources", self.bridge_config.bridge
+                )
+                if server_namespace == namespace and any(
+                    resource.uri == actual_uri for resource in server.resources
+                ):
+                    if server.session:
+                        try:
+                            await server.session.unsubscribe_resource(AnyUrl(actual_uri))
+                            logger.debug(
+                                "Unsubscribed from resource '%s' on server '%s'",
+                                actual_uri,
+                                server.name,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Failed to unsubscribe from resource '%s' on server '%s'",
+                                actual_uri,
+                                server.name,
+                            )
+                    break
+        else:
+            # No namespace, unsubscribe from all servers that have this resource
+            actual_uri = resource_uri
+            unsubscribed_count = 0
+            for server in self.get_active_servers():
+                if (
+                    any(resource.uri == actual_uri for resource in server.resources)
+                    and server.session
+                ):
+                    try:
+                        await server.session.unsubscribe_resource(AnyUrl(actual_uri))
+                        logger.debug(
+                            "Unsubscribed from resource '%s' on server '%s'",
+                            actual_uri,
+                            server.name,
+                        )
+                        unsubscribed_count += 1
+                    except Exception:
+                        logger.exception(
+                            "Failed to unsubscribe from resource '%s' on server '%s'",
+                            actual_uri,
+                            server.name,
+                        )
+
+            if unsubscribed_count == 0:
+                logger.warning("No servers found with resource: %s", resource_uri)
+
+    async def set_logging_level(self, level: types.LoggingLevel) -> None:
+        """Set logging level on all active managed servers."""
+        logger.debug("Setting logging level to %s on all managed servers", level)
+
+        forwarded_count = 0
+        for server in self.get_active_servers():
+            if server.session:
+                try:
+                    await server.session.set_logging_level(level)
+                    logger.debug("Set logging level to %s on server '%s'", level, server.name)
+                    forwarded_count += 1
+                except Exception:
+                    logger.exception(
+                        "Failed to set logging level to %s on server '%s'",
+                        level,
+                        server.name,
+                    )
+
+        logger.info("Forwarded logging level %s to %d servers", level, forwarded_count)
+
+    async def get_completions(
+        self,
+        ref: types.ResourceReference | types.PromptReference,
+        argument: types.CompletionArgument,
+    ) -> list[str]:
+        """Get completions from all active managed servers and aggregate them."""
+        logger.debug("Getting completions for ref: %s", ref)
+
+        all_completions = []
+
+        for server in self.get_active_servers():
+            if server.session:
+                try:
+                    # Convert CompletionArgument to dict[str, str] format for session.complete
+                    argument_dict = {}
+                    if hasattr(argument, "name") and hasattr(argument, "value"):
+                        argument_dict[argument.name] = argument.value
+
+                    # Call the server's completion endpoint
+                    result = await server.session.complete(ref, argument_dict)
+                    if result.completion and result.completion.values:
+                        server_completions = result.completion.values
+                        logger.debug(
+                            "Got %d completions from server '%s'",
+                            len(server_completions),
+                            server.name,
+                        )
+                        all_completions.extend(server_completions)
+
+                except Exception:
+                    logger.exception(
+                        "Failed to get completions from server '%s'",
+                        server.name,
+                    )
+
+        # Remove duplicates while preserving order
+        unique_completions = []
+        seen = set()
+        for completion in all_completions:
+            if completion not in seen:
+                seen.add(completion)
+                unique_completions.append(completion)
+
+        logger.debug(
+            "Aggregated %d unique completions from %d servers",
+            len(unique_completions),
+            len(self.get_active_servers()),
+        )
+
+        return unique_completions

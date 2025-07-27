@@ -1,41 +1,176 @@
-![act-logo](https://raw.githubusercontent.com/wiki/nektos/act/img/logo-150.png)
+# MCP Foxxy Bridge
 
-# Overview [![push](https://github.com/nektos/act/workflows/push/badge.svg?branch=master&event=push)](https://github.com/nektos/act/actions) [![Go Report Card](https://goreportcard.com/badge/github.com/nektos/act)](https://goreportcard.com/report/github.com/nektos/act) [![awesome-runners](https://img.shields.io/badge/listed%20on-awesome--runners-blue.svg)](https://github.com/jonico/awesome-runners)
+[![CI/CD Pipeline](https://github.com/billyjbryant/mcp-foxxy-bridge/workflows/CI/CD%20Pipeline/badge.svg)](https://github.com/billyjbryant/mcp-foxxy-bridge/actions)
+[![Release](https://github.com/billyjbryant/mcp-foxxy-bridge/workflows/CI/CD%20Pipeline/badge.svg?branch=main&event=release)](https://github.com/billyjbryant/mcp-foxxy-bridge/releases)
+[![PyPI version](https://badge.fury.io/py/mcp-foxxy-bridge.svg)](https://badge.fury.io/py/mcp-foxxy-bridge)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-> "Think globally, `act` locally"
+A **MCP Forward Proxy Bridge** designed to be a one-to-many bridge that allows you to use a single MCP server to communicate with many MCP servers transparently.
 
-Run your [GitHub Actions](https://developer.github.com/actions/) locally! Why would you want to do this? Two reasons:
+## Overview
 
-- **Fast Feedback** - Rather than having to commit/push every time you want to test out the changes you are making to your `.github/workflows/` files (or for any changes to embedded GitHub actions), you can use `act` to run the actions locally. The [environment variables](https://help.github.com/en/actions/configuring-and-managing-workflows/using-environment-variables#default-environment-variables) and [filesystem](https://help.github.com/en/actions/reference/virtual-environments-for-github-hosted-runners#filesystems-on-github-hosted-runners) are all configured to match what GitHub provides.
-- **Local Task Runner** - I love [make](<https://en.wikipedia.org/wiki/Make_(software)>). However, I also hate repeating myself. With `act`, you can use the GitHub Actions defined in your `.github/workflows/` to replace your `Makefile`!
+The MCP Foxxy Bridge solves the problem of having to configure multiple MCP servers across different AI tools by providing a centralized proxy that:
 
-> [!TIP]
-> **Now Manage and Run Act Directly From VS Code!**<br/>
-> Check out the [GitHub Local Actions](https://sanjulaganepola.github.io/github-local-actions-docs/) Visual Studio Code extension which allows you to leverage the power of `act` to run and test workflows locally without leaving your editor.
+- **Aggregates multiple MCP servers** into a single interface
+- **Exposes all tools, resources, and prompts** from configured MCP servers
+- **Routes requests transparently** to the appropriate underlying MCP server
+- **Allows you to configure your MCPs in one place** for use across all AI tools
 
-# How Does It Work?
+## Quick Start
 
-When you run `act` it reads in your GitHub Actions from `.github/workflows/` and determines the set of actions that need to be run. It uses the Docker API to either pull or build the necessary images, as defined in your workflow files and finally determines the execution path based on the dependencies that were defined. Once it has the execution path, it then uses the Docker API to run containers for each action based on the images prepared earlier. The [environment variables](https://help.github.com/en/actions/configuring-and-managing-workflows/using-environment-variables#default-environment-variables) and [filesystem](https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners#file-systems) are all configured to match what GitHub provides.
+### Installation
 
-Let's see it in action with a [sample repo](https://github.com/cplee/github-actions-demo)!
+**Recommended: Install via uv**
+```bash
+uv tool install mcp-foxxy-bridge
+```
 
-![Demo](https://raw.githubusercontent.com/wiki/nektos/act/quickstart/act-quickstart-2.gif)
+**Alternative: Install via pipx**
+```bash
+pipx install mcp-foxxy-bridge
+```
 
-# Act User Guide
+**Install latest from git**
+```bash
+uv tool install git+https://github.com/billyjbryant/mcp-foxxy-bridge
+```
 
-Please look at the [act user guide](https://nektosact.com) for more documentation.
+### Basic Usage
 
-# Support
+**Start bridge with multiple servers:**
+```bash
+mcp-foxxy-bridge --port 8080 \
+  --named-server fetch 'uvx mcp-server-fetch' \
+  --named-server github 'npx -y @modelcontextprotocol/server-github' \
+  --named-server filesystem 'npx -y @modelcontextprotocol/server-filesystem'
+```
 
-Need help? Ask in [discussions](https://github.com/nektos/act/discussions)!
+**Start bridge with configuration file:**
+```bash
+mcp-foxxy-bridge --port 8080 --named-server-config ./servers.json
+```
 
-# Contributing
+**Connect AI tools to the bridge:**
+Your bridge will be available at `http://localhost:8080/sse`
 
-Want to contribute to act? Awesome! Check out the [contributing guidelines](CONTRIBUTING.md) to get involved.
+### Claude Desktop Configuration
 
-## Manually building from source
+Add this to your Claude Desktop MCP configuration:
 
-- Install Go tools 1.20+ - (<https://golang.org/doc/install>)
-- Clone this repo `git clone git@github.com:nektos/act.git`
-- Run unit tests with `make test`
-- Build and install: `make install`
+```json
+{
+  "mcpServers": {
+    "foxxy-bridge": {
+      "command": "mcp-foxxy-bridge",
+      "args": ["http://localhost:8080/sse"]
+    }
+  }
+}
+```
+
+## Architecture
+
+```
+AI Tools (Claude Desktop, VS Code, etc.)
+    ↓ (SSE/stdio)
+MCP Foxxy Bridge
+    ↓ (stdio to multiple servers)
+MCP Server 1, MCP Server 2, MCP Server N
+```
+
+The Foxxy Bridge acts as a transparent forward proxy between AI tools and multiple MCP servers, providing:
+
+- **Tool Aggregation**: Unified access to tools from all connected servers
+- **Resource Aggregation**: Access to resources across multiple servers
+- **Namespace Management**: Automatic tool/resource namespacing to prevent conflicts
+- **Request Routing**: Intelligent routing of requests to appropriate servers
+- **Health Monitoring**: Built-in status endpoint for monitoring server health
+
+## Key Features
+
+- ✅ **One-to-Many Bridge**: Connect multiple MCP servers through a single endpoint
+- ✅ **Tool Aggregation**: Unified access to tools from all connected servers
+- ✅ **Resource Subscription**: Full support for resource subscriptions and forwarding
+- ✅ **Logging Coordination**: Centralized logging level management across all servers
+- ✅ **Progress Notifications**: Transparent progress forwarding from managed servers
+- ✅ **Completion Aggregation**: Combined autocomplete suggestions from all servers
+- ✅ **Namespace Management**: Automatic tool namespacing to prevent conflicts
+- ✅ **Environment Variables**: Support for `${VAR_NAME}` expansion in configs
+- ✅ **Multiple Deployment Options**: Local process, Docker container, or UV tool
+- ✅ **Health Monitoring**: Built-in status endpoint for monitoring
+
+## Documentation
+
+📚 **[Complete Documentation](docs/README.md)**
+
+- [Installation Guide](docs/installation.md) - Detailed installation instructions
+- [Configuration Guide](docs/configuration.md) - Configuration options and examples
+- [Deployment Guide](docs/deployment.md) - Docker, local, and UV deployment
+- [API Reference](docs/api.md) - Endpoints and programmatic usage
+- [Architecture Overview](docs/architecture.md) - Technical architecture and design
+- [Troubleshooting Guide](docs/troubleshooting.md) - Common issues and solutions
+
+## Development
+
+### Requirements
+
+- Python 3.11+
+- uv package manager
+- Node.js (for MCP servers that require it)
+
+### Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/billyjbryant/mcp-foxxy-bridge.git
+cd mcp-foxxy-bridge
+
+# Install dependencies
+uv sync --dev
+
+# Run tests
+uv run pytest
+
+# Run linting
+uv run ruff check
+
+# Run type checking
+uv run mypy src/
+
+# Run the bridge in development
+uv run -m mcp_foxxy_bridge --port 8080
+```
+
+### Docker Development
+
+```bash
+# Build Docker image
+docker build -t mcp-foxxy-bridge .
+
+# Run with Docker
+docker run --rm -p 8080:8080 mcp-foxxy-bridge
+```
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on:
+
+- Development setup
+- Code style and linting
+- Testing requirements
+- Pull request process
+
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0 or later (AGPLv3+). See the [LICENSE](LICENSE) file for details.
+
+## Support
+
+- 📖 [Documentation](docs/README.md)
+- 🐛 [Issue Tracker](https://github.com/billyjbryant/mcp-foxxy-bridge/issues)
+- 💬 [Discussions](https://github.com/billyjbryant/mcp-foxxy-bridge/discussions)
+
+---
+
+**MCP Foxxy Bridge** - Bridging the gap between AI tools and multiple MCP servers.
