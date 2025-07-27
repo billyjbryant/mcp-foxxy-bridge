@@ -58,7 +58,7 @@ def expand_env_vars(value: Any) -> Any:
         # Pattern matches ${VAR_NAME} or ${VAR_NAME:default}
         pattern = r'\$\{([^}:]+)(?::([^}]*))?\}'
         
-        def replace_env_var(match):
+        def replace_env_var(match) -> str:
             var_name = match.group(1)
             default_value = match.group(2) if match.group(2) is not None else ""
             env_value = os.getenv(var_name, default_value)

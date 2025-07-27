@@ -1,39 +1,39 @@
 # Auto-labeling configuration based on file changes
 
 # Area labels
-"area: bridge":
+area: bridge:
   - 'src/mcp_foxxy_bridge/bridge_server.py'
   - 'src/mcp_foxxy_bridge/proxy_server.py'
   - 'src/mcp_foxxy_bridge/server_manager.py'
 
-"area: server":
+area: server:
   - 'src/mcp_foxxy_bridge/mcp_server.py'
   - 'src/mcp_foxxy_bridge/sse_client.py'
   - 'src/mcp_foxxy_bridge/streamablehttp_client.py'
 
-"area: config":
+area: config:
   - 'src/mcp_foxxy_bridge/config_loader.py'
   - 'docs/examples/**/*'
   - 'config.json'
   - '**/*config*.json'
 
-"area: docker":
+area: docker:
   - 'Dockerfile'
   - 'docker-compose.yml'
   - '.dockerignore'
 
-"area: docs":
+area: docs:
   - 'docs/**/*'
   - 'README.md'
   - 'CONTRIBUTING.md'
   - 'CHANGELOG.md'
 
-"area: tests":
+area: tests:
   - 'tests/**/*'
   - 'test_*.py'
   - '*_test.py'
 
-"area: ci/cd":
+area: ci/cd:
   - '.github/workflows/**/*'
   - '.github/labels.yml'
   - '.github/labeler.yml'
@@ -41,23 +41,23 @@
   - 'codecov.yml'
 
 # Type labels based on file patterns
-"type: documentation":
+type: documentation:
   - 'docs/**/*'
   - 'README.md'
   - 'CONTRIBUTING.md'
   - '**/*.md'
 
-"type: test":
+type: test:
   - 'tests/**/*'
   - 'test_*.py'
   - '*_test.py'
 
-"type: ci":
+type: ci:
   - '.github/workflows/**/*'
   - '.github/labels.yml'
   - '.github/labeler.yml'
 
-"type: build":
+type: build:
   - 'pyproject.toml'
   - 'Dockerfile'
   - 'docker-compose.yml'
@@ -65,14 +65,14 @@
   - 'uv.lock'
   - 'poetry.lock'
 
-"type: chore":
+type: chore:
   - '.gitignore'
   - '.gitmessage'
   - 'VERSION'
   - '.env*'
 
 # Dependencies
-"dependencies":
+dependencies:
   - 'pyproject.toml'
   - 'uv.lock'
   - 'poetry.lock'
