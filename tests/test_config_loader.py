@@ -126,7 +126,7 @@ def test_load_example_fetch_config_if_uvx_exists() -> None:
         pytest.skip("uvx command not found in PATH, skipping test for example config.")
 
     # Assuming the test is run from the root of the repository
-    example_config_path = Path(__file__).parent.parent / "bridge_config_example.json"
+    example_config_path = Path(__file__).parent.parent / "docs" / "examples" / "basic-config.json"
 
     if not example_config_path.exists():
         pytest.fail(
