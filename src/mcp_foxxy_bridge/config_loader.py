@@ -46,7 +46,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def expand_env_vars(value: Any) -> Any:
+def expand_env_vars(value: object) -> object:
     """Recursively expand environment variables in configuration values.
 
     Supports ${VAR_NAME} syntax with optional defaults: ${VAR_NAME:default_value}
@@ -115,6 +115,7 @@ class BridgeServerConfig:
     tags: list[str] | None = None
 
     def __post_init__(self) -> None:
+        """Initialize default values for optional fields."""
         if self.args is None:
             self.args = []
         if self.env is None:
@@ -153,6 +154,7 @@ class BridgeConfig:
     failover: FailoverConfig | None = None
 
     def __post_init__(self) -> None:
+        """Initialize default values for bridge configuration."""
         if self.aggregation is None:
             self.aggregation = AggregationConfig()
         if self.failover is None:
@@ -167,6 +169,7 @@ class BridgeConfiguration:
     bridge: BridgeConfig | None = None
 
     def __post_init__(self) -> None:
+        """Initialize default bridge configuration."""
         if self.bridge is None:
             self.bridge = BridgeConfig()
 
@@ -253,11 +256,11 @@ def validate_bridge_config(config_data: dict[str, Any]) -> None:
     try:
         jsonschema.validate(config_data, schema)  # type: ignore[no-untyped-call]
     except jsonschema.ValidationError as e:
-        logger.exception("Configuration validation failed: %s", str(e))
+        logger.exception("Configuration validation failed")
         msg = f"Invalid configuration: {e.message}"
         raise ValueError(msg) from e
     except Exception as e:
-        logger.exception("Unexpected error during configuration validation: %s", str(e))
+        logger.exception("Unexpected error during configuration validation")
         msg = f"Configuration validation error: {e}"
         raise ValueError(msg) from e
 
@@ -493,8 +496,8 @@ def load_bridge_config_from_file(
     # Validate configuration against schema
     try:
         validate_bridge_config(config_data)
-    except ValueError as e:
-        logger.exception("Configuration validation failed for %s: %s", config_file_path, str(e))
+    except ValueError:
+        logger.exception("Configuration validation failed for %s", config_file_path)
         raise
 
     # Parse server configurations

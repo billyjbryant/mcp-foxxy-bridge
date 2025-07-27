@@ -99,25 +99,15 @@ warn_unused_ignores = true
 select = ["ALL"]
 ignore = [
     "EM101",  # Exception must not use a string literal, assign to variable first
-    "EM102",  # Exception must not use an f-string literal, assign to variable first
     "TRY003", # Avoid specifying long messages outside the exception class
-    "TRY401", # Redundant exception object in logging.exception calls
     "ERA001", # Found commented-out code
-    "C901",   # Function is too complex
-    "PLR0915", # Too many statements
-    "PLR0912", # Too many branches
-    "SLF001", # Private member accessed
-    "PGH003", # Use specific rule codes when ignoring type issues
-    "ARG001", # Unused function argument
-    "TD002",  # Missing author in TODO
-    "TD003",  # Missing issue link for TODO
-    "FIX002", # Line contains TODO
-    "D105",   # Missing docstring in magic method
-    "D107",   # Missing docstring in __init__
-    "ANN401", # Dynamically typed expressions (typing.Any) are disallowed
-    "PLC0415", # import should be at the top-level of a file
-    "RUF034", # Useless if-else condition
     "COM812", # Trailing comma missing (conflicts with formatter)
+    "TD002",  # Missing author in TODO (false positives with our format)
+    "TD003",  # Missing issue link for TODO (false positives with our format)
+    "FIX002", # Line contains TODO (expected in development)
+    "C901",   # Function is too complex (complex functions - future refactor)
+    "PLR0912", # Too many branches (complex validation - future refactor)
+    "PLR0915", # Too many statements (complex functions - future refactor)
 ]
 
 [tool.ruff.lint.per-file-ignores]

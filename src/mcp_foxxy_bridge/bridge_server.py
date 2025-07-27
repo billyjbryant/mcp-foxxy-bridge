@@ -23,7 +23,6 @@ a unified interface for AI tools to interact with all of them.
 """
 
 import logging
-import typing as t
 
 from mcp import server, types
 
@@ -31,6 +30,212 @@ from .config_loader import BridgeConfiguration
 from .server_manager import ServerManager
 
 logger = logging.getLogger(__name__)
+
+
+def _configure_prompts_capability(
+    app: server.Server[object],
+    server_manager: ServerManager,
+) -> None:
+    """Configure prompts capability for the bridge server."""
+    logger.debug("Configuring prompts aggregation...")
+
+    async def _list_prompts(_: types.ListPromptsRequest) -> types.ServerResult:
+        try:
+            prompts = server_manager.get_aggregated_prompts()
+            result = types.ListPromptsResult(prompts=prompts)
+            return types.ServerResult(result)
+        except Exception:
+            logger.exception("Error listing prompts")
+            return types.ServerResult(types.ListPromptsResult(prompts=[]))
+
+    app.request_handlers[types.ListPromptsRequest] = _list_prompts
+
+    async def _get_prompt(req: types.GetPromptRequest) -> types.ServerResult:
+        try:
+            result = await server_manager.get_prompt(
+                req.params.name,
+                req.params.arguments,
+            )
+            return types.ServerResult(result)
+        except Exception:
+            logger.exception("Error getting prompt '%s'", req.params.name)
+            return types.ServerResult(
+                types.GetPromptResult(
+                    description=f"Error retrieving prompt: {req.params.name}",
+                    messages=[
+                        types.PromptMessage(
+                            role="user",
+                            content=types.TextContent(
+                                type="text",
+                                text="Error occurred while retrieving prompt",
+                            ),
+                        ),
+                    ],
+                ),
+            )
+
+    app.request_handlers[types.GetPromptRequest] = _get_prompt
+
+
+def _configure_resources_capability(
+    app: server.Server[object],
+    server_manager: ServerManager,
+) -> None:
+    """Configure resources capability for the bridge server."""
+    logger.debug("Configuring resources aggregation...")
+
+    async def _list_resources(_: types.ListResourcesRequest) -> types.ServerResult:
+        try:
+            resources = server_manager.get_aggregated_resources()
+            result = types.ListResourcesResult(resources=resources)
+            return types.ServerResult(result)
+        except Exception:
+            logger.exception("Error listing resources")
+            return types.ServerResult(types.ListResourcesResult(resources=[]))
+
+    app.request_handlers[types.ListResourcesRequest] = _list_resources
+
+    async def _list_resource_templates(_: types.ListResourceTemplatesRequest) -> types.ServerResult:
+        # For now, return empty templates as we don't aggregate templates yet
+        result = types.ListResourceTemplatesResult(resourceTemplates=[])
+        return types.ServerResult(result)
+
+    app.request_handlers[types.ListResourceTemplatesRequest] = _list_resource_templates
+
+    async def _read_resource(req: types.ReadResourceRequest) -> types.ServerResult:
+        try:
+            result = await server_manager.read_resource(str(req.params.uri))
+            return types.ServerResult(result)
+        except Exception:
+            logger.exception("Error reading resource '%s'", req.params.uri)
+            return types.ServerResult(
+                types.ReadResourceResult(
+                    contents=[
+                        types.TextResourceContents(
+                            uri=req.params.uri,
+                            mimeType="text/plain",
+                            text="Error occurred while reading resource",
+                        ),
+                    ],
+                ),
+            )
+
+    app.request_handlers[types.ReadResourceRequest] = _read_resource
+
+    async def _subscribe_resource(_: types.SubscribeRequest) -> types.ServerResult:
+        # For now, just acknowledge subscription
+        # TODO(billy): Implement proper resource subscription forwarding
+        # Related: https://github.com/billyjbryant/mcp-foxxy-bridge/issues/1
+        logger.warning("Resource subscription not yet implemented for bridge")
+        return types.ServerResult(types.EmptyResult())
+
+    app.request_handlers[types.SubscribeRequest] = _subscribe_resource
+
+    async def _unsubscribe_resource(_: types.UnsubscribeRequest) -> types.ServerResult:
+        # For now, just acknowledge unsubscription
+        logger.warning("Resource unsubscription not yet implemented for bridge")
+        return types.ServerResult(types.EmptyResult())
+
+    app.request_handlers[types.UnsubscribeRequest] = _unsubscribe_resource
+
+
+def _configure_tools_capability(
+    app: server.Server[object],
+    server_manager: ServerManager,
+) -> None:
+    """Configure tools capability for the bridge server."""
+    logger.debug("Configuring tools aggregation...")
+
+    async def _list_tools(_: types.ListToolsRequest) -> types.ServerResult:
+        try:
+            tools = server_manager.get_aggregated_tools()
+            result = types.ListToolsResult(tools=tools)
+            return types.ServerResult(result)
+        except Exception:
+            logger.exception("Error listing tools")
+            return types.ServerResult(types.ListToolsResult(tools=[]))
+
+    app.request_handlers[types.ListToolsRequest] = _list_tools
+
+    async def _call_tool(req: types.CallToolRequest) -> types.ServerResult:
+        try:
+            result = await server_manager.call_tool(
+                req.params.name,
+                req.params.arguments or {},
+            )
+            return types.ServerResult(result)
+        except Exception:
+            logger.exception("Error calling tool '%s'", req.params.name)
+            return types.ServerResult(
+                types.CallToolResult(
+                    content=[
+                        types.TextContent(
+                            type="text",
+                            text=f"Error occurred while calling tool: {req.params.name}",
+                        ),
+                    ],
+                ),
+            )
+
+    app.request_handlers[types.CallToolRequest] = _call_tool
+
+
+def _configure_logging_capability(app: server.Server[object]) -> None:
+    """Configure logging capability for the bridge server."""
+
+    async def _set_logging_level(req: types.SetLevelRequest) -> types.ServerResult:
+        try:
+            level = req.params.level
+            bridge_logger = logging.getLogger("mcp_foxxy_bridge")
+            level_str = str(level).lower()
+
+            if level_str == "debug":
+                bridge_logger.setLevel(logging.DEBUG)
+            elif level_str == "info":
+                bridge_logger.setLevel(logging.INFO)
+            elif level_str == "warning":
+                bridge_logger.setLevel(logging.WARNING)
+            elif level_str == "error":
+                bridge_logger.setLevel(logging.ERROR)
+
+            # TODO(billy): Forward logging level to managed servers
+            # Related: https://github.com/billyjbryant/mcp-foxxy-bridge/issues/2
+            logger.info(
+                "Set logging level to %s",
+                str(level),
+            )
+            return types.ServerResult(types.EmptyResult())
+        except Exception:
+            logger.exception("Error setting logging level")
+            return types.ServerResult(types.EmptyResult())
+
+    app.request_handlers[types.SetLevelRequest] = _set_logging_level
+
+
+def _configure_notifications_and_completion(app: server.Server[object]) -> None:
+    """Configure progress notifications and completion for the bridge server."""
+
+    # Add progress notification handler
+    async def _send_progress_notification(req: types.ProgressNotification) -> None:
+        logger.debug("Progress notification: %s/%s", req.params.progress, req.params.total)
+        # TODO(billy): Forward progress notifications to managed servers if needed
+        # Related: https://github.com/billyjbryant/mcp-foxxy-bridge/issues/3
+
+    app.notification_handlers[types.ProgressNotification] = _send_progress_notification
+
+    # Add completion handler
+    async def _complete(_: types.CompleteRequest) -> types.ServerResult:
+        try:
+            # For now, return empty completions
+            # TODO(billy): Implement completion aggregation from managed servers
+            # Related: https://github.com/billyjbryant/mcp-foxxy-bridge/issues/4
+            result = types.CompleteResult(completion=types.Completion(values=[]))
+            return types.ServerResult(result)
+        except Exception:
+            logger.exception("Error handling completion")
+            return types.ServerResult(types.CompleteResult(completion=types.Completion(values=[])))
+
+    app.request_handlers[types.CompleteRequest] = _complete
 
 
 async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Server[object]:
@@ -53,7 +258,7 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
     app: server.Server[object] = server.Server(name=bridge_name)
 
     # Store server manager for cleanup
-    app._server_manager = server_manager  # type: ignore
+    app._server_manager = server_manager  # type: ignore[attr-defined]  # noqa: SLF001
 
     # Configure capabilities based on aggregation settings
     if (
@@ -61,197 +266,30 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
         and bridge_config.bridge.aggregation
         and bridge_config.bridge.aggregation.prompts
     ):
-        logger.debug("Configuring prompts aggregation...")
-
-        async def _list_prompts(_: t.Any) -> types.ServerResult:
-            try:
-                prompts = server_manager.get_aggregated_prompts()
-                result = types.ListPromptsResult(prompts=prompts)
-                return types.ServerResult(result)
-            except Exception as e:
-                logger.exception("Error listing prompts: %s", str(e))
-                return types.ServerResult(types.ListPromptsResult(prompts=[]))
-
-        app.request_handlers[types.ListPromptsRequest] = _list_prompts
-
-        async def _get_prompt(req: types.GetPromptRequest) -> types.ServerResult:
-            try:
-                result = await server_manager.get_prompt(
-                    req.params.name,
-                    req.params.arguments,
-                )
-                return types.ServerResult(result)
-            except Exception as e:
-                logger.exception("Error getting prompt '%s': %s", req.params.name, str(e))
-                return types.ServerResult(
-                    types.GetPromptResult(
-                        description=f"Error: {e!s}",
-                        messages=[
-                            types.PromptMessage(
-                                role="user",
-                                content=types.TextContent(
-                                    type="text",
-                                    text=f"Error retrieving prompt: {e!s}",
-                                ),
-                            ),
-                        ],
-                    ),
-                )
-
-        app.request_handlers[types.GetPromptRequest] = _get_prompt
+        _configure_prompts_capability(app, server_manager)
 
     if (
         bridge_config.bridge
         and bridge_config.bridge.aggregation
         and bridge_config.bridge.aggregation.resources
     ):
-        logger.debug("Configuring resources aggregation...")
-
-        async def _list_resources(_: t.Any) -> types.ServerResult:
-            try:
-                resources = server_manager.get_aggregated_resources()
-                result = types.ListResourcesResult(resources=resources)
-                return types.ServerResult(result)
-            except Exception as e:
-                logger.exception("Error listing resources: %s", str(e))
-                return types.ServerResult(types.ListResourcesResult(resources=[]))
-
-        app.request_handlers[types.ListResourcesRequest] = _list_resources
-
-        async def _list_resource_templates(_: t.Any) -> types.ServerResult:
-            # For now, return empty templates as we don't aggregate templates yet
-            result = types.ListResourceTemplatesResult(resourceTemplates=[])
-            return types.ServerResult(result)
-
-        app.request_handlers[types.ListResourceTemplatesRequest] = _list_resource_templates
-
-        async def _read_resource(req: types.ReadResourceRequest) -> types.ServerResult:
-            try:
-                result = await server_manager.read_resource(str(req.params.uri))
-                return types.ServerResult(result)
-            except Exception as e:
-                logger.exception("Error reading resource '%s': %s", req.params.uri, str(e))
-                return types.ServerResult(
-                    types.ReadResourceResult(
-                        contents=[
-                            types.TextResourceContents(
-                                uri=req.params.uri,
-                                mimeType="text/plain",
-                                text=f"Error reading resource: {e!s}",
-                            ),
-                        ],
-                    ),
-                )
-
-        app.request_handlers[types.ReadResourceRequest] = _read_resource
-
-        async def _subscribe_resource(req: types.SubscribeRequest) -> types.ServerResult:
-            # For now, just acknowledge subscription
-            # TODO: Implement proper resource subscription forwarding
-            logger.warning("Resource subscription not yet implemented for bridge")
-            return types.ServerResult(types.EmptyResult())
-
-        app.request_handlers[types.SubscribeRequest] = _subscribe_resource
-
-        async def _unsubscribe_resource(req: types.UnsubscribeRequest) -> types.ServerResult:
-            # For now, just acknowledge unsubscription
-            logger.warning("Resource unsubscription not yet implemented for bridge")
-            return types.ServerResult(types.EmptyResult())
-
-        app.request_handlers[types.UnsubscribeRequest] = _unsubscribe_resource
+        _configure_resources_capability(app, server_manager)
 
     if (
         bridge_config.bridge
         and bridge_config.bridge.aggregation
         and bridge_config.bridge.aggregation.tools
     ):
-        logger.debug("Configuring tools aggregation...")
-
-        async def _list_tools(_: t.Any) -> types.ServerResult:
-            try:
-                tools = server_manager.get_aggregated_tools()
-                result = types.ListToolsResult(tools=tools)
-                return types.ServerResult(result)
-            except Exception as e:
-                logger.exception("Error listing tools: %s", str(e))
-                return types.ServerResult(types.ListToolsResult(tools=[]))
-
-        app.request_handlers[types.ListToolsRequest] = _list_tools
-
-        async def _call_tool(req: types.CallToolRequest) -> types.ServerResult:
-            try:
-                result = await server_manager.call_tool(
-                    req.params.name,
-                    req.params.arguments or {},
-                )
-                return types.ServerResult(result)
-            except Exception as e:
-                logger.exception("Error calling tool '%s': %s", req.params.name, str(e))
-                return types.ServerResult(
-                    types.CallToolResult(
-                        content=[
-                            types.TextContent(
-                                type="text",
-                                text=f"Error calling tool: {e!s}",
-                            ),
-                        ],
-                        isError=True,
-                    ),
-                )
-
-        app.request_handlers[types.CallToolRequest] = _call_tool
+        _configure_tools_capability(app, server_manager)
 
     # Add logging capability
     logger.debug("Configuring logging...")
+    _configure_logging_capability(app)
 
-    async def _set_logging_level(req: types.SetLevelRequest) -> types.ServerResult:
-        try:
-            # Set logging level for the bridge
-            level = req.params.level
-            bridge_logger = logging.getLogger("mcp_foxxy_bridge")
+    # Add notifications and completion capabilities
+    _configure_notifications_and_completion(app)
 
-            # Convert LoggingLevel to string for comparison
-            level_str = str(level).lower()
-            if level_str == "debug":
-                bridge_logger.setLevel(logging.DEBUG)
-            elif level_str == "info":
-                bridge_logger.setLevel(logging.INFO)
-            elif level_str == "warning":
-                bridge_logger.setLevel(logging.WARNING)
-            elif level_str == "error":
-                bridge_logger.setLevel(logging.ERROR)
-
-            # TODO: Forward logging level to managed servers
-            logger.info(
-                "Set logging level to %s",
-                str(level) if hasattr(level, "value") else str(level),
-            )
-            return types.ServerResult(types.EmptyResult())
-        except Exception as e:
-            logger.exception("Error setting logging level: %s", str(e))
-            return types.ServerResult(types.EmptyResult())
-
-    app.request_handlers[types.SetLevelRequest] = _set_logging_level
-
-    # Add progress notification handler
-    async def _send_progress_notification(req: types.ProgressNotification) -> None:
-        logger.debug("Progress notification: %s/%s", req.params.progress, req.params.total)
-        # TODO: Forward progress notifications to managed servers if needed
-
-    app.notification_handlers[types.ProgressNotification] = _send_progress_notification
-
-    # Add completion handler
-    async def _complete(req: types.CompleteRequest) -> types.ServerResult:
-        try:
-            # For now, return empty completions
-            # TODO: Implement completion aggregation from managed servers
-            result = types.CompleteResult(completion=types.Completion(values=[]))
-            return types.ServerResult(result)
-        except Exception as e:
-            logger.exception("Error handling completion: %s", str(e))
-            return types.ServerResult(types.CompleteResult(completion=types.Completion(values=[])))
-
-    app.request_handlers[types.CompleteRequest] = _complete
+    # Completion handler is configured in _configure_notifications_and_completion
 
     logger.info(
         "Bridge server created successfully with %d active servers",
@@ -271,7 +309,7 @@ async def shutdown_bridge_server(app: server.Server[object]) -> None:
 
     # Stop the server manager if it exists
     if hasattr(app, "_server_manager"):
-        server_manager = app._server_manager
+        server_manager = app._server_manager  # noqa: SLF001
         if server_manager:
             await server_manager.stop()
 

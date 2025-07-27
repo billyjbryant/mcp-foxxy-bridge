@@ -26,7 +26,6 @@ This server is created independent of any transport mechanism.
 """
 
 import logging
-import typing as t
 
 from mcp import server, types
 from mcp.client.session import ClientSession
@@ -46,7 +45,7 @@ async def create_proxy_server(remote_app: ClientSession) -> server.Server[object
     if capabilities.prompts:
         logger.debug("Capabilities: adding Prompts...")
 
-        async def _list_prompts(_: t.Any) -> types.ServerResult:
+        async def _list_prompts(_: types.ListPromptsRequest) -> types.ServerResult:
             result = await remote_app.list_prompts()
             return types.ServerResult(result)
 
@@ -61,13 +60,15 @@ async def create_proxy_server(remote_app: ClientSession) -> server.Server[object
     if capabilities.resources:
         logger.debug("Capabilities: adding Resources...")
 
-        async def _list_resources(_: t.Any) -> types.ServerResult:
+        async def _list_resources(_: types.ListResourcesRequest) -> types.ServerResult:
             result = await remote_app.list_resources()
             return types.ServerResult(result)
 
         app.request_handlers[types.ListResourcesRequest] = _list_resources
 
-        async def _list_resource_templates(_: t.Any) -> types.ServerResult:
+        async def _list_resource_templates(
+            _: types.ListResourceTemplatesRequest,
+        ) -> types.ServerResult:
             result = await remote_app.list_resource_templates()
             return types.ServerResult(result)
 
@@ -106,7 +107,7 @@ async def create_proxy_server(remote_app: ClientSession) -> server.Server[object
     if capabilities.tools:
         logger.debug("Capabilities: adding Tools...")
 
-        async def _list_tools(_: t.Any) -> types.ServerResult:
+        async def _list_tools(_: types.ListToolsRequest) -> types.ServerResult:
             tools = await remote_app.list_tools()
             return types.ServerResult(tools)
 

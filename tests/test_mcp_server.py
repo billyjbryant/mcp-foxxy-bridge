@@ -110,7 +110,7 @@ def make_background_server(**kwargs) -> BackgroundServer:  # noqa: ANN003
         return f"Echo: {message}"
 
     app = create_starlette_app(
-        mcp._mcp_server,
+        mcp._mcp_server,  # noqa: SLF001
         allow_origins=["*"],
         **kwargs,
     )
@@ -201,13 +201,15 @@ def mock_stdio_params() -> StdioServerParameters:
 
 class AsyncContextManagerMock:  # noqa: D101
     def __init__(self, mock) -> None:  # noqa: ANN001
+        """Initialize the async context manager mock."""
         self.mock = mock
 
     async def __aenter__(self):  # noqa: ANN204
+        """Enter the async context manager."""
         return self.mock
 
     async def __aexit__(self, *args):  # noqa: ANN002, ANN204
-        pass
+        """Exit the async context manager."""
 
 
 def setup_async_context_mocks() -> tuple[

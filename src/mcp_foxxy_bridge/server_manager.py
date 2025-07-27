@@ -97,6 +97,7 @@ class ServerManager:
     """Manages multiple MCP server connections and aggregates their capabilities."""
 
     def __init__(self, bridge_config: BridgeConfiguration) -> None:
+        """Initialize the server manager with bridge configuration."""
         self.bridge_config = bridge_config
         self.servers: dict[str, ManagedServer] = {}
         self.health_check_task: asyncio.Task[None] | None = None
@@ -226,7 +227,7 @@ class ServerManager:
                 logger.info("Successfully connected to server '%s'", server.name)
 
         except Exception as e:
-            logger.exception("Failed to connect to server '%s': %s", server.name, str(e))
+            logger.exception("Failed to connect to server '%s'", server.name)
             server.health.status = ServerStatus.FAILED
             server.health.failure_count += 1
             server.health.last_error = str(e)
@@ -271,11 +272,10 @@ class ServerManager:
                 server.prompts = prompts_result.prompts
                 logger.debug("Loaded %d prompts from server '%s'", len(server.prompts), server.name)
 
-        except Exception as e:
+        except Exception:
             logger.exception(
-                "Failed to load capabilities from server '%s': %s",
+                "Failed to load capabilities from server '%s'",
                 server.name,
-                str(e),
             )
 
     async def _health_check_loop(self) -> None:
@@ -286,8 +286,8 @@ class ServerManager:
                 await asyncio.sleep(30)  # Check every 30 seconds
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.exception("Error in health check loop: %s", str(e))
+            except Exception:
+                logger.exception("Error in health check loop")
                 await asyncio.sleep(5)  # Brief pause before retrying
 
     async def _perform_health_checks(self) -> None:
@@ -497,12 +497,11 @@ class ServerManager:
         # Call the tool
         try:
             return await server.session.call_tool(actual_tool_name, arguments)
-        except Exception as e:
+        except Exception:
             logger.exception(
-                "Error calling tool '%s' on server '%s': %s",
+                "Error calling tool '%s' on server '%s'",
                 actual_tool_name,
                 server.name,
-                str(e),
             )
             raise
 
@@ -536,12 +535,11 @@ class ServerManager:
         # Call the resource
         try:
             return await server.session.read_resource(actual_uri)  # type: ignore[arg-type]
-        except Exception as e:
+        except Exception:
             logger.exception(
-                "Error reading resource '%s' on server '%s': %s",
+                "Error reading resource '%s' on server '%s'",
                 actual_uri,
                 server.name,
-                str(e),
             )
             raise
 
@@ -579,12 +577,11 @@ class ServerManager:
         # Call the prompt
         try:
             return await server.session.get_prompt(actual_prompt_name, arguments)
-        except Exception as e:
+        except Exception:
             logger.exception(
-                "Error getting prompt '%s' on server '%s': %s",
+                "Error getting prompt '%s' on server '%s'",
                 actual_prompt_name,
                 server.name,
-                str(e),
             )
             raise
 

@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import logging
 import signal
+import socket
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -76,8 +77,6 @@ def _update_global_activity() -> None:
 
 def _find_available_port(host: str, requested_port: int) -> int:
     """Find an available port starting from the requested port."""
-    import socket
-
     actual_port = requested_port
     max_attempts = 100  # Try up to 100 ports
 
@@ -138,7 +137,7 @@ def create_single_instance_routes(
         async with sse_transport.connect_sse(
             request.scope,
             request.receive,
-            request._send,
+            request._send,  # noqa: SLF001
         ) as (read_stream, write_stream):
             _update_global_activity()
             await mcp_server_instance.run(
@@ -390,7 +389,7 @@ async def run_bridge_server(
         # Setup graceful shutdown
         shutdown_event = asyncio.Event()
 
-        def signal_handler(signum: int, frame: Any) -> None:
+        def signal_handler(signum: int, _: object) -> None:
             logger.info("Received signal %d, initiating graceful shutdown...", signum)
             shutdown_event.set()
 
@@ -422,8 +421,8 @@ async def run_bridge_server(
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
 
-        except Exception as e:
-            logger.exception("Server error: %s", str(e))
+        except Exception:
+            logger.exception("Server error")
         finally:
             # Restore original signal handlers
             signal.signal(signal.SIGINT, old_sigint_handler)
