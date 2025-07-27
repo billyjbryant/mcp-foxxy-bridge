@@ -66,7 +66,8 @@ def expand_env_vars(value: Any) -> Any:
 
             if env_value == "" and match.group(2) is None:
                 logger.warning(
-                    "Environment variable '%s' not found and no default provided", var_name
+                    "Environment variable '%s' not found and no default provided",
+                    var_name,
                 )
 
             return env_value
@@ -296,20 +297,20 @@ def validate_server_config(name: str, server_config: dict[str, Any]) -> list[str
     retry_attempts = server_config.get("retryAttempts", 3)
     if not isinstance(retry_attempts, int) or retry_attempts < 0:
         warnings.append(
-            f"Server '{name}' has invalid 'retryAttempts' value (must be non-negative integer)"
+            f"Server '{name}' has invalid 'retryAttempts' value (must be non-negative integer)",
         )
 
     retry_delay = server_config.get("retryDelay", 1000)
     if not isinstance(retry_delay, (int, float)) or retry_delay < 0:
         warnings.append(
-            f"Server '{name}' has invalid 'retryDelay' value (must be non-negative number)"
+            f"Server '{name}' has invalid 'retryDelay' value (must be non-negative number)",
         )
 
     # Check priority
     priority = server_config.get("priority", 100)
     if not isinstance(priority, (int, float)) or priority < 0:
         warnings.append(
-            f"Server '{name}' has invalid 'priority' value (must be non-negative number)"
+            f"Server '{name}' has invalid 'priority' value (must be non-negative number)",
         )
 
     # Check tags
@@ -324,7 +325,7 @@ def validate_server_config(name: str, server_config: dict[str, Any]) -> list[str
         namespace = server_config.get(namespace_field)
         if namespace is not None and not isinstance(namespace, str):
             warnings.append(
-                f"Server '{name}' has invalid '{namespace_field}' value (must be string)"
+                f"Server '{name}' has invalid '{namespace_field}' value (must be string)",
             )
         elif namespace is not None and not namespace.strip():
             warnings.append(f"Server '{name}' has empty '{namespace_field}' value")
@@ -338,7 +339,7 @@ def validate_server_config(name: str, server_config: dict[str, Any]) -> list[str
             value = health_check.get(field)
             if value is not None and (not isinstance(value, (int, float)) or value < min_val):
                 warnings.append(
-                    f"Server '{name}' has invalid healthCheck.{field} value (must be >= {min_val})"
+                    f"Server '{name}' has invalid healthCheck.{field} value (must be >= {min_val})",
                 )
 
     return warnings

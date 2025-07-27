@@ -35,6 +35,7 @@ import shlex
 import sys
 import typing as t
 from importlib.metadata import version
+from pathlib import Path
 
 from mcp.client.stdio import StdioServerParameters
 
@@ -78,12 +79,9 @@ def _add_arguments_to_parser(parser: argparse.ArgumentParser) -> None:
     except Exception:  # noqa: BLE001
         try:
             # Try to read from VERSION file
-            import os
-
-            version_file = os.path.join(os.path.dirname(__file__), "..", "..", "VERSION")
-            if os.path.exists(version_file):
-                with open(version_file) as f:
-                    package_version = f.read().strip()
+            version_file = Path(__file__).parent.parent.parent / "VERSION"
+            if version_file.exists():
+                package_version = version_file.read_text().strip()
             else:
                 package_version = "unknown"
         except Exception:  # noqa: BLE001
@@ -394,7 +392,7 @@ def main() -> None:
 
     # Handle bridge mode first (takes precedence over all other options)
     # Check if config file exists (especially for default config.json)
-    if not os.path.exists(args_parsed.bridge_config):
+    if not Path(args_parsed.bridge_config).exists():
         if args_parsed.bridge_config == "config.json":
             # Default config.json doesn't exist, provide helpful guidance
             logger.info("No config.json found in current directory.")
@@ -403,15 +401,15 @@ def main() -> None:
             logger.info("  1. Copy an example: cp docs/examples/basic-config.json config.json")
             logger.info("  2. Create a minimal config:")
             logger.info(
-                '     echo \'{"servers": {"filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"]}}}\' > config.json'
+                '     echo \'{"servers": {"filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"]}}}\' > config.json',
             )
             logger.info(
-                "  3. Use a different config: mcp-foxxy-bridge --bridge-config path/to/your/config.json"
+                "  3. Use a different config: mcp-foxxy-bridge --bridge-config path/to/your/config.json",
             )
             logger.info("  4. See available examples in docs/examples/ directory")
             logger.info("")
             logger.info(
-                "For more help, see: https://github.com/billyjbryant/mcp-foxxy-bridge/blob/main/docs/configuration.md"
+                "For more help, see: https://github.com/billyjbryant/mcp-foxxy-bridge/blob/main/docs/configuration.md",
             )
             sys.exit(1)
         else:

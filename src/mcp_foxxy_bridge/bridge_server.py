@@ -222,7 +222,8 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
 
             # TODO: Forward logging level to managed servers
             logger.info(
-                "Set logging level to %s", str(level) if hasattr(level, "value") else str(level)
+                "Set logging level to %s",
+                str(level) if hasattr(level, "value") else str(level),
             )
             return types.ServerResult(types.EmptyResult())
         except Exception as e:

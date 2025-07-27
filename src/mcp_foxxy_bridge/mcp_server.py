@@ -26,7 +26,7 @@ import logging
 import signal
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import uvicorn
@@ -63,13 +63,13 @@ class MCPServerSettings:
 
 # To store last activity for multiple servers if needed, though status endpoint is global for now.
 _global_status: dict[str, Any] = {
-    "api_last_activity": datetime.now(timezone.utc).isoformat(),
+    "api_last_activity": datetime.now(UTC).isoformat(),
     "server_instances": {},  # Could be used to store per-instance status later
 }
 
 
 def _update_global_activity() -> None:
-    _global_status["api_last_activity"] = datetime.now(timezone.utc).isoformat()
+    _global_status["api_last_activity"] = datetime.now(UTC).isoformat()
 
 
 def _find_available_port(host: str, requested_port: int) -> int:
@@ -86,7 +86,9 @@ def _find_available_port(host: str, requested_port: int) -> int:
                 # Port is available, break out of loop
                 if actual_port != requested_port:
                     logger.info(
-                        "Port %d was in use, using port %d instead", requested_port, actual_port
+                        "Port %d was in use, using port %d instead",
+                        requested_port,
+                        actual_port,
                     )
                 return actual_port
         except OSError:
@@ -411,7 +413,7 @@ async def run_bridge_server(
                 server_task.cancel()
                 try:
                     await asyncio.wait_for(server_task, timeout=0.5)
-                except (asyncio.CancelledError, asyncio.TimeoutError):
+                except (TimeoutError, asyncio.CancelledError):
                     pass
 
             # Cancel remaining tasks

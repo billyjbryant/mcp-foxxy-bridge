@@ -73,7 +73,9 @@ class ManagedServer:
     prompts: list[types.Prompt] = field(default_factory=list)
 
     def get_effective_namespace(
-        self, capability_type: str, bridge_config: BridgeConfig | None
+        self,
+        capability_type: str,
+        bridge_config: BridgeConfig | None,
     ) -> str | None:
         """Get the effective namespace for a capability type."""
         # Check explicit namespace configuration
@@ -104,7 +106,8 @@ class ServerManager:
     async def start(self) -> None:
         """Start the server manager and connect to all configured servers."""
         logger.info(
-            "Starting server manager with %d configured servers", len(self.bridge_config.servers)
+            "Starting server manager with %d configured servers",
+            len(self.bridge_config.servers),
         )
 
         # Create managed servers
@@ -129,7 +132,7 @@ class ServerManager:
                     asyncio.gather(*connection_tasks, return_exceptions=True),
                     timeout=30.0,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Some servers took longer than 30 seconds to connect")
 
         # Start health check task
@@ -162,7 +165,7 @@ class ServerManager:
         try:
             # Set a shorter timeout for cleanup to avoid hanging
             await asyncio.wait_for(self._context_stack.aclose(), timeout=1.0)
-        except (Exception, asyncio.TimeoutError) as e:
+        except (TimeoutError, Exception) as e:
             logger.debug(
                 "Context cleanup completed with exceptions (normal during shutdown): %s",
                 type(e).__name__,
@@ -200,12 +203,12 @@ class ServerManager:
             async with asyncio.timeout(server.config.timeout):
                 # Enter the stdio_client into the context stack to keep it alive
                 read_stream, write_stream = await self._context_stack.enter_async_context(
-                    stdio_client(params)
+                    stdio_client(params),
                 )
 
                 # Create session and manage its lifetime
                 session = await self._context_stack.enter_async_context(
-                    ClientSession(read_stream, write_stream)
+                    ClientSession(read_stream, write_stream),
                 )
                 server.session = session
 
@@ -259,7 +262,9 @@ class ServerManager:
                 resources_result = await server.session.list_resources()
                 server.resources = resources_result.resources
                 logger.debug(
-                    "Loaded %d resources from server '%s'", len(server.resources), server.name
+                    "Loaded %d resources from server '%s'",
+                    len(server.resources),
+                    server.name,
                 )
 
             # Load prompts
@@ -488,7 +493,10 @@ class ServerManager:
             return result
         except Exception as e:
             logger.error(
-                "Error calling tool '%s' on server '%s': %s", actual_tool_name, server.name, str(e)
+                "Error calling tool '%s' on server '%s': %s",
+                actual_tool_name,
+                server.name,
+                str(e),
             )
             raise
 
@@ -524,12 +532,17 @@ class ServerManager:
             return result
         except Exception as e:
             logger.error(
-                "Error reading resource '%s' on server '%s': %s", actual_uri, server.name, str(e)
+                "Error reading resource '%s' on server '%s': %s",
+                actual_uri,
+                server.name,
+                str(e),
             )
             raise
 
     async def get_prompt(
-        self, prompt_name: str, arguments: dict[str, str] | None = None
+        self,
+        prompt_name: str,
+        arguments: dict[str, str] | None = None,
     ) -> types.GetPromptResult:
         """Get a prompt by name, routing to the appropriate server."""
         # Parse namespace from prompt name
