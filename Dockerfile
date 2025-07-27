@@ -49,13 +49,6 @@ RUN chown -R app:app /app
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Debug: Check if console script exists and is executable
-RUN ls -la /app/.venv/bin/mcp-foxxy-bridge || echo "Console script not found"
-RUN head -5 /app/.venv/bin/mcp-foxxy-bridge || echo "Cannot read console script"
-RUN ls -la /app/.venv/bin/python* || echo "No python in venv"
-RUN ls -la /usr/bin/python* || echo "No python in /usr/bin"
-RUN ls -la /usr/local/bin/python* || echo "No python in /usr/local/bin"
-
 # Fix broken symlinks in venv by pointing to the correct Python
 RUN rm -f /app/.venv/bin/python /app/.venv/bin/python3 /app/.venv/bin/python3.12
 RUN ln -s /usr/bin/python3 /app/.venv/bin/python
