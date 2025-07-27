@@ -76,6 +76,6 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/status || exit 1
 
 # Default command - use system python with proper PYTHONPATH
-ENV PYTHONPATH="/app/.venv/lib/python3.12/site-packages:/app/src:$PYTHONPATH"
+ENV PYTHONPATH="$(python3 -c 'import sysconfig; print(sysconfig.get_path(\"purelib\", \"venv\"))'):/app/src:$PYTHONPATH"
 ENTRYPOINT ["python3", "-m", "mcp_foxxy_bridge"]
 CMD ["--port", "8080", "--host", "0.0.0.0"]
