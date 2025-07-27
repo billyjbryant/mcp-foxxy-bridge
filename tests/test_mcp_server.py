@@ -18,7 +18,11 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
-from mcp_foxxy_bridge.mcp_server import MCPServerSettings, create_single_instance_routes, run_mcp_server
+from mcp_foxxy_bridge.mcp_server import (
+    MCPServerSettings,
+    create_single_instance_routes,
+    run_mcp_server,
+)
 
 
 def create_starlette_app(
