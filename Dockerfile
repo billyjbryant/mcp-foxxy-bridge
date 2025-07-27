@@ -37,8 +37,10 @@ RUN apk add --no-cache \
 RUN addgroup -g 1001 -S app && \
     adduser -S app -u 1001 -G app
 
-# Copy the virtual environment from build stage
+# Copy the virtual environment and the source code from build stage
 COPY --from=uv --chown=app:app /app/.venv /app/.venv
+COPY --from=uv --chown=app:app /app/src /app/src
+COPY --from=uv --chown=app:app /app/pyproject.toml /app/pyproject.toml
 
 # Create app directory and set ownership
 WORKDIR /app
@@ -73,6 +75,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/status || exit 1
 
-# Default command
-ENTRYPOINT ["/app/.venv/bin/mcp-foxxy-bridge"]
+# Default command - use Python module approach for reliability
+ENTRYPOINT ["/app/.venv/bin/python", "-m", "mcp_foxxy_bridge"]
 CMD ["--port", "8080", "--host", "0.0.0.0"]
