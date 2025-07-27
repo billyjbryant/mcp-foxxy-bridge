@@ -49,9 +49,12 @@ RUN chown -R app:app /app
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Debug: List contents of .venv to understand structure
+# Debug and verify virtual environment setup
 RUN ls -la /app/.venv/ || echo "No .venv directory"
 RUN ls -la /app/.venv/bin/ || echo "No .venv/bin directory"
+RUN which python || echo "Python not found"
+RUN which python3 || echo "Python3 not found"
+RUN python --version || echo "Python version check failed"
 
 # Install commonly used MCP servers globally
 RUN npm install -g \
