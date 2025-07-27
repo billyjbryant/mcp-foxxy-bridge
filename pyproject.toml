@@ -1,7 +1,7 @@
 [project]
 name = "mcp-foxxy-bridge"
 description = "A MCP Forward Proxy Bridge designed to be a one-to-many bridge allowing you to use a single MCP server to communicate with many MCP servers transparently."
-authors = [{ name = "Billy Bryant", email = "billy@billybryant.dev" }]
+authors = [{ name = "Billy Bryant", email = "billy@billyjbryant.com" }]
 license = { file = "LICENSE" }
 readme = "README.md"
 classifiers = [
