@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.0.0...v1.0.1) (2025-07-27)
+
+
+### 🐛 Bug Fixes
+
+* remove Docker Hub publishing to resolve authentication error ([073701c](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/073701ccffd6a0f2a7001ca662e856b33201b856))
+
 ## 1.0.0 (2025-07-27)
 
 
