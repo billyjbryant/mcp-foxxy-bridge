@@ -410,7 +410,7 @@ class ServerManager:
 
                 # Create namespaced resource
                 namespaced_resource = types.Resource(
-                    uri=resource_uri,  # type: ignore[arg-type]
+                    uri=AnyUrl(resource_uri),
                     name=resource.name,
                     description=resource.description,
                     mimeType=resource.mimeType,
@@ -535,7 +535,7 @@ class ServerManager:
 
         # Call the resource
         try:
-            return await server.session.read_resource(actual_uri)  # type: ignore[arg-type]
+            return await server.session.read_resource(AnyUrl(actual_uri))
         except Exception:
             logger.exception(
                 "Error reading resource '%s' on server '%s'",

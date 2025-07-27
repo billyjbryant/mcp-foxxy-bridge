@@ -209,7 +209,12 @@ class AsyncContextManagerMock:  # noqa: D101
         return self.mock
 
     async def __aexit__(self, *args):  # noqa: ANN002, ANN204
-        """Exit the async context manager."""
+        """Exit the async context manager.
+
+        Args:
+            *args: Standard arguments for the context manager protocol.
+                Not used in this implementation.
+        """
 
 
 def setup_async_context_mocks() -> tuple[

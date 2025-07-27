@@ -23,6 +23,7 @@ a unified interface for AI tools to interact with all of them.
 """
 
 import logging
+from typing import Any
 
 from mcp import server, types
 
@@ -30,6 +31,9 @@ from .config_loader import BridgeConfiguration
 from .server_manager import ServerManager
 
 logger = logging.getLogger(__name__)
+
+# Registry to store server manager instances for proper cleanup
+_server_manager_registry: dict[Any, ServerManager] = {}
 
 
 def _configure_prompts_capability(
@@ -284,8 +288,8 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
     bridge_name = "MCP Foxxy Bridge"
     app: server.Server[object] = server.Server(name=bridge_name)
 
-    # Store server manager for cleanup
-    app._server_manager = server_manager  # type: ignore[attr-defined]  # noqa: SLF001
+    # Store server manager for cleanup using registry
+    _server_manager_registry[id(app)] = server_manager
 
     # Configure capabilities based on aggregation settings
     if (
@@ -334,9 +338,10 @@ async def shutdown_bridge_server(app: server.Server[object]) -> None:
     """
     logger.info("Shutting down bridge server...")
 
-    # Stop the server manager if it exists
-    if hasattr(app, "_server_manager"):
-        server_manager = app._server_manager  # noqa: SLF001
+    # Stop the server manager if it exists in registry
+    app_id = id(app)
+    if app_id in _server_manager_registry:
+        server_manager = _server_manager_registry.pop(app_id)
         if server_manager:
             await server_manager.stop()
 
