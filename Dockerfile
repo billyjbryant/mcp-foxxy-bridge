@@ -49,13 +49,6 @@ RUN chown -R app:app /app
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Debug and verify virtual environment setup
-RUN ls -la /app/.venv/ || echo "No .venv directory"
-RUN ls -la /app/.venv/bin/ || echo "No .venv/bin directory"
-RUN which python || echo "Python not found"
-RUN which python3 || echo "Python3 not found"
-RUN python --version || echo "Python version check failed"
-
 # Install commonly used MCP servers globally
 RUN npm install -g \
     @modelcontextprotocol/server-github \
@@ -82,6 +75,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/status || exit 1
 
-# Default command - explicitly activate venv and run
-ENTRYPOINT ["/bin/sh", "-c", "source /app/.venv/bin/activate && python -m mcp_foxxy_bridge \"$@\"", "--"]
+# Default command - use the installed console script
+ENTRYPOINT ["/app/.venv/bin/mcp-foxxy-bridge"]
 CMD ["--port", "8080", "--host", "0.0.0.0"]
