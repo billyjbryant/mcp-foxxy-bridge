@@ -47,7 +47,7 @@ packages = ["src/mcp_foxxy_bridge"]
 
 [tool.hatch.version]
 path = "VERSION"
-pattern = "(?P<version>.*)"
+pattern = "(?P<version>\d+\.\d+\.\d+.*)"
 
 [tool.uv]
 dev-dependencies = [
