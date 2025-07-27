@@ -5,7 +5,8 @@
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -62,13 +63,13 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
     ):
         logger.debug("Configuring prompts aggregation...")
 
-        async def _list_prompts(_: t.Any) -> types.ServerResult:  # noqa: ANN401
+        async def _list_prompts(_: t.Any) -> types.ServerResult:
             try:
                 prompts = server_manager.get_aggregated_prompts()
                 result = types.ListPromptsResult(prompts=prompts)
                 return types.ServerResult(result)
             except Exception as e:
-                logger.error("Error listing prompts: %s", str(e))
+                logger.exception("Error listing prompts: %s", str(e))
                 return types.ServerResult(types.ListPromptsResult(prompts=[]))
 
         app.request_handlers[types.ListPromptsRequest] = _list_prompts
@@ -81,7 +82,7 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
                 )
                 return types.ServerResult(result)
             except Exception as e:
-                logger.error("Error getting prompt '%s': %s", req.params.name, str(e))
+                logger.exception("Error getting prompt '%s': %s", req.params.name, str(e))
                 return types.ServerResult(
                     types.GetPromptResult(
                         description=f"Error: {e!s}",
@@ -106,18 +107,18 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
     ):
         logger.debug("Configuring resources aggregation...")
 
-        async def _list_resources(_: t.Any) -> types.ServerResult:  # noqa: ANN401
+        async def _list_resources(_: t.Any) -> types.ServerResult:
             try:
                 resources = server_manager.get_aggregated_resources()
                 result = types.ListResourcesResult(resources=resources)
                 return types.ServerResult(result)
             except Exception as e:
-                logger.error("Error listing resources: %s", str(e))
+                logger.exception("Error listing resources: %s", str(e))
                 return types.ServerResult(types.ListResourcesResult(resources=[]))
 
         app.request_handlers[types.ListResourcesRequest] = _list_resources
 
-        async def _list_resource_templates(_: t.Any) -> types.ServerResult:  # noqa: ANN401
+        async def _list_resource_templates(_: t.Any) -> types.ServerResult:
             # For now, return empty templates as we don't aggregate templates yet
             result = types.ListResourceTemplatesResult(resourceTemplates=[])
             return types.ServerResult(result)
@@ -129,7 +130,7 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
                 result = await server_manager.read_resource(str(req.params.uri))
                 return types.ServerResult(result)
             except Exception as e:
-                logger.error("Error reading resource '%s': %s", req.params.uri, str(e))
+                logger.exception("Error reading resource '%s': %s", req.params.uri, str(e))
                 return types.ServerResult(
                     types.ReadResourceResult(
                         contents=[
@@ -166,13 +167,13 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
     ):
         logger.debug("Configuring tools aggregation...")
 
-        async def _list_tools(_: t.Any) -> types.ServerResult:  # noqa: ANN401
+        async def _list_tools(_: t.Any) -> types.ServerResult:
             try:
                 tools = server_manager.get_aggregated_tools()
                 result = types.ListToolsResult(tools=tools)
                 return types.ServerResult(result)
             except Exception as e:
-                logger.error("Error listing tools: %s", str(e))
+                logger.exception("Error listing tools: %s", str(e))
                 return types.ServerResult(types.ListToolsResult(tools=[]))
 
         app.request_handlers[types.ListToolsRequest] = _list_tools
@@ -185,7 +186,7 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
                 )
                 return types.ServerResult(result)
             except Exception as e:
-                logger.error("Error calling tool '%s': %s", req.params.name, str(e))
+                logger.exception("Error calling tool '%s': %s", req.params.name, str(e))
                 return types.ServerResult(
                     types.CallToolResult(
                         content=[
@@ -227,7 +228,7 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
             )
             return types.ServerResult(types.EmptyResult())
         except Exception as e:
-            logger.error("Error setting logging level: %s", str(e))
+            logger.exception("Error setting logging level: %s", str(e))
             return types.ServerResult(types.EmptyResult())
 
     app.request_handlers[types.SetLevelRequest] = _set_logging_level
@@ -247,7 +248,7 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
             result = types.CompleteResult(completion=types.Completion(values=[]))
             return types.ServerResult(result)
         except Exception as e:
-            logger.error("Error handling completion: %s", str(e))
+            logger.exception("Error handling completion: %s", str(e))
             return types.ServerResult(types.CompleteResult(completion=types.Completion(values=[])))
 
     app.request_handlers[types.CompleteRequest] = _complete

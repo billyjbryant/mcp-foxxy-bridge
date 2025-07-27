@@ -14,7 +14,7 @@ When you push changes to `main` branch that modify certain configuration files, 
 |-------------|------------------|
 | `.github/labels.yml` | ✅ Update all GitHub repository labels |
 | `.github/labeler.yml` | ✅ Validate auto-labeler configuration |
-| `.github/ISSUE_TEMPLATE/**` | ✅ Validate issue templates |  
+| `.github/ISSUE_TEMPLATE/**` | ✅ Validate issue templates |
 | `.github/pull_request_template.md` | ✅ Validate PR template |
 | `.releaserc.json` | ✅ Validate semantic-release configuration |
 | `codecov.yml` | ✅ Validate codecov configuration |
@@ -36,7 +36,7 @@ You can trigger maintenance tasks manually via GitHub Actions:
 2. Click **Run workflow**
 3. Select desired maintenance tasks:
    - **Set up GitHub labels**: Apply label configuration
-   - **Update UV lock file**: Update dependencies  
+   - **Update UV lock file**: Update dependencies
    - **Force run all tasks**: Run all maintenance jobs
 
 ### Via CLI
@@ -112,7 +112,7 @@ gh workflow run maintenance.yml --field force_all=true
 - Manual trigger with `force_all=true`
 
 **Process:**
-1. Scans dependencies for known vulnerabilities  
+1. Scans dependencies for known vulnerabilities
 2. Creates high-priority security issues if vulnerabilities found
 3. Includes remediation guidance and links to CVE details
 
@@ -135,7 +135,7 @@ Configuration changes detected:
 - 📊 Codecov settings
 
 Maintenance actions completed:
-- ✅ Updated GitHub labels  
+- ✅ Updated GitHub labels
 - ✅ Validated configurations
 
 Commit: abc1234

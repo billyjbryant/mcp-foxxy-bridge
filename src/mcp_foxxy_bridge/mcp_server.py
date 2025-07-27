@@ -6,7 +6,8 @@
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,7 +17,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
-# MIT License attribution: Portions of this file were originally licensed under the MIT License by Sergey Parfenyuk (2024).
+# MIT License attribution: Portions of this file were originally licensed
+# under the MIT License by Sergey Parfenyuk (2024).
 #
 """Create a local SSE server that proxies requests to a stdio MCP server."""
 
@@ -79,7 +81,7 @@ def _find_available_port(host: str, requested_port: int) -> int:
     actual_port = requested_port
     max_attempts = 100  # Try up to 100 ports
 
-    for attempt in range(max_attempts):
+    for _attempt in range(max_attempts):
         try:
             with socket.socket() as s:
                 s.bind((host, actual_port))
@@ -136,7 +138,7 @@ def create_single_instance_routes(
         async with sse_transport.connect_sse(
             request.scope,
             request.receive,
-            request._send,  # noqa: SLF001
+            request._send,
         ) as (read_stream, write_stream):
             _update_global_activity()
             await mcp_server_instance.run(
@@ -411,29 +413,23 @@ async def run_bridge_server(
             if shutdown_task in done:
                 logger.info("Shutdown requested, stopping server...")
                 server_task.cancel()
-                try:
+                with contextlib.suppress(TimeoutError, asyncio.CancelledError):
                     await asyncio.wait_for(server_task, timeout=0.5)
-                except (TimeoutError, asyncio.CancelledError):
-                    pass
 
             # Cancel remaining tasks
             for task in pending:
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
         except Exception as e:
-            logger.error("Server error: %s", str(e))
+            logger.exception("Server error: %s", str(e))
         finally:
             # Restore original signal handlers
             signal.signal(signal.SIGINT, old_sigint_handler)
             signal.signal(signal.SIGTERM, old_sigterm_handler)
 
             # Force close any remaining HTTP connections
-            try:
+            with contextlib.suppress(Exception):
                 await http_server.shutdown()
-            except Exception:
-                pass
             logger.info("Bridge server shutdown complete")

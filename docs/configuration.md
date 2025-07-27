@@ -57,7 +57,7 @@ Environment variable syntax:
 ```json
 {
   "toolNamespace": "github",          // Prefix for tools (github.search_repositories)
-  "resourceNamespace": "gh",          // Prefix for resources  
+  "resourceNamespace": "gh",          // Prefix for resources
   "promptNamespace": "github"         // Prefix for prompts
 }
 ```

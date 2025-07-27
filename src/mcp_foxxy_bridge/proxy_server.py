@@ -6,7 +6,8 @@
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,7 +17,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
-# MIT License attribution: Portions of this file were originally licensed under the MIT License by Sergey Parfenyuk (2024).
+# MIT License attribution: Portions of this file were originally licensed
+# under the MIT License by Sergey Parfenyuk (2024).
 #
 """Create an MCP server that proxies requests through an MCP client.
 
@@ -32,7 +34,7 @@ from mcp.client.session import ClientSession
 logger = logging.getLogger(__name__)
 
 
-async def create_proxy_server(remote_app: ClientSession) -> server.Server[object]:  # noqa: C901, PLR0915
+async def create_proxy_server(remote_app: ClientSession) -> server.Server[object]:
     """Create a server instance from a remote app."""
     logger.debug("Sending initialization request to remote MCP server...")
     response = await remote_app.initialize()
@@ -44,7 +46,7 @@ async def create_proxy_server(remote_app: ClientSession) -> server.Server[object
     if capabilities.prompts:
         logger.debug("Capabilities: adding Prompts...")
 
-        async def _list_prompts(_: t.Any) -> types.ServerResult:  # noqa: ANN401
+        async def _list_prompts(_: t.Any) -> types.ServerResult:
             result = await remote_app.list_prompts()
             return types.ServerResult(result)
 
@@ -59,13 +61,13 @@ async def create_proxy_server(remote_app: ClientSession) -> server.Server[object
     if capabilities.resources:
         logger.debug("Capabilities: adding Resources...")
 
-        async def _list_resources(_: t.Any) -> types.ServerResult:  # noqa: ANN401
+        async def _list_resources(_: t.Any) -> types.ServerResult:
             result = await remote_app.list_resources()
             return types.ServerResult(result)
 
         app.request_handlers[types.ListResourcesRequest] = _list_resources
 
-        async def _list_resource_templates(_: t.Any) -> types.ServerResult:  # noqa: ANN401
+        async def _list_resource_templates(_: t.Any) -> types.ServerResult:
             result = await remote_app.list_resource_templates()
             return types.ServerResult(result)
 
@@ -104,7 +106,7 @@ async def create_proxy_server(remote_app: ClientSession) -> server.Server[object
     if capabilities.tools:
         logger.debug("Capabilities: adding Tools...")
 
-        async def _list_tools(_: t.Any) -> types.ServerResult:  # noqa: ANN401
+        async def _list_tools(_: t.Any) -> types.ServerResult:
             tools = await remote_app.list_tools()
             return types.ServerResult(tools)
 

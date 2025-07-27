@@ -3,7 +3,7 @@
   color: "d73a4a"
   description: "Creates a major version release (breaking changes)"
 
-- name: "release: minor"  
+- name: "release: minor"
   color: "0075ca"
   description: "Creates a minor version release (new features)"
 

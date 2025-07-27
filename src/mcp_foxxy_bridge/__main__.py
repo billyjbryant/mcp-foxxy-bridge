@@ -6,7 +6,8 @@
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,9 +17,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
-# MIT License attribution: Portions of this file were originally licensed under the MIT License by Sergey Parfenyuk (2024).
+# MIT License attribution: Portions of this file were originally licensed
+# under the MIT License by Sergey Parfenyuk (2024).
 #
-"""The entry point for the mcp-foxxy-bridge application. It sets up the logging and runs the main function.
+"""The entry point for the mcp-foxxy-bridge application.
+
+It sets up the logging and runs the main function.
 
 Two ways to run the application:
 1. Run the application as a module `uv run -m mcp_foxxy_bridge`
@@ -62,7 +66,8 @@ def _setup_argument_parser() -> argparse.ArgumentParser:
             "  mcp-foxxy-bridge --headers Authorization 'Bearer YOUR_TOKEN' http://localhost:8080/sse\n"
             "  mcp-foxxy-bridge --port 8080 -- your-command --arg1 value1 --arg2 value2\n"
             "  mcp-foxxy-bridge --named-server fetch 'uvx mcp-server-fetch' --port 8080\n"
-            "  mcp-foxxy-bridge your-command --port 8080 -e KEY VALUE -e ANOTHER_KEY ANOTHER_VALUE\n"
+            "  mcp-foxxy-bridge your-command --port 8080 -e KEY VALUE "  # Line split
+            "-e ANOTHER_KEY ANOTHER_VALUE\n"
             "  mcp-foxxy-bridge your-command --port 8080 --allow-origin='*'\n"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
@@ -401,10 +406,13 @@ def main() -> None:
             logger.info("  1. Copy an example: cp docs/examples/basic-config.json config.json")
             logger.info("  2. Create a minimal config:")
             logger.info(
-                '     echo \'{"servers": {"filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"]}}}\' > config.json',
+                '     echo \'{"servers": {"filesystem": {"command": "npx", '
+                '"args": ["-y", "@modelcontextprotocol/server-filesystem", "./"]}}}\' '
+                "> config.json",
             )
             logger.info(
-                "  3. Use a different config: mcp-foxxy-bridge --bridge-config path/to/your/config.json",
+                "  3. Use a different config: mcp-foxxy-bridge --bridge-config "
+                "path/to/your/config.json",
             )
             logger.info("  4. See available examples in docs/examples/ directory")
             logger.info("")
@@ -426,8 +434,8 @@ def main() -> None:
 
     try:
         bridge_config = load_bridge_config_from_file(args_parsed.bridge_config, bridge_base_env)
-    except Exception as e:
-        logger.error("Failed to load bridge configuration: %s", str(e))
+    except Exception:
+        logger.exception("Failed to load bridge configuration")
         sys.exit(1)
 
     # Create MCP server settings and run the bridge server
@@ -436,8 +444,8 @@ def main() -> None:
         asyncio.run(run_bridge_server(mcp_settings, bridge_config))
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down gracefully...")
-    except Exception as e:
-        logger.error("Bridge server error: %s", str(e))
+    except Exception:
+        logger.exception("Bridge server error")
         return
 
 

@@ -96,7 +96,7 @@ class ManagedServer:
 class ServerManager:
     """Manages multiple MCP server connections and aggregates their capabilities."""
 
-    def __init__(self, bridge_config: BridgeConfiguration):
+    def __init__(self, bridge_config: BridgeConfiguration) -> None:
         self.bridge_config = bridge_config
         self.servers: dict[str, ManagedServer] = {}
         self.health_check_task: asyncio.Task[None] | None = None
@@ -155,10 +155,8 @@ class ServerManager:
         # Cancel health check task
         if self.health_check_task:
             self.health_check_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self.health_check_task
-            except asyncio.CancelledError:
-                pass
 
         # Close the context stack to cleanup all managed connections
         # This will gracefully terminate all child processes
@@ -228,7 +226,7 @@ class ServerManager:
                 logger.info("Successfully connected to server '%s'", server.name)
 
         except Exception as e:
-            logger.error("Failed to connect to server '%s': %s", server.name, str(e))
+            logger.exception("Failed to connect to server '%s': %s", server.name, str(e))
             server.health.status = ServerStatus.FAILED
             server.health.failure_count += 1
             server.health.last_error = str(e)
@@ -274,7 +272,11 @@ class ServerManager:
                 logger.debug("Loaded %d prompts from server '%s'", len(server.prompts), server.name)
 
         except Exception as e:
-            logger.error("Failed to load capabilities from server '%s': %s", server.name, str(e))
+            logger.exception(
+                "Failed to load capabilities from server '%s': %s",
+                server.name,
+                str(e),
+            )
 
     async def _health_check_loop(self) -> None:
         """Background health check loop."""
@@ -285,7 +287,7 @@ class ServerManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("Error in health check loop: %s", str(e))
+                logger.exception("Error in health check loop: %s", str(e))
                 await asyncio.sleep(5)  # Brief pause before retrying
 
     async def _perform_health_checks(self) -> None:
@@ -312,7 +314,7 @@ class ServerManager:
                         and server.health.failure_count
                         >= self.bridge_config.bridge.failover.max_failures
                     ):
-                        logger.error(
+                        logger.exception(
                             "Server '%s' marked as failed after %d failures",
                             server.name,
                             server.health.failure_count,
@@ -354,7 +356,8 @@ class ServerManager:
                         self.bridge_config.bridge
                         and self.bridge_config.bridge.conflict_resolution == "error"
                     ):
-                        raise ValueError(f"Tool name conflict: {tool_name}")
+                        msg = f"Tool name conflict: {tool_name}"
+                        raise ValueError(msg)
                     if (
                         self.bridge_config.bridge
                         and self.bridge_config.bridge.conflict_resolution == "first"
@@ -396,7 +399,8 @@ class ServerManager:
                         self.bridge_config.bridge
                         and self.bridge_config.bridge.conflict_resolution == "error"
                     ):
-                        raise ValueError(f"Resource URI conflict: {resource_uri}")
+                        msg = f"Resource URI conflict: {resource_uri}"
+                        raise ValueError(msg)
                     if (
                         self.bridge_config.bridge
                         and self.bridge_config.bridge.conflict_resolution == "first"
@@ -438,7 +442,8 @@ class ServerManager:
                         self.bridge_config.bridge
                         and self.bridge_config.bridge.conflict_resolution == "error"
                     ):
-                        raise ValueError(f"Prompt name conflict: {prompt_name}")
+                        msg = f"Prompt name conflict: {prompt_name}"
+                        raise ValueError(msg)
                     if (
                         self.bridge_config.bridge
                         and self.bridge_config.bridge.conflict_resolution == "first"
@@ -481,18 +486,19 @@ class ServerManager:
                     break
 
         if not server or not server.session:
-            raise ValueError(f"No active server found for tool: {tool_name}")
+            msg = f"No active server found for tool: {tool_name}"
+            raise ValueError(msg)
 
         # Verify tool exists
         if not any(tool.name == actual_tool_name for tool in server.tools):
-            raise ValueError(f"Tool '{actual_tool_name}' not found on server '{server.name}'")
+            msg = f"Tool '{actual_tool_name}' not found on server '{server.name}'"
+            raise ValueError(msg)
 
         # Call the tool
         try:
-            result = await server.session.call_tool(actual_tool_name, arguments)
-            return result
+            return await server.session.call_tool(actual_tool_name, arguments)
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "Error calling tool '%s' on server '%s': %s",
                 actual_tool_name,
                 server.name,
@@ -524,14 +530,14 @@ class ServerManager:
                     break
 
         if not server or not server.session:
-            raise ValueError(f"No active server found for resource: {resource_uri}")
+            msg = f"No active server found for resource: {resource_uri}"
+            raise ValueError(msg)
 
         # Call the resource
         try:
-            result = await server.session.read_resource(actual_uri)  # type: ignore[arg-type]
-            return result
+            return await server.session.read_resource(actual_uri)  # type: ignore[arg-type]
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "Error reading resource '%s' on server '%s': %s",
                 actual_uri,
                 server.name,
@@ -567,14 +573,14 @@ class ServerManager:
                     break
 
         if not server or not server.session:
-            raise ValueError(f"No active server found for prompt: {prompt_name}")
+            msg = f"No active server found for prompt: {prompt_name}"
+            raise ValueError(msg)
 
         # Call the prompt
         try:
-            result = await server.session.get_prompt(actual_prompt_name, arguments)
-            return result
+            return await server.session.get_prompt(actual_prompt_name, arguments)
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "Error getting prompt '%s' on server '%s': %s",
                 actual_prompt_name,
                 server.name,

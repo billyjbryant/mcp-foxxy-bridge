@@ -201,7 +201,7 @@ Different configs for different environments:
 # Development
 mcp-foxxy-bridge --bridge-config dev_config.json
 
-# Staging  
+# Staging
 mcp-foxxy-bridge --bridge-config staging_config.json
 
 # Production
@@ -269,18 +269,18 @@ upstream mcp_bridge {
 server {
     listen 80;
     server_name mcp-bridge.example.com;
-    
+
     location / {
         proxy_pass http://mcp_bridge;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        
+
         # SSE specific settings
         proxy_cache off;
         proxy_buffering off;
         proxy_read_timeout 24h;
     }
-    
+
     location /status {
         proxy_pass http://mcp_bridge;
         proxy_set_header Host $host;

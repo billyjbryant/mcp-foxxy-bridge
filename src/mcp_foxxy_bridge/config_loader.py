@@ -6,7 +6,8 @@
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,7 +17,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
-# MIT License attribution: Portions of this file were originally licensed under the MIT License by Sergey Parfenyuk (2024).
+# MIT License attribution: Portions of this file were originally licensed
+# under the MIT License by Sergey Parfenyuk (2024).
 #
 """Configuration loader for MCP Foxxy Bridge.
 
@@ -251,11 +253,13 @@ def validate_bridge_config(config_data: dict[str, Any]) -> None:
     try:
         jsonschema.validate(config_data, schema)  # type: ignore[no-untyped-call]
     except jsonschema.ValidationError as e:
-        logger.error("Configuration validation failed: %s", str(e))
-        raise ValueError(f"Invalid configuration: {e.message}") from e
+        logger.exception("Configuration validation failed: %s", str(e))
+        msg = f"Invalid configuration: {e.message}"
+        raise ValueError(msg) from e
     except Exception as e:
-        logger.error("Unexpected error during configuration validation: %s", str(e))
-        raise ValueError(f"Configuration validation error: {e}") from e
+        logger.exception("Unexpected error during configuration validation: %s", str(e))
+        msg = f"Configuration validation error: {e}"
+        raise ValueError(msg) from e
 
 
 def validate_server_config(name: str, server_config: dict[str, Any]) -> list[str]:
@@ -490,7 +494,7 @@ def load_bridge_config_from_file(
     try:
         validate_bridge_config(config_data)
     except ValueError as e:
-        logger.error("Configuration validation failed for %s: %s", config_file_path, str(e))
+        logger.exception("Configuration validation failed for %s: %s", config_file_path, str(e))
         raise
 
     # Parse server configurations
