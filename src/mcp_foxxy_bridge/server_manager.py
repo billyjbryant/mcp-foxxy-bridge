@@ -152,10 +152,12 @@ class ServerManager:
             and self.bridge_config.bridge.failover.enabled
         ):
             self.health_check_task = asyncio.create_task(self._health_check_loop())
-            
+
         # Start keep-alive task for all servers with keep-alive enabled
-        if any(server.config.health_check and server.config.health_check.enabled 
-               for server in self.servers.values()):
+        if any(
+            server.config.health_check and server.config.health_check.enabled
+            for server in self.servers.values()
+        ):
             self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
 
         logger.info("Server manager started with %d active servers", len(self.get_active_servers()))
@@ -172,7 +174,7 @@ class ServerManager:
             self.health_check_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.health_check_task
-                
+
         if self.keep_alive_task:
             self.keep_alive_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -278,7 +280,7 @@ class ServerManager:
             # Validate health check configuration against server capabilities
             if server.config.health_check:
                 await self._validate_health_check_config(server)
-                
+
             # Load tools
             if server.health.capabilities.tools:
                 tools_result = await server.session.list_tools()
@@ -306,32 +308,35 @@ class ServerManager:
                 "Failed to load capabilities from server '%s'",
                 server.name,
             )
-            
+
     async def _validate_health_check_config(self, server: ManagedServer) -> None:
         """Validate health check configuration against server capabilities."""
         if not server.config.health_check or not server.health.capabilities:
             return
-            
+
         hc = server.config.health_check
         caps = server.health.capabilities
-        
+
         # Validate operation against server capabilities
         if hc.operation == "call_tool" and not caps.tools:
             logger.warning(
-                "Server '%s' health check configured for 'call_tool' but server doesn't support tools",
-                server.name
+                "Server '%s' health check configured for 'call_tool' "
+                "but server doesn't support tools",
+                server.name,
             )
         elif hc.operation == "read_resource" and not caps.resources:
             logger.warning(
-                "Server '%s' health check configured for 'read_resource' but server doesn't support resources",
-                server.name
+                "Server '%s' health check configured for 'read_resource' "
+                "but server doesn't support resources",
+                server.name,
             )
         elif hc.operation == "get_prompt" and not caps.prompts:
             logger.warning(
-                "Server '%s' health check configured for 'get_prompt' but server doesn't support prompts",
-                server.name
+                "Server '%s' health check configured for 'get_prompt' "
+                "but server doesn't support prompts",
+                server.name,
             )
-            
+
         # Validate specific tool exists if configured
         if hc.operation == "call_tool" and hc.tool_name and server.tools:
             tool_exists = any(tool.name == hc.tool_name for tool in server.tools)
@@ -339,19 +344,21 @@ class ServerManager:
                 logger.warning(
                     "Server '%s' health check configured for tool '%s' but tool not found",
                     server.name,
-                    hc.tool_name
+                    hc.tool_name,
                 )
-                
+
         # Validate resource URI exists if configured
         if hc.operation == "read_resource" and hc.resource_uri and server.resources:
-            resource_exists = any(str(resource.uri) == hc.resource_uri for resource in server.resources)
+            resource_exists = any(
+                str(resource.uri) == hc.resource_uri for resource in server.resources
+            )
             if not resource_exists:
                 logger.warning(
                     "Server '%s' health check configured for resource '%s' but resource not found",
                     server.name,
-                    hc.resource_uri
+                    hc.resource_uri,
                 )
-                
+
         # Validate prompt exists if configured
         if hc.operation == "get_prompt" and hc.prompt_name and server.prompts:
             prompt_exists = any(prompt.name == hc.prompt_name for prompt in server.prompts)
@@ -359,7 +366,7 @@ class ServerManager:
                 logger.warning(
                     "Server '%s' health check configured for prompt '%s' but prompt not found",
                     server.name,
-                    hc.prompt_name
+                    hc.prompt_name,
                 )
 
     async def _health_check_loop(self) -> None:
@@ -373,7 +380,7 @@ class ServerManager:
             except Exception:
                 logger.exception("Error in health check loop")
                 await asyncio.sleep(5)  # Brief pause before retrying
-                
+
     async def _keep_alive_loop(self) -> None:
         """Keep-alive loop for all servers."""
         while not self._shutdown_event.is_set():
@@ -381,10 +388,12 @@ class ServerManager:
                 await self._perform_keep_alive_checks()
                 # Use the minimum keep-alive interval from all servers
                 min_interval = min(
-                    (server.config.health_check.keep_alive_interval / 1000.0
-                     for server in self.servers.values()
-                     if server.config.health_check and server.config.health_check.enabled),
-                    default=60.0
+                    (
+                        server.config.health_check.keep_alive_interval / 1000.0
+                        for server in self.servers.values()
+                        if server.config.health_check and server.config.health_check.enabled
+                    ),
+                    default=60.0,
                 )
                 await asyncio.sleep(min_interval)
             except asyncio.CancelledError:
@@ -402,7 +411,7 @@ class ServerManager:
                     health_timeout = 5.0
                     if server.config.health_check:
                         health_timeout = server.config.health_check.timeout / 1000.0
-                        
+
                     await asyncio.wait_for(
                         self._execute_health_check_operation(server),
                         timeout=health_timeout,
@@ -418,28 +427,33 @@ class ServerManager:
 
                     # Check if server should be marked as failed
                     max_failures = 3  # Default
-                    if (
-                        self.bridge_config.bridge
-                        and self.bridge_config.bridge.failover
-                    ):
+                    if self.bridge_config.bridge and self.bridge_config.bridge.failover:
                         max_failures = self.bridge_config.bridge.failover.max_failures
                     elif server.config.health_check:
                         max_failures = server.config.health_check.max_consecutive_failures
-                        
+
                     if server.health.consecutive_failures >= max_failures:
-                        logger.error(
+                        logger.exception(
                             "Server '%s' marked as failed after %d consecutive failures",
                             server.name,
                             server.health.consecutive_failures,
                         )
                         server.health.status = ServerStatus.FAILED
                         await self._disconnect_server(server)
-                        
+
                         # Attempt automatic restart if enabled
-                        if (server.config.health_check and 
-                            server.config.health_check.auto_restart and
-                            server.health.restart_count < server.config.health_check.max_restart_attempts):
-                            asyncio.create_task(self._restart_server(server))
+                        if (
+                            server.config.health_check
+                            and server.config.health_check.auto_restart
+                            and server.health.restart_count
+                            < server.config.health_check.max_restart_attempts
+                        ):
+                            # Start restart task and store reference to prevent GC
+                            restart_task = asyncio.create_task(self._restart_server(server))
+                            if not hasattr(self, "_restart_tasks"):
+                                self._restart_tasks = set()
+                            self._restart_tasks.add(restart_task)
+                            restart_task.add_done_callback(self._restart_tasks.discard)
 
     def get_active_servers(self) -> list[ManagedServer]:
         """Get list of active (connected) servers."""
@@ -731,9 +745,15 @@ class ServerManager:
                     "args": server.config.args,
                     "priority": server.config.priority,
                     "tags": server.config.tags,
-                    "health_check_enabled": server.config.health_check.enabled if server.config.health_check else False,
-                    "health_check_operation": server.config.health_check.operation if server.config.health_check else "list_tools",
-                    "auto_restart": server.config.health_check.auto_restart if server.config.health_check else False,
+                    "health_check_enabled": server.config.health_check.enabled
+                    if server.config.health_check
+                    else False,
+                    "health_check_operation": server.config.health_check.operation
+                    if server.config.health_check
+                    else "list_tools",
+                    "auto_restart": server.config.health_check.auto_restart
+                    if server.config.health_check
+                    else False,
                 },
             }
         return status
@@ -922,88 +942,103 @@ class ServerManager:
         )
 
         return unique_completions
-        
+
     async def _perform_keep_alive_checks(self) -> None:
         """Perform keep-alive checks on all connected servers."""
         current_time = time.time()
-        
+
         for server in self.servers.values():
-            if (server.health.status != ServerStatus.CONNECTED or 
-                not server.session or
-                not server.config.health_check or
-                not server.config.health_check.enabled):
+            if (
+                server.health.status != ServerStatus.CONNECTED
+                or not server.session
+                or not server.config.health_check
+                or not server.config.health_check.enabled
+            ):
                 continue
-                
+
             # Check if it's time for a keep-alive ping
             time_since_last_keep_alive = current_time - server.health.last_keep_alive
             keep_alive_interval = server.config.health_check.keep_alive_interval / 1000.0
-            
+
             if time_since_last_keep_alive >= keep_alive_interval:
-                asyncio.create_task(self._send_keep_alive(server))
-                
+                # Start keep-alive task and store reference to prevent GC
+                keep_alive_task = asyncio.create_task(self._send_keep_alive(server))
+                if not hasattr(self, "_keep_alive_tasks"):
+                    self._keep_alive_tasks = set()
+                self._keep_alive_tasks.add(keep_alive_task)
+                keep_alive_task.add_done_callback(self._keep_alive_tasks.discard)
+
     async def _send_keep_alive(self, server: ManagedServer) -> None:
         """Send a keep-alive ping to a specific server."""
         if not server.session or not server.config.health_check:
             return
-            
+
         try:
             # Use configured keep-alive operation (same as health check by default)
-            timeout = server.config.health_check.keep_alive_timeout / 1000.0 
-            await asyncio.wait_for(
-                self._execute_health_check_operation(server),
-                timeout=timeout
-            )
-            
+            timeout = server.config.health_check.keep_alive_timeout / 1000.0
+            await asyncio.wait_for(self._execute_health_check_operation(server), timeout=timeout)
+
             # Update keep-alive tracking
             server.health.last_keep_alive = time.time()
             server.health.keep_alive_failures = 0
             logger.debug("Keep-alive successful for server '%s'", server.name)
-            
+
         except Exception as e:
             server.health.keep_alive_failures += 1
             logger.warning(
-                "Keep-alive failed for server '%s' (failure %d): %s", 
-                server.name, 
+                "Keep-alive failed for server '%s' (failure %d): %s",
+                server.name,
                 server.health.keep_alive_failures,
-                str(e)
+                str(e),
             )
-            
+
             # If keep-alive failures exceed threshold, mark as problematic
-            if server.health.keep_alive_failures >= 3:
-                logger.error(
+            max_keep_alive_failures = 3
+            if server.health.keep_alive_failures >= max_keep_alive_failures:
+                logger.exception(
                     "Server '%s' has %d consecutive keep-alive failures, marking as failed",
                     server.name,
-                    server.health.keep_alive_failures
+                    server.health.keep_alive_failures,
                 )
                 server.health.status = ServerStatus.FAILED
                 server.health.consecutive_failures += server.health.keep_alive_failures
                 await self._disconnect_server(server)
-                
+
                 # Attempt restart if enabled
-                if (server.config.health_check.auto_restart and
-                    server.health.restart_count < server.config.health_check.max_restart_attempts):
-                    asyncio.create_task(self._restart_server(server))
-                    
+                if (
+                    server.config.health_check.auto_restart
+                    and server.health.restart_count
+                    < server.config.health_check.max_restart_attempts
+                ):
+                    # Start restart task and store reference to prevent GC
+                    restart_task = asyncio.create_task(self._restart_server(server))
+                    if not hasattr(self, "_restart_tasks"):
+                        self._restart_tasks = set()
+                    self._restart_tasks.add(restart_task)
+                    restart_task.add_done_callback(self._restart_tasks.discard)
+
     async def _restart_server(self, server: ManagedServer) -> None:
         """Restart a failed server."""
         # Prevent multiple simultaneous restart attempts
         if server.name not in self._restart_locks:
             self._restart_locks[server.name] = asyncio.Lock()
-            
+
         async with self._restart_locks[server.name]:
             if server.health.status != ServerStatus.FAILED:
                 return  # Server recovered while we were waiting for lock
-                
+
             server.health.restart_count += 1
             server.health.last_restart = time.time()
-            
+
             logger.info(
                 "Attempting to restart server '%s' (attempt %d/%d)",
                 server.name,
                 server.health.restart_count,
-                server.config.health_check.max_restart_attempts if server.config.health_check else 5
+                server.config.health_check.max_restart_attempts
+                if server.config.health_check
+                else 5,
             )
-            
+
             try:
                 # Wait before restart attempt
                 if server.config.health_check:
@@ -1011,41 +1046,42 @@ class ServerManager:
                     await asyncio.sleep(restart_delay)
                 else:
                     await asyncio.sleep(5.0)  # Default delay
-                
+
                 # Ensure server is disconnected first
                 await self._disconnect_server(server)
-                
+
                 # Reset some health metrics for restart
                 server.health.consecutive_failures = 0
                 server.health.keep_alive_failures = 0
-                
+
                 # Attempt to reconnect
                 await self._connect_server(server)
-                
+
                 # Check if restart was successful
                 # Note: _connect_server will set status to CONNECTED or FAILED
                 if server.health.status is ServerStatus.CONNECTED:  # type: ignore[comparison-overlap]
                     logger.info("Successfully restarted server '%s'", server.name)  # type: ignore[unreachable]
                 else:
                     logger.error("Failed to restart server '%s'", server.name)
-                    
+
             except Exception as e:
-                logger.exception("Error during server restart for '%s': %s", server.name, str(e))
-                server.health.last_error = f"Restart failed: {str(e)}"
-                
+                logger.exception("Error during server restart for '%s'", server.name)
+                server.health.last_error = f"Restart failed: {e!s}"
+
     async def _execute_health_check_operation(self, server: ManagedServer) -> None:
         """Execute the configured health check operation for a server."""
         if not server.session:
-            raise RuntimeError(f"No session available for server '{server.name}'")
-            
+            msg = f"No session available for server '{server.name}'"
+            raise RuntimeError(msg)
+
         if not server.config.health_check:
             # Fallback to default operation
             await server.session.list_tools()
             return
-            
+
         operation = server.config.health_check.operation.lower()
         session = server.session
-        
+
         try:
             if operation == "list_tools":
                 await session.list_tools()
@@ -1056,66 +1092,69 @@ class ServerManager:
             elif operation == "call_tool":
                 if not server.config.health_check.tool_name:
                     logger.warning(
-                        "Health check operation 'call_tool' requires 'toolName' for server '%s', falling back to list_tools",
-                        server.name
+                        "Health check operation 'call_tool' requires 'toolName' for server '%s', "
+                        "falling back to list_tools",
+                        server.name,
                     )
                     await session.list_tools()
                     return
-                    
+
                 tool_args = server.config.health_check.tool_arguments or {}
                 await session.call_tool(server.config.health_check.tool_name, tool_args)
-                
+
             elif operation == "read_resource":
                 if not server.config.health_check.resource_uri:
                     logger.warning(
-                        "Health check operation 'read_resource' requires 'resourceUri' for server '%s', falling back to list_tools",
-                        server.name
+                        "Health check operation 'read_resource' requires 'resourceUri' for "
+                        "server '%s', falling back to list_tools",
+                        server.name,
                     )
                     await session.list_tools()
                     return
-                    
-                from pydantic import AnyUrl
+
                 await session.read_resource(AnyUrl(server.config.health_check.resource_uri))
-                
+
             elif operation == "get_prompt":
                 if not server.config.health_check.prompt_name:
                     logger.warning(
-                        "Health check operation 'get_prompt' requires 'promptName' for server '%s', falling back to list_tools",
-                        server.name
+                        "Health check operation 'get_prompt' requires 'promptName' for "
+                        "server '%s', falling back to list_tools",
+                        server.name,
                     )
                     await session.list_tools()
                     return
-                    
+
                 prompt_args = server.config.health_check.prompt_arguments
                 await session.get_prompt(server.config.health_check.prompt_name, prompt_args)
-                
+
             elif operation in ["ping", "health", "status"]:
                 # For common health check operations, try to use a ping if available
                 # Fall back to list_tools if no specific ping operation exists
                 try:
                     # Some servers might have a dedicated ping/health operation
-                    if hasattr(session, 'ping'):
+                    if hasattr(session, "ping"):
                         await session.ping()
                     else:
                         await session.list_tools()
                 except AttributeError:
                     await session.list_tools()
-                    
+
             else:
                 logger.warning(
-                    "Unknown health check operation '%s' for server '%s', falling back to list_tools",
+                    "Unknown health check operation '%s' for server '%s', "
+                    "falling back to list_tools",
                     operation,
-                    server.name
+                    server.name,
                 )
                 await session.list_tools()
-                
+
         except Exception as e:
             # Log the specific operation that failed for debugging
             logger.debug(
                 "Health check operation '%s' failed for server '%s': %s",
                 operation,
                 server.name,
-                str(e)
+                str(e),
             )
             # Re-raise the exception to be handled by the calling function
             raise
