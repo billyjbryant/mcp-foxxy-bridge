@@ -4,5 +4,10 @@
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"]
     }
+  },
+  "bridge": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "conflictResolution": "namespace"
   }
 }

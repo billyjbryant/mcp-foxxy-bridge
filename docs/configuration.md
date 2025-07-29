@@ -92,6 +92,8 @@ The `bridge` section controls bridge-wide behavior:
 ```json
 {
   "bridge": {
+    "host": "127.0.0.1",               // Host to bind to (default: localhost)
+    "port": 8080,                      // Port to bind to (default: 8080)
     "conflictResolution": "namespace",  // How to handle tool name conflicts
     "defaultNamespace": true,           // Use server name as default namespace
     "aggregation": {
@@ -107,6 +109,15 @@ The `bridge` section controls bridge-wide behavior:
   }
 }
 ```
+
+### Network Configuration
+
+- `"host"`: Interface to bind to (default: `"127.0.0.1"` for localhost-only access)
+  - Use `"127.0.0.1"` for local-only access (recommended for security)
+  - Use `"0.0.0.0"` to allow external connections (requires careful firewall setup)
+- `"port"`: TCP port to bind to (default: `8080`)
+
+**Security Note**: The default configuration binds only to localhost (`127.0.0.1`) for security. Only change this if you need external access and have proper security measures in place.
 
 ### Conflict Resolution Options
 
@@ -193,6 +204,8 @@ The `bridge` section controls bridge-wide behavior:
     }
   },
   "bridge": {
+    "host": "127.0.0.1",
+    "port": 8080,
     "conflictResolution": "namespace",
     "defaultNamespace": true,
     "aggregation": {
@@ -217,7 +230,7 @@ Override configuration with command-line arguments:
 # Basic usage
 mcp-foxxy-bridge --bridge-config config.json
 
-# Custom port and host
+# Custom port and host (overrides config file settings)
 mcp-foxxy-bridge --bridge-config config.json --port 8081 --host 0.0.0.0
 
 # Debug mode
@@ -226,6 +239,11 @@ mcp-foxxy-bridge --bridge-config config.json --debug
 # Pass environment variables
 GITHUB_TOKEN=abc123 mcp-foxxy-bridge --bridge-config config.json
 ```
+
+**Configuration Priority** (highest to lowest):
+1. Command-line arguments (`--host`, `--port`)
+2. Configuration file bridge settings (`bridge.host`, `bridge.port`)
+3. Default values (`127.0.0.1:8080`)
 
 ## Validation
 

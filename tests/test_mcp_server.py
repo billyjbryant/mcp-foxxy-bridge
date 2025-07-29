@@ -495,6 +495,7 @@ async def test_run_mcp_server_uvicorn_config(
         patch("mcp_foxxy_bridge.mcp_server.ClientSession") as mock_client_session,
         patch("mcp_foxxy_bridge.mcp_server.create_proxy_server") as mock_create_proxy,
         patch("mcp_foxxy_bridge.mcp_server.create_single_instance_routes") as mock_create_routes,
+        patch("mcp_foxxy_bridge.mcp_server._find_available_port") as mock_find_port,
         patch("uvicorn.Config") as mock_uvicorn_config,
         patch("uvicorn.Server") as mock_uvicorn_server,
     ):
@@ -508,6 +509,9 @@ async def test_run_mcp_server_uvicorn_config(
         mock_proxy = AsyncMock()
         mock_create_proxy.return_value = mock_proxy
         mock_create_routes.return_value = (mock_routes, mock_http_manager)
+
+        # Mock _find_available_port to return the expected port
+        mock_find_port.return_value = mock_settings.port
 
         mock_config = MagicMock()
         mock_uvicorn_config.return_value = mock_config
@@ -580,6 +584,7 @@ async def test_run_mcp_server_sse_url_logging(
         patch("mcp_foxxy_bridge.mcp_server.ClientSession") as mock_client_session,
         patch("mcp_foxxy_bridge.mcp_server.create_proxy_server") as mock_create_proxy,
         patch("mcp_foxxy_bridge.mcp_server.create_single_instance_routes") as mock_create_routes,
+        patch("mcp_foxxy_bridge.mcp_server._find_available_port") as mock_find_port,
         patch("uvicorn.Server") as mock_uvicorn_server,
         patch("mcp_foxxy_bridge.mcp_server.logger") as mock_logger,
     ):
@@ -593,6 +598,9 @@ async def test_run_mcp_server_sse_url_logging(
         mock_proxy = AsyncMock()
         mock_create_proxy.return_value = mock_proxy
         mock_create_routes.return_value = (mock_routes, mock_http_manager)
+
+        # Mock _find_available_port to return the expected port
+        mock_find_port.return_value = mock_settings.port
 
         mock_server_instance = AsyncMock()
         mock_uvicorn_server.return_value = mock_server_instance
