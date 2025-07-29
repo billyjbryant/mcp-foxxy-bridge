@@ -437,7 +437,8 @@ def validate_server_config(name: str, server_config: dict[str, Any]) -> list[str
         ]
         if operation not in valid_operations:
             warnings.append(
-                f"Server '{name}' has invalid healthCheck.operation '{operation}' (must be one of {valid_operations})"
+                f"Server '{name}' has invalid healthCheck.operation '{operation}' "
+                f"(must be one of {valid_operations})"
             )
 
         # Validate operation-specific requirements
@@ -460,9 +461,14 @@ def validate_server_config(name: str, server_config: dict[str, Any]) -> list[str
             warnings.append(f"Server '{name}' has invalid healthCheck.httpMethod '{http_method}'")
 
         expected_status = health_check.get("expectedStatus", 200)
-        if expected_status is not None and (expected_status < 100 or expected_status > 599):
+        min_status = 100
+        max_status = 599
+        if expected_status is not None and (
+            expected_status < min_status or expected_status > max_status
+        ):
             warnings.append(
-                f"Server '{name}' has invalid healthCheck.expectedStatus '{expected_status}' (must be 100-599)"
+                f"Server '{name}' has invalid healthCheck.expectedStatus '{expected_status}' "
+                f"(must be {min_status}-{max_status})"
             )
 
     return warnings
