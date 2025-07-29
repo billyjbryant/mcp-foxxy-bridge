@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.0.1...v1.1.0) (2025-07-29)
+
+
+### 🚀 Features
+
+* Enhanced Health Checks with Keep-Alive and Auto-Restart ([#4](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/4)) ([660e0e2](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/660e0e22ae15b224f115de7e6cb3b4cb06410ea7))
+
+
+### 📚 Documentation
+
+* updated the readme ([#2](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/2)) ([4672644](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/467264425321594c161a5e98a9c8f895ae05a7fd))
+
 ## [1.0.1](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.0.0...v1.0.1) (2025-07-27)
 
 
