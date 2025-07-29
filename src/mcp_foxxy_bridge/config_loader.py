@@ -92,6 +92,26 @@ class HealthCheckConfig:
     enabled: bool = True
     interval: int = 30000  # milliseconds
     timeout: int = 5000  # milliseconds
+    keep_alive_interval: int = 60000  # milliseconds - frequent keep-alive pings
+    keep_alive_timeout: int = 10000  # milliseconds - timeout for keep-alive pings
+    max_consecutive_failures: int = 3  # failures before marking server as failed
+    auto_restart: bool = True  # automatically restart failed servers
+    restart_delay: int = 5000  # milliseconds - delay before restart attempt
+    max_restart_attempts: int = 5  # maximum restart attempts before giving up
+
+    # Health check operation configuration
+    operation: str = "list_tools"  # MCP operation to use for health checks
+    tool_name: str | None = None  # Specific tool name if operation is "call_tool"
+    tool_arguments: dict[str, str] | None = None  # Arguments for tool calls
+    resource_uri: str | None = None  # Resource URI if operation is "read_resource"
+    prompt_name: str | None = None  # Prompt name if operation is "get_prompt"
+    prompt_arguments: dict[str, str] | None = None  # Arguments for prompt calls
+
+    # HTTP-specific health check options (for remote MCP servers)
+    http_path: str | None = None  # Custom HTTP path for health checks
+    http_method: str = "GET"  # HTTP method for health checks
+    expected_status: int = 200  # Expected HTTP status code
+    expected_content: str | None = None  # Expected content substring
 
 
 @dataclass
@@ -211,6 +231,48 @@ def validate_bridge_config(config_data: dict[str, Any]) -> None:
                                     "enabled": {"type": "boolean"},
                                     "interval": {"type": "number", "minimum": 1000},
                                     "timeout": {"type": "number", "minimum": 1000},
+                                    "keepAliveInterval": {"type": "number", "minimum": 1000},
+                                    "keepAliveTimeout": {"type": "number", "minimum": 1000},
+                                    "maxConsecutiveFailures": {"type": "number", "minimum": 1},
+                                    "autoRestart": {"type": "boolean"},
+                                    "restartDelay": {"type": "number", "minimum": 0},
+                                    "maxRestartAttempts": {"type": "number", "minimum": 1},
+                                    "operation": {
+                                        "type": "string",
+                                        "enum": [
+                                            "list_tools",
+                                            "list_resources",
+                                            "list_prompts",
+                                            "call_tool",
+                                            "read_resource",
+                                            "get_prompt",
+                                            "ping",
+                                            "health",
+                                            "status",
+                                        ],
+                                    },
+                                    "toolName": {"type": "string"},
+                                    "toolArguments": {
+                                        "type": "object",
+                                        "additionalProperties": {"type": "string"},
+                                    },
+                                    "resourceUri": {"type": "string"},
+                                    "promptName": {"type": "string"},
+                                    "promptArguments": {
+                                        "type": "object",
+                                        "additionalProperties": {"type": "string"},
+                                    },
+                                    "httpPath": {"type": "string"},
+                                    "httpMethod": {
+                                        "type": "string",
+                                        "enum": ["GET", "POST", "PUT", "HEAD"],
+                                    },
+                                    "expectedStatus": {
+                                        "type": "number",
+                                        "minimum": 100,
+                                        "maximum": 599,
+                                    },
+                                    "expectedContent": {"type": "string"},
                                 },
                             },
                             "toolNamespace": {"type": "string"},
@@ -342,12 +404,72 @@ def validate_server_config(name: str, server_config: dict[str, Any]) -> list[str
     if not isinstance(health_check, dict):
         warnings.append(f"Server '{name}' has invalid 'healthCheck' field (must be object)")
     else:
-        for field, min_val in [("interval", 1000), ("timeout", 1000)]:
+        # Validate numeric fields with minimum values
+        numeric_fields = [
+            ("interval", 1000),
+            ("timeout", 1000),
+            ("keepAliveInterval", 1000),
+            ("keepAliveTimeout", 1000),
+            ("maxConsecutiveFailures", 1),
+            ("restartDelay", 0),
+            ("maxRestartAttempts", 1),
+            ("expectedStatus", 100),
+        ]
+        for field, min_val in numeric_fields:
             value = health_check.get(field)
             if value is not None and (not isinstance(value, (int, float)) or value < min_val):
                 warnings.append(
                     f"Server '{name}' has invalid healthCheck.{field} value (must be >= {min_val})",
                 )
+
+        # Validate operation field
+        operation = health_check.get("operation", "list_tools")
+        valid_operations = [
+            "list_tools",
+            "list_resources",
+            "list_prompts",
+            "call_tool",
+            "read_resource",
+            "get_prompt",
+            "ping",
+            "health",
+            "status",
+        ]
+        if operation not in valid_operations:
+            warnings.append(
+                f"Server '{name}' has invalid healthCheck.operation '{operation}' "
+                f"(must be one of {valid_operations})"
+            )
+
+        # Validate operation-specific requirements
+        if operation == "call_tool" and not health_check.get("toolName"):
+            warnings.append(
+                f"Server '{name}' healthCheck operation 'call_tool' requires 'toolName'"
+            )
+        elif operation == "read_resource" and not health_check.get("resourceUri"):
+            warnings.append(
+                f"Server '{name}' healthCheck operation 'read_resource' requires 'resourceUri'"
+            )
+        elif operation == "get_prompt" and not health_check.get("promptName"):
+            warnings.append(
+                f"Server '{name}' healthCheck operation 'get_prompt' requires 'promptName'"
+            )
+
+        # Validate HTTP-specific fields
+        http_method = health_check.get("httpMethod", "GET")
+        if http_method not in ["GET", "POST", "PUT", "HEAD"]:
+            warnings.append(f"Server '{name}' has invalid healthCheck.httpMethod '{http_method}'")
+
+        expected_status = health_check.get("expectedStatus", 200)
+        min_status = 100
+        max_status = 599
+        if expected_status is not None and (
+            expected_status < min_status or expected_status > max_status
+        ):
+            warnings.append(
+                f"Server '{name}' has invalid healthCheck.expectedStatus '{expected_status}' "
+                f"(must be {min_status}-{max_status})"
+            )
 
     return warnings
 
@@ -522,6 +644,22 @@ def load_bridge_config_from_file(
             enabled=health_check_data.get("enabled", True),
             interval=health_check_data.get("interval", 30000),
             timeout=health_check_data.get("timeout", 5000),
+            keep_alive_interval=health_check_data.get("keepAliveInterval", 60000),
+            keep_alive_timeout=health_check_data.get("keepAliveTimeout", 10000),
+            max_consecutive_failures=health_check_data.get("maxConsecutiveFailures", 3),
+            auto_restart=health_check_data.get("autoRestart", True),
+            restart_delay=health_check_data.get("restartDelay", 5000),
+            max_restart_attempts=health_check_data.get("maxRestartAttempts", 5),
+            operation=health_check_data.get("operation", "list_tools"),
+            tool_name=health_check_data.get("toolName"),
+            tool_arguments=health_check_data.get("toolArguments"),
+            resource_uri=health_check_data.get("resourceUri"),
+            prompt_name=health_check_data.get("promptName"),
+            prompt_arguments=health_check_data.get("promptArguments"),
+            http_path=health_check_data.get("httpPath"),
+            http_method=health_check_data.get("httpMethod", "GET"),
+            expected_status=health_check_data.get("expectedStatus", 200),
+            expected_content=health_check_data.get("expectedContent"),
         )
 
         # Create server environment
