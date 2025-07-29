@@ -125,6 +125,28 @@ See [API Reference](docs/api.md) for integration details.
 
 ---
 
+## 🔒 Security
+
+MCP Foxxy Bridge follows security best practices:
+
+### Network Security
+- **Default binding**: Bridge binds to `127.0.0.1:8080` (localhost-only) by default
+- **MCP server isolation**: Individual MCP servers communicate via local stdio pipes, never network ports
+- **Configurable access**: Host and port settings can be configured via config file or CLI arguments
+
+### Configuration Priority
+1. Command-line arguments (`--host`, `--port`) - highest priority
+2. Configuration file bridge settings (`bridge.host`, `bridge.port`)
+3. Secure defaults (`127.0.0.1:8080`) - lowest priority
+
+### Security Recommendations
+- Keep the default `127.0.0.1` binding unless external access is required
+- If external access is needed, use proper firewall rules and authentication
+- Regularly update MCP server dependencies
+- Monitor server logs for unusual activity
+
+---
+
 ## ⚖️ License
 
 This project is licensed under the GNU Affero General Public License v3.0 or later (AGPLv3+). See the [LICENSE](LICENSE) file for details.

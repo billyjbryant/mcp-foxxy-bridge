@@ -172,6 +172,8 @@ class BridgeConfig:
     default_namespace: bool = True
     aggregation: AggregationConfig | None = None
     failover: FailoverConfig | None = None
+    host: str = "127.0.0.1"  # Default to localhost for security
+    port: int = 8080  # Default port
 
     def __post_init__(self) -> None:
         """Initialize default values for bridge configuration."""
@@ -309,6 +311,8 @@ def validate_bridge_config(config_data: dict[str, Any]) -> None:
                             "recoveryInterval": {"type": "number", "minimum": 1000},
                         },
                     },
+                    "host": {"type": "string"},
+                    "port": {"type": "number", "minimum": 1, "maximum": 65535},
                 },
             },
         },
@@ -732,6 +736,8 @@ def load_bridge_config_from_file(
         default_namespace=bridge_data.get("defaultNamespace", True),
         aggregation=aggregation,
         failover=failover,
+        host=bridge_data.get("host", "127.0.0.1"),
+        port=bridge_data.get("port", 8080),
     )
 
     return BridgeConfiguration(servers=servers, bridge=bridge)

@@ -43,7 +43,11 @@ from pathlib import Path
 
 from mcp.client.stdio import StdioServerParameters
 
-from .config_loader import load_bridge_config_from_file, load_named_server_configs_from_file
+from .config_loader import (
+    BridgeConfiguration,
+    load_bridge_config_from_file,
+    load_named_server_configs_from_file,
+)
 from .mcp_server import MCPServerSettings, run_bridge_server
 from .sse_client import run_sse_client
 from .streamablehttp_client import run_streamablehttp_client
@@ -378,11 +382,27 @@ def _configure_named_servers_from_cli(
     return named_stdio_params
 
 
-def _create_mcp_settings(args_parsed: argparse.Namespace) -> MCPServerSettings:
-    """Create MCP server settings from parsed arguments."""
+def _create_mcp_settings(
+    args_parsed: argparse.Namespace,
+    bridge_config: "BridgeConfiguration | None" = None,
+) -> MCPServerSettings:
+    """Create MCP server settings from parsed arguments and optional bridge config."""
+    # Priority: CLI args > config file > defaults
+    default_host = "127.0.0.1"
+    default_port = 8080
+
+    if bridge_config and bridge_config.bridge:
+        # Use CLI args if provided, otherwise fall back to config file values
+        host = args_parsed.host if args_parsed.host != default_host else bridge_config.bridge.host
+        port = args_parsed.port if args_parsed.port != default_port else bridge_config.bridge.port
+    else:
+        # Fallback to CLI args or deprecated sse_* args
+        host = args_parsed.host if args_parsed.host is not None else args_parsed.sse_host
+        port = args_parsed.port if args_parsed.port is not None else args_parsed.sse_port
+
     return MCPServerSettings(
-        bind_host=args_parsed.host if args_parsed.host is not None else args_parsed.sse_host,
-        port=args_parsed.port if args_parsed.port is not None else args_parsed.sse_port,
+        bind_host=host,
+        port=port,
         stateless=args_parsed.stateless,
         allow_origins=args_parsed.allow_origin if len(args_parsed.allow_origin) > 0 else None,
         log_level="DEBUG" if args_parsed.debug else "INFO",
@@ -439,7 +459,7 @@ def main() -> None:
         sys.exit(1)
 
     # Create MCP server settings and run the bridge server
-    mcp_settings = _create_mcp_settings(args_parsed)
+    mcp_settings = _create_mcp_settings(args_parsed, bridge_config)
     try:
         asyncio.run(run_bridge_server(mcp_settings, bridge_config))
     except KeyboardInterrupt:
