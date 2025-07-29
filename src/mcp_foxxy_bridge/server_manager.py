@@ -1022,8 +1022,10 @@ class ServerManager:
                 # Attempt to reconnect
                 await self._connect_server(server)
                 
-                if server.health.status == ServerStatus.CONNECTED:
-                    logger.info("Successfully restarted server '%s'", server.name)
+                # Check if restart was successful
+                # Note: _connect_server will set status to CONNECTED or FAILED
+                if server.health.status is ServerStatus.CONNECTED:  # type: ignore[comparison-overlap]
+                    logger.info("Successfully restarted server '%s'", server.name)  # type: ignore[unreachable]
                 else:
                     logger.error("Failed to restart server '%s'", server.name)
                     
@@ -1033,7 +1035,10 @@ class ServerManager:
                 
     async def _execute_health_check_operation(self, server: ManagedServer) -> None:
         """Execute the configured health check operation for a server."""
-        if not server.session or not server.config.health_check:
+        if not server.session:
+            raise RuntimeError(f"No session available for server '{server.name}'")
+            
+        if not server.config.health_check:
             # Fallback to default operation
             await server.session.list_tools()
             return
