@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.1.0...v1.1.1) (2025-07-29)
+
+
+### 🐛 Bug Fixes
+
+* use release artifacts for PyPI publishing instead of rebuilding ([8ea1f9a](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/8ea1f9a507d3e71ee54e855430c8c09a924acf78))
+
 ## [1.1.0](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.0.1...v1.1.0) (2025-07-29)
 
 
