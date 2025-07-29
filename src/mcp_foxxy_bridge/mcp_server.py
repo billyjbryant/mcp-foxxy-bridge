@@ -98,7 +98,7 @@ def _find_available_port(host: str, requested_port: int) -> int:
 
     # If we exhausted all attempts, fall back to system-assigned port
     with socket.socket() as s:
-        s.bind(("", 0))
+        s.bind((host, 0))
         actual_port = s.getsockname()[1]
     logger.warning(
         "Could not find available port in range %d-%d, using system-assigned port %d",
