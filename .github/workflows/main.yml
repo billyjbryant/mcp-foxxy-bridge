@@ -501,17 +501,15 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        ref: main  # Ensure we get the latest commit with version bump
 
-    - name: Install uv and build
-      uses: astral-sh/setup-uv@v4
-      with:
-        version: "latest"
-
-    - name: Set up Python and build
+    - name: Download release artifacts
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        uv python install 3.12
-        uv tool install hatch
-        hatch build
+        gh release download v${{ needs.semantic-release.outputs.version }} --pattern "*.whl" --pattern "*.tar.gz"
+        mkdir -p dist
+        mv *.whl *.tar.gz dist/ 2>/dev/null || true
 
     - name: Publish to Test PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
@@ -531,17 +529,15 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        ref: main  # Ensure we get the latest commit with version bump
 
-    - name: Install uv and build
-      uses: astral-sh/setup-uv@v4
-      with:
-        version: "latest"
-
-    - name: Set up Python and build
+    - name: Download release artifacts
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        uv python install 3.12
-        uv tool install hatch
-        hatch build
+        gh release download v${{ needs.semantic-release.outputs.version }} --pattern "*.whl" --pattern "*.tar.gz"
+        mkdir -p dist
+        mv *.whl *.tar.gz dist/ 2>/dev/null || true
 
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
