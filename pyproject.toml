@@ -56,7 +56,7 @@ dev-dependencies = [
     "coverage>=7.6.0",
     "mypy>=1.0.0",
     "hatch>=1.12.0",
-    "ruff>=0.7.0",
+    "ruff>=0.12.5",
     "pre-commit>=3.5.0",
 ]
 

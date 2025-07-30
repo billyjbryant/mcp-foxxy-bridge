@@ -83,9 +83,7 @@ class ConfigFileHandler(FileSystemEventHandler):
 
         # Schedule the actual reload after debounce period
         try:
-            asyncio.run_coroutine_threadsafe(
-                self._debounced_reload(current_time), self.event_loop
-            )
+            asyncio.run_coroutine_threadsafe(self._debounced_reload(current_time), self.event_loop)
         except RuntimeError:
             logger.warning("Could not schedule config reload - no event loop available")
 
@@ -202,8 +200,6 @@ class ConfigWatcher:
         await self.start()
         return self
 
-    async def __aexit__(
-        self, exc_type: object, exc_val: object, exc_tb: object
-    ) -> None:
+    async def __aexit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         """Async context manager exit."""
         await self.stop()

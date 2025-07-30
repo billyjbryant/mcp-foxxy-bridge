@@ -30,6 +30,8 @@ import json
 import logging
 import os
 import re
+import shlex
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -79,20 +81,175 @@ def normalize_server_name(server_name: str) -> str:
     return normalized
 
 
-def expand_env_vars(value: object) -> object:
-    """Recursively expand environment variables in configuration values.
+def validate_command_security(cmd_parts: list[str]) -> None:
+    """Validate command using an allow list approach for maximum security.
 
-    Supports ${VAR_NAME} syntax with optional defaults: ${VAR_NAME:default_value}
+    Only explicitly allowed commands can be executed in command substitution.
+    This prevents accidental execution of dangerous operations.
+
+    Args:
+        cmd_parts: List of command parts from shlex.split()
+
+    Raises:
+        ValueError: If command is not in the allow list
+    """
+    if not cmd_parts:
+        return
+
+    command = cmd_parts[0].lower()
+
+    # Allow list of allowed commands for command substitution
+    # These are considered safe for configuration value generation
+    allowed_commands = {
+        # Basic output commands
+        "echo",
+        "printf",
+        "cat",
+        # Date/time
+        "date",
+        # Environment/system info (read-only)
+        "whoami",
+        "hostname",
+        "pwd",
+        "uname",
+        # Version control (read-only)
+        "git",
+        # Secret management tools (read-only)
+        "op",  # 1Password CLI
+        "vault",  # HashiCorp Vault
+        "aws-secrets-manager",
+        "gcloud",
+        "az",  # Cloud secret managers
+        # Base64 encoding/decoding
+        "base64",
+        # JSON/YAML processing
+        "jq",
+        "yq",
+        # Text processing (read-only)
+        "grep",
+        "head",
+        "tail",
+        "cut",
+        "tr",
+        "sort",
+        "uniq",
+        "wc",
+        # Environment variable expansion
+        "env",
+        "printenv",
+    }
+
+    if command not in allowed_commands:
+        error_msg = (
+            f"Command '{command}' is not in the allow list of allowed commands. "
+            f"Allowed commands: {', '.join(sorted(allowed_commands))}"
+        )
+        raise ValueError(error_msg)
+
+    # Additional validation: check for shell metacharacters that could enable command injection
+    full_command_string = " ".join(cmd_parts)
+
+    # These patterns are dangerous even with whitelisted commands
+    dangerous_patterns = [
+        "|",
+        "||",
+        "&",
+        "&&",
+        ";",  # Command chaining
+        "`",  # Command substitution
+        ">",
+        ">>",
+        "<",  # File redirection
+    ]
+
+    for pattern in dangerous_patterns:
+        if pattern in full_command_string:
+            error_msg = (
+                f"Command contains dangerous shell pattern '{pattern}' which could enable "
+                "command injection. Use separate command substitutions instead."
+            )
+            raise ValueError(error_msg)
+
+
+def execute_command_substitution(command: str) -> str:
+    """Execute a command and return its output for command substitution.
+
+    Args:
+        command: The command to execute
+
+    Returns:
+        The command output with trailing whitespace stripped
+
+    Raises:
+        ValueError: If command execution fails or contains dangerous operations
+    """
+    try:
+        # Parse command safely using shlex
+        cmd_parts = shlex.split(command)
+        if not cmd_parts:
+            raise ValueError("Empty command in substitution")  # noqa: TRY301
+
+        # Validate command for security issues
+        validate_command_security(cmd_parts)
+
+        # Execute command with security considerations
+        result = subprocess.run(  # noqa: S603
+            cmd_parts,
+            capture_output=True,
+            text=True,
+            timeout=30,  # 30 second timeout
+            check=True,
+            env=os.environ.copy(),  # Inherit current environment
+        )
+
+        # Return output with trailing whitespace stripped
+        output = result.stdout.rstrip()
+        logger.debug("Command substitution '%s' returned: %s", command, output[:100])
+        return output  # noqa: TRY300
+
+    except subprocess.TimeoutExpired as e:
+        error_msg = f"Command substitution timed out: {command}"
+        logger.exception("Command substitution timed out: %s", command)
+        raise ValueError(error_msg) from e
+    except subprocess.CalledProcessError as e:
+        error_msg = f"Command substitution failed: {command} (exit code {e.returncode})"
+        if e.stderr:
+            error_msg += f" - {e.stderr.strip()}"
+        logger.exception("Command substitution failed: %s", command)
+        raise ValueError(error_msg) from e
+    except (OSError, ValueError) as e:
+        error_msg = f"Invalid command substitution: {command} - {e}"
+        logger.exception("Invalid command substitution: %s", command)
+        raise ValueError(error_msg) from e
+
+
+def expand_env_vars(value: object) -> object:
+    """Recursively expand environment variables and command substitutions in configuration values.
+
+    Supports:
+    - ${VAR_NAME} syntax with optional defaults: ${VAR_NAME:default_value}
+    - $(command) syntax for command substitution (bash-style)
 
     Args:
         value: The configuration value to expand (can be str, dict, list, or other)
 
     Returns:
-        The value with environment variables expanded
+        The value with environment variables and command substitutions expanded
     """
     if isinstance(value, str):
-        # Pattern matches ${VAR_NAME} or ${VAR_NAME:default}
-        pattern = r"\$\{([^}:]+)(?::([^}]*))?\}"
+        # First expand command substitutions $(command)
+        cmd_pattern = r"\$\(([^)]+)\)"
+
+        def replace_command(match: re.Match[str]) -> str:
+            command = match.group(1).strip()
+            logger.debug("Executing command substitution: %s", command)
+            return execute_command_substitution(command)
+
+        # Apply command substitutions first
+        value = re.sub(cmd_pattern, replace_command, value)
+
+        # Then expand environment variables ${VAR_NAME} or ${VAR_NAME:default}
+        env_pattern = r"\$\{([^}:]+)(?::([^}]*))?\}"
 
         def replace_env_var(match: re.Match[str]) -> str:
             var_name = match.group(1)
@@ -107,7 +264,7 @@ def expand_env_vars(value: object) -> object:
 
             return env_value
 
-        return re.sub(pattern, replace_env_var, value)
+        return re.sub(env_pattern, replace_env_var, value)
 
     if isinstance(value, dict):
         return {k: expand_env_vars(v) for k, v in value.items()}
