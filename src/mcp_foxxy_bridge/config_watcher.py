@@ -20,6 +20,8 @@
 
 import asyncio
 import logging
+import threading
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -38,6 +40,8 @@ class ConfigFileHandler(FileSystemEventHandler):
         config_path: str,
         reload_callback: Callable[[], Awaitable[bool]],
         debounce_ms: int = 1000,
+        *,
+        event_loop: asyncio.AbstractEventLoop,
     ) -> None:
         """Initialize the config file handler.
 
@@ -45,12 +49,15 @@ class ConfigFileHandler(FileSystemEventHandler):
             config_path: Path to the configuration file to watch
             reload_callback: Async callback to call when config changes
             debounce_ms: Debounce time in milliseconds to avoid rapid reloads
+            event_loop: Event loop to schedule tasks in
         """
         super().__init__()
         self.config_path = Path(config_path).resolve()
         self.reload_callback = reload_callback
         self.debounce_ms = debounce_ms
-        self._reload_task: asyncio.Task[None] | None = None
+        self.event_loop = event_loop
+        self._last_reload_time = 0.0
+        self._reload_lock = threading.Lock()
 
         logger.info("Watching config file: %s", self.config_path)
 
@@ -68,18 +75,32 @@ class ConfigFileHandler(FileSystemEventHandler):
 
     def _schedule_reload(self) -> None:
         """Schedule a debounced config reload."""
-        # Cancel any existing reload task
-        if self._reload_task and not self._reload_task.done():
-            self._reload_task.cancel()
+        current_time = time.time()
 
-        # Schedule new reload with debouncing
-        self._reload_task = asyncio.create_task(self._debounced_reload())
+        with self._reload_lock:
+            # Update the last reload time to implement debouncing
+            self._last_reload_time = current_time
 
-    async def _debounced_reload(self) -> None:
+        # Schedule the actual reload after debounce period
+        try:
+            asyncio.run_coroutine_threadsafe(
+                self._debounced_reload(current_time), self.event_loop
+            )
+        except RuntimeError:
+            logger.warning("Could not schedule config reload - no event loop available")
+
+    async def _debounced_reload(self, scheduled_time: float) -> None:
         """Perform debounced config reload."""
         try:
             # Wait for debounce period
             await asyncio.sleep(self.debounce_ms / 1000.0)
+
+            # Check if this is still the latest reload request
+            with self._reload_lock:
+                if scheduled_time < self._last_reload_time:
+                    # A newer reload was scheduled, skip this one
+                    logger.debug("Config reload skipped (newer reload scheduled)")
+                    return
 
             logger.info("Configuration file changed, reloading...")
             success = await self.reload_callback()
@@ -90,13 +111,13 @@ class ConfigFileHandler(FileSystemEventHandler):
                 logger.error("Failed to reload configuration")
 
         except asyncio.CancelledError:
-            logger.debug("Config reload cancelled (debounced)")
+            logger.debug("Config reload cancelled")
         except Exception:
             logger.exception("Error during config reload")
 
 
 class ConfigWatcher:
-    """Configuration file watcher that monitors for changes and triggers reloads."""
+    """Configuration file watcher that monitors for changes."""
 
     def __init__(
         self,
@@ -138,6 +159,7 @@ class ConfigWatcher:
                 str(self.config_path),
                 self.reload_callback,
                 self.debounce_ms,
+                event_loop=asyncio.get_running_loop(),
             )
 
             self._observer = Observer()
@@ -180,6 +202,8 @@ class ConfigWatcher:
         await self.start()
         return self
 
-    async def __aexit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+    async def __aexit__(
+        self, exc_type: object, exc_val: object, exc_tb: object
+    ) -> None:
         """Async context manager exit."""
         await self.stop()
