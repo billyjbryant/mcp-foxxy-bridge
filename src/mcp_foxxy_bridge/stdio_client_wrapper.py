@@ -19,8 +19,6 @@
 """Enhanced stdio client wrapper that adds server name prefixes to stdout/stderr logs."""
 
 import logging
-import os
-import subprocess
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -32,7 +30,6 @@ from anyio.streams.text import TextReceiveStream
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.shared.message import SessionMessage
 from rich.console import Console
-from rich.text import Text
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +57,7 @@ class PrefixedLogHandler:
             if clean_message:
                 # Create rich formatted message with server name highlighting
                 formatted_message = f"[bold cyan]{self.server_name}[/bold cyan] {clean_message}"
-                
+
                 # Use info level for stdout-like content, debug for verbose output
                 error_markers = ["error", "exception", "traceback"]
                 if any(marker in clean_message.lower() for marker in error_markers):
@@ -129,11 +126,16 @@ class StdoutCaptureHandler:
                         # Check if this looks like a JSON-RPC message (MCP protocol)
                         if line.strip().startswith('{"') and '"jsonrpc"' in line:
                             # This is likely MCP protocol traffic, log at debug level
-                            formatted_msg = f"[bold cyan]{self.server_name}[/bold cyan] [dim]MCP:[/dim] {line.strip()}"
+                            formatted_msg = (
+                                f"[bold cyan]{self.server_name}[/bold cyan] "
+                                f"[dim]MCP:[/dim] {line.strip()}"
+                            )
                             self.logger.debug(formatted_msg, extra={"markup": True})
                         else:
                             # This is likely application output, log at info level
-                            formatted_msg = f"[bold cyan]{self.server_name}[/bold cyan] {line.strip()}"
+                            formatted_msg = (
+                                f"[bold cyan]{self.server_name}[/bold cyan] {line.strip()}"
+                            )
                             self.logger.info(formatted_msg, extra={"markup": True})
 
                 # Handle any remaining content in buffer
@@ -143,10 +145,14 @@ class StdoutCaptureHandler:
 
         except anyio.ClosedResourceError:
             # Stream was closed, normal during shutdown
-            formatted_msg = f"[bold cyan]{self.server_name}[/bold cyan] [dim]Stdout stream closed[/dim]"
+            formatted_msg = (
+                f"[bold cyan]{self.server_name}[/bold cyan] [dim]Stdout stream closed[/dim]"
+            )
             self.logger.debug(formatted_msg, extra={"markup": True})
         except Exception:
-            formatted_msg = f"[bold cyan]{self.server_name}[/bold cyan] [red]Error capturing stdout[/red]"
+            formatted_msg = (
+                f"[bold cyan]{self.server_name}[/bold cyan] [red]Error capturing stdout[/red]"
+            )
             self.logger.exception(formatted_msg, extra={"markup": True})
 
 
@@ -184,7 +190,7 @@ async def stdio_client_with_logging(
 
     # Create a prefixed error log handler
     prefixed_errlog = PrefixedLogHandler(server_name, errlog)
-    
+
     # Set the log level for this server's logger
     server_logger = logging.getLogger(f"mcp_foxxy_bridge.servers.{server_name}")
     numeric_level = getattr(logging, log_level.upper(), logging.ERROR)
@@ -195,12 +201,12 @@ async def stdio_client_with_logging(
     if log_level.upper() == "ERROR":
         # Create modified server parameters for quiet operation
         quiet_env = (server.env or {}).copy()
-        
+
         # For unix-like systems, redirect stdout using shell command
         # This is a workaround since we can't easily control stdout in stdio_client
         command_args = [server.command] + (server.args or [])
         command_str = " ".join(f'"{arg}"' if " " in arg else arg for arg in command_args)
-        
+
         quiet_server = StdioServerParameters(
             command="sh",
             args=["-c", f"exec {command_str} 2>/dev/null"],

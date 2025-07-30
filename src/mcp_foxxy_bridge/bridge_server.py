@@ -64,7 +64,7 @@ def _configure_prompts_capability(
             return types.ServerResult(result)
         except McpError as e:
             # Re-raise MCP errors so they're properly returned to the client
-            logger.warning("MCP error getting prompt '%s': %s", req.params.name, e.message)
+            logger.warning("MCP error getting prompt '%s': %s", req.params.name, e.error.message)
             raise
         except Exception:
             logger.exception("Error getting prompt '%s'", req.params.name)
@@ -117,7 +117,7 @@ def _configure_resources_capability(
             return types.ServerResult(result)
         except McpError as e:
             # Re-raise MCP errors so they're properly returned to the client
-            logger.warning("MCP error reading resource '%s': %s", req.params.uri, e.message)
+            logger.warning("MCP error reading resource '%s': %s", req.params.uri, e.error.message)
             raise
         except Exception:
             logger.exception("Error reading resource '%s'", req.params.uri)
@@ -185,7 +185,7 @@ def _configure_tools_capability(
             return types.ServerResult(result)
         except McpError as e:
             # Re-raise MCP errors so they're properly returned to the client
-            logger.warning("MCP error calling tool '%s': %s", req.params.name, e.message)
+            logger.warning("MCP error calling tool '%s': %s", req.params.name, e.error.message)
             raise
         except Exception:
             logger.exception("Error calling tool '%s'", req.params.name)
@@ -420,7 +420,8 @@ async def create_tag_filtered_bridge(
     await server_manager.start()
 
     # Create the bridge server
-    bridge_name = f"MCP Foxxy Bridge - Tags: {'+'.join(tags) if tag_mode == 'intersection' else ','.join(tags)}{bridge_name_suffix}"
+    tag_display = "+".join(tags) if tag_mode == "intersection" else ",".join(tags)
+    bridge_name = f"MCP Foxxy Bridge - Tags: {tag_display}{bridge_name_suffix}"
     app: server.Server[object] = server.Server(name=bridge_name)
 
     # Store server manager for cleanup

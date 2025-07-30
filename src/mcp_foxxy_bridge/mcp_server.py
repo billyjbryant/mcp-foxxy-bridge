@@ -28,6 +28,7 @@ import logging
 import os
 import signal
 import socket
+import urllib.parse
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -311,6 +312,7 @@ def create_tag_based_routes(
     Returns:
         List of routes for tag-based server access
     """
+
     # Create a handler class similar to the individual server routes approach
     class TagRouteHandler:
         def __init__(self) -> None:
@@ -351,7 +353,7 @@ def create_tag_based_routes(
             async with sse_transport.connect_sse(
                 request.scope,
                 request.receive,
-                request._send,  # type: ignore[attr-defined]
+                request._send,  # noqa: SLF001
             ) as (read_stream, write_stream):
                 _update_global_activity()
                 await bridge.run(
@@ -371,7 +373,7 @@ def create_tag_based_routes(
             # Extract tag path from the full URL path
             # The full path will be something like "/sse/tag/development/messages/"
             full_path = scope.get("path", "")
-            
+
             # Extract tag path from URL like "/sse/tag/development/messages/"
             if full_path.startswith("/sse/tag/") and "/messages/" in full_path:
                 # Extract the tag part between "/sse/tag/" and "/messages/"
@@ -380,18 +382,22 @@ def create_tag_based_routes(
                 tag_path = full_path[tag_start:tag_end] if tag_end > tag_start else ""
             else:
                 tag_path = ""
-            
+
             if not tag_path:
                 logger.warning("No tag path found in URL: %s", full_path)
-                await send({
-                    "type": "http.response.start",
-                    "status": 400,
-                    "headers": [("content-type", "text/plain")],
-                })
-                await send({
-                    "type": "http.response.body",
-                    "body": b"Tag path required",
-                })
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 400,
+                        "headers": [("content-type", "text/plain")],
+                    }
+                )
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": b"Tag path required",
+                    }
+                )
                 return
 
             logger.debug("Handling tag messages for tag path: %s", tag_path)
@@ -399,17 +405,20 @@ def create_tag_based_routes(
             _update_global_activity()
             await sse_transport.handle_post_message(scope, receive, send)
         except Exception:
-            logger.exception("Error handling tag messages for path: %s", 
-                           scope.get("path", ""))
-            await send({
-                "type": "http.response.start",
-                "status": 500,
-                "headers": [("content-type", "text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"Internal server error",
-            })
+            logger.exception("Error handling tag messages for path: %s", scope.get("path", ""))
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 500,
+                    "headers": [("content-type", "text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"Internal server error",
+                }
+            )
 
     tag_routes = [
         Route("/sse/tag/{tag_path:path}", endpoint=handle_tag_sse),
@@ -435,7 +444,6 @@ def parse_tag_query(tag_path: str) -> tuple[list[str], str]:
         "web,api,remote" -> (["web", "api", "remote"], "union")
     """
     # URL decode the tag path first
-    import urllib.parse
 
     tag_path = urllib.parse.unquote(tag_path)
 

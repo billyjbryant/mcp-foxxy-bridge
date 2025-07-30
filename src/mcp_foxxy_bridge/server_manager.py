@@ -117,10 +117,10 @@ class ServerManager:
     def _get_effective_log_level(self, server_config: BridgeServerConfig) -> str:
         """Get the effective log level for a server (server-specific or global default)."""
         # Server-specific log level takes precedence over global setting
-        if hasattr(server_config, 'log_level') and server_config.log_level:
+        if hasattr(server_config, "log_level") and server_config.log_level:
             return server_config.log_level
         # Fall back to global bridge log level
-        if self.bridge_config.bridge and hasattr(self.bridge_config.bridge, 'mcp_log_level'):
+        if self.bridge_config.bridge and hasattr(self.bridge_config.bridge, "mcp_log_level"):
             return self.bridge_config.bridge.mcp_log_level
         # Final fallback to ERROR (quiet mode)
         return "ERROR"
@@ -236,7 +236,7 @@ class ServerManager:
             async with asyncio.timeout(server.config.timeout):
                 # Get the effective log level for this server
                 log_level = self._get_effective_log_level(server.config)
-                
+
                 # Enter the enhanced stdio_client into the context stack to keep it alive
                 read_stream, write_stream = await self._context_stack.enter_async_context(
                     stdio_client_with_logging(params, server.name, log_level=log_level),
@@ -652,7 +652,7 @@ class ServerManager:
                 "MCP error calling tool '%s' on server '%s': %s",
                 actual_tool_name,
                 server.name,
-                e.message,
+                e.error.message,
             )
             raise
         except Exception:
@@ -699,7 +699,7 @@ class ServerManager:
                 "MCP error reading resource '%s' on server '%s': %s",
                 actual_uri,
                 server.name,
-                e.message,
+                e.error.message,
             )
             raise
         except Exception:
@@ -750,7 +750,7 @@ class ServerManager:
                 "MCP error getting prompt '%s' on server '%s': %s",
                 actual_prompt_name,
                 server.name,
-                e.message,
+                e.error.message,
             )
             raise
         except Exception:
