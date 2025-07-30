@@ -32,10 +32,17 @@ from typing import Any
 
 from mcp import types
 from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.stdio import StdioServerParameters
+from mcp.shared.exceptions import McpError
 from pydantic import AnyUrl
 
-from .config_loader import BridgeConfig, BridgeConfiguration, BridgeServerConfig
+from .config_loader import (
+    BridgeConfig,
+    BridgeConfiguration,
+    BridgeServerConfig,
+    normalize_server_name,
+)
+from .stdio_client_wrapper import stdio_client_with_logging
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +119,17 @@ class ServerManager:
         self._context_stack = contextlib.AsyncExitStack()
         self._restart_locks: dict[str, asyncio.Lock] = {}
 
+    def _get_effective_log_level(self, server_config: BridgeServerConfig) -> str:
+        """Get the effective log level for a server (server-specific or global default)."""
+        # Server-specific log level takes precedence over global setting
+        if hasattr(server_config, "log_level") and server_config.log_level:
+            return server_config.log_level
+        # Fall back to global bridge log level
+        if self.bridge_config.bridge and hasattr(self.bridge_config.bridge, "mcp_log_level"):
+            return self.bridge_config.bridge.mcp_log_level
+        # Final fallback to ERROR (quiet mode)
+        return "ERROR"
+
     async def start(self) -> None:
         """Start the server manager and connect to all configured servers."""
         logger.info(
@@ -125,9 +143,11 @@ class ServerManager:
                 logger.info("Server '%s' is disabled, skipping", name)
                 continue
 
-            managed_server = ManagedServer(name=name, config=config)
-            self.servers[name] = managed_server
-            self._restart_locks[name] = asyncio.Lock()
+            # Normalize server name to replace dots and special characters
+            normalized_name = normalize_server_name(name)
+            managed_server = ManagedServer(name=normalized_name, config=config)
+            self.servers[normalized_name] = managed_server
+            self._restart_locks[normalized_name] = asyncio.Lock()
 
         # Start connections
         connection_tasks = []
@@ -184,19 +204,25 @@ class ServerManager:
         # This will gracefully terminate all child processes
         try:
             # Set a shorter timeout for cleanup to avoid hanging
-            await asyncio.wait_for(self._context_stack.aclose(), timeout=1.0)
-        except (TimeoutError, Exception) as e:
+            await asyncio.wait_for(self._context_stack.aclose(), timeout=2.0)
+        except (TimeoutError, asyncio.CancelledError, RuntimeError, ProcessLookupError) as e:
             logger.debug(
-                "Context cleanup completed with exceptions (normal during shutdown): %s",
+                "Context cleanup completed with expected exceptions during shutdown: %s",
                 type(e).__name__,
+            )
+        except (OSError, ValueError, AttributeError) as e:
+            logger.warning(
+                "Unexpected exception during context cleanup: %s: %s",
+                type(e).__name__,
+                e,
             )
 
         logger.info("Server manager stopped")
 
     async def _connect_server(self, server: ManagedServer) -> None:
         """Connect to a single MCP server."""
-        logger.info(
-            "Connecting to server '%s': %s %s",
+        logger.debug(
+            'MCP Server Starting: %s - "%s" %s',
             server.name,
             server.config.command,
             " ".join(server.config.args or []),
@@ -221,9 +247,12 @@ class ServerManager:
 
             # Connect with timeout and manage lifetime with context stack
             async with asyncio.timeout(server.config.timeout):
-                # Enter the stdio_client into the context stack to keep it alive
+                # Get the effective log level for this server
+                log_level = self._get_effective_log_level(server.config)
+
+                # Enter the enhanced stdio_client into the context stack to keep it alive
                 read_stream, write_stream = await self._context_stack.enter_async_context(
-                    stdio_client(params),
+                    stdio_client_with_logging(params, server.name, log_level=log_level),
                 )
 
                 # Create session and manage its lifetime
@@ -465,7 +494,8 @@ class ServerManager:
 
     def get_server_by_name(self, name: str) -> ManagedServer | None:
         """Get a server by name."""
-        return self.servers.get(name)
+        normalized_name = normalize_server_name(name)
+        return self.servers.get(normalized_name)
 
     def get_aggregated_tools(self) -> list[types.Tool]:
         """Get aggregated tools from all active servers."""
@@ -481,7 +511,7 @@ class ServerManager:
             for tool in server.tools:
                 tool_name = tool.name
                 if namespace:
-                    tool_name = f"{namespace}.{tool.name}"
+                    tool_name = f"{namespace}__{tool.name}"
 
                 # Handle name conflicts based on configuration
                 if tool_name in seen_names:
@@ -524,7 +554,11 @@ class ServerManager:
             for resource in server.resources:
                 resource_uri = str(resource.uri)
                 if namespace:
-                    resource_uri = f"{namespace}://{resource.uri!s}"
+                    # Create a safe namespace-prefixed URI
+                    # Use a simple prefix approach instead of trying to create a valid URL scheme
+                    original_uri = str(resource.uri)
+                    # Just prefix with namespace and double underscore separator
+                    resource_uri = f"{namespace}__{original_uri}"
 
                 # Handle URI conflicts
                 if resource_uri in seen_uris:
@@ -541,12 +575,36 @@ class ServerManager:
                         continue
 
                 # Create namespaced resource
-                namespaced_resource = types.Resource(
-                    uri=AnyUrl(resource_uri),
-                    name=resource.name,
-                    description=resource.description,
-                    mimeType=resource.mimeType,
-                )
+                try:
+                    # Validate the URI first
+                    parsed_uri = AnyUrl(resource_uri)
+                    namespaced_resource = types.Resource(
+                        uri=parsed_uri,
+                        name=resource.name,
+                        description=resource.description,
+                        mimeType=resource.mimeType,
+                    )
+                except (ValueError, TypeError) as e:
+                    # Skip resources with invalid URIs and log a detailed warning
+                    error_msg = str(e)
+                    if "Input should be a valid URL" in error_msg:
+                        # Extract the relevant part of the pydantic validation error
+                        error_details = error_msg.split("Input should be a valid URL")[0].strip()
+                        if not error_details:
+                            error_details = "Invalid URL format"
+                    else:
+                        error_details = error_msg
+
+                    logger.warning(
+                        "Skipping resource '%s' from server '%s' - URI validation failed: %s "
+                        "(original: '%s', namespaced: '%s')",
+                        resource.name,
+                        server.name,
+                        error_details,
+                        str(resource.uri),
+                        resource_uri,
+                    )
+                    continue
 
                 resources.append(namespaced_resource)
                 seen_uris.add(resource_uri)
@@ -567,7 +625,7 @@ class ServerManager:
             for prompt in server.prompts:
                 prompt_name = prompt.name
                 if namespace:
-                    prompt_name = f"{namespace}.{prompt.name}"
+                    prompt_name = f"{namespace}__{prompt.name}"
 
                 # Handle name conflicts
                 if prompt_name in seen_names:
@@ -598,8 +656,8 @@ class ServerManager:
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         """Call a tool by name, routing to the appropriate server."""
         # Parse namespace from tool name
-        if "." in tool_name:
-            namespace, actual_tool_name = tool_name.split(".", 1)
+        if "__" in tool_name:
+            namespace, actual_tool_name = tool_name.split("__", 1)
             # Find server that provides this namespaced tool
             server = None
             for s in self.get_active_servers():
@@ -630,6 +688,15 @@ class ServerManager:
         # Call the tool
         try:
             return await server.session.call_tool(actual_tool_name, arguments)
+        except McpError as e:
+            # Log MCP errors as warnings and re-raise
+            logger.warning(
+                "MCP error calling tool '%s' on server '%s': %s",
+                actual_tool_name,
+                server.name,
+                e.error.message,
+            )
+            raise
         except Exception:
             logger.exception(
                 "Error calling tool '%s' on server '%s'",
@@ -640,15 +707,15 @@ class ServerManager:
 
     async def read_resource(self, resource_uri: str) -> types.ReadResourceResult:
         """Read a resource by URI, routing to the appropriate server."""
-        # Parse namespace from URI
-        if "://" in resource_uri:
-            namespace, actual_uri = resource_uri.split("://", 1)
+        # Parse namespace from URI using our double underscore separator
+        if "__" in resource_uri:
+            namespace, actual_uri = resource_uri.split("__", 1)
             # Find server that provides this namespaced resource
             server = None
             for s in self.get_active_servers():
                 server_namespace = s.get_effective_namespace("resources", self.bridge_config.bridge)
                 if server_namespace == namespace and any(
-                    resource.uri == actual_uri for resource in s.resources
+                    str(resource.uri) == actual_uri for resource in s.resources
                 ):
                     server = s
                     break
@@ -657,7 +724,7 @@ class ServerManager:
             server = None
             actual_uri = resource_uri
             for s in self.get_active_servers():
-                if any(resource.uri == actual_uri for resource in s.resources):
+                if any(str(resource.uri) == actual_uri for resource in s.resources):
                     server = s
                     break
 
@@ -667,7 +734,26 @@ class ServerManager:
 
         # Call the resource
         try:
-            return await server.session.read_resource(AnyUrl(actual_uri))
+            # Try to create a valid URL from the actual URI
+            try:
+                resource_url = AnyUrl(actual_uri)
+            except Exception as url_error:
+                # If the URI is invalid, wrap it in a more informative error
+                msg = (
+                    f"Invalid resource URI '{actual_uri}' from server '{server.name}': {url_error}"
+                )
+                raise ValueError(msg) from url_error
+
+            return await server.session.read_resource(resource_url)
+        except McpError as e:
+            # Log MCP errors as warnings and re-raise
+            logger.warning(
+                "MCP error reading resource '%s' on server '%s': %s",
+                actual_uri,
+                server.name,
+                e.error.message,
+            )
+            raise
         except Exception:
             logger.exception(
                 "Error reading resource '%s' on server '%s'",
@@ -683,8 +769,8 @@ class ServerManager:
     ) -> types.GetPromptResult:
         """Get a prompt by name, routing to the appropriate server."""
         # Parse namespace from prompt name
-        if "." in prompt_name:
-            namespace, actual_prompt_name = prompt_name.split(".", 1)
+        if "__" in prompt_name:
+            namespace, actual_prompt_name = prompt_name.split("__", 1)
             # Find server that provides this namespaced prompt
             server = None
             for s in self.get_active_servers():
@@ -710,6 +796,15 @@ class ServerManager:
         # Call the prompt
         try:
             return await server.session.get_prompt(actual_prompt_name, arguments)
+        except McpError as e:
+            # Log MCP errors as warnings and re-raise
+            logger.warning(
+                "MCP error getting prompt '%s' on server '%s': %s",
+                actual_prompt_name,
+                server.name,
+                e.error.message,
+            )
+            raise
         except Exception:
             logger.exception(
                 "Error getting prompt '%s' on server '%s'",
@@ -1067,6 +1162,168 @@ class ServerManager:
             except Exception as e:
                 logger.exception("Error during server restart for '%s'", server.name)
                 server.health.last_error = f"Restart failed: {e!s}"
+
+    async def update_servers(self, new_server_configs: dict[str, BridgeServerConfig]) -> None:
+        """Update server configurations dynamically.
+
+        This method compares the current server configuration with the new configuration
+        and performs the necessary operations to add, remove, or update servers.
+
+        Args:
+            new_server_configs: New server configurations to apply
+        """
+        logger.info("Updating server configurations...")
+
+        # Get current server names and new server names (normalized)
+        current_names = set(self.servers.keys())
+        new_names = {normalize_server_name(name) for name in new_server_configs}
+
+        # Determine what changes need to be made
+        servers_to_add = new_names - current_names
+        servers_to_remove = current_names - new_names
+        servers_to_check_update = current_names & new_names
+
+        logger.info(
+            "Server configuration changes: %d to add, %d to remove, %d to check for updates",
+            len(servers_to_add),
+            len(servers_to_remove),
+            len(servers_to_check_update),
+        )
+
+        # Remove servers that are no longer in configuration
+        for server_name in servers_to_remove:
+            await self._remove_server(server_name)
+
+        # Add new servers (need to find original config name from normalized name)
+        for normalized_name in servers_to_add:
+            # Find the original config name that normalizes to this name
+            original_name = None
+            for orig_name in new_server_configs:
+                if normalize_server_name(orig_name) == normalized_name:
+                    original_name = orig_name
+                    break
+            if original_name:
+                config = new_server_configs[original_name]
+                await self._add_server(original_name, config)
+
+        # Check for configuration updates on existing servers
+        for normalized_name in servers_to_check_update:
+            # Find the original config name that normalizes to this name
+            original_name = None
+            for orig_name in new_server_configs:
+                if normalize_server_name(orig_name) == normalized_name:
+                    original_name = orig_name
+                    break
+            if original_name:
+                old_config = self.servers[normalized_name].config
+                new_config = new_server_configs[original_name]
+
+                if self._server_config_changed(old_config, new_config):
+                    logger.info("Configuration changed for server '%s', updating...", original_name)
+                    await self._update_server(original_name, new_config)
+
+        logger.info("Server configuration update completed")
+
+    async def _add_server(self, name: str, config: BridgeServerConfig) -> None:
+        """Add a new server to the manager."""
+        if not config.enabled:
+            logger.info("Server '%s' is disabled, skipping", name)
+            return
+
+        logger.info("Adding new server '%s'", name)
+
+        # Create managed server with normalized name
+        normalized_name = normalize_server_name(name)
+        managed_server = ManagedServer(name=normalized_name, config=config)
+        self.servers[normalized_name] = managed_server
+        self._restart_locks[normalized_name] = asyncio.Lock()
+
+        # Connect to the server
+        await self._connect_server(managed_server)
+
+        logger.info("Successfully added server '%s'", name)
+
+    async def _remove_server(self, name: str) -> None:
+        """Remove a server from the manager."""
+        logger.info("Removing server '%s'", name)
+
+        # Server is stored with normalized name
+        normalized_name = normalize_server_name(name)
+        server = self.servers.get(normalized_name)
+        if server:
+            # Disconnect the server
+            await self._disconnect_server(server)
+
+            # Remove from tracking
+            del self.servers[normalized_name]
+            if normalized_name in self._restart_locks:
+                del self._restart_locks[normalized_name]
+
+        logger.info("Successfully removed server '%s'", name)
+
+    async def _update_server(self, name: str, new_config: BridgeServerConfig) -> None:
+        """Update an existing server's configuration."""
+        # Server is stored with normalized name
+        normalized_name = normalize_server_name(name)
+        server = self.servers.get(normalized_name)
+        if not server:
+            logger.warning("Attempted to update non-existent server '%s'", name)
+            return
+
+        logger.info("Updating configuration for server '%s'", name)
+
+        # If the server is becoming disabled, just disconnect it
+        if not new_config.enabled:
+            await self._disconnect_server(server)
+            server.config = new_config
+            server.health.status = ServerStatus.DISABLED
+            return
+
+        # If server was disabled and is now enabled, reconnect with new config
+        if not server.config.enabled and new_config.enabled:
+            server.config = new_config
+            await self._connect_server(server)
+            return
+
+        # For other configuration changes, we need to restart the connection
+        # Check if command/args changed (requires restart)
+        if (
+            server.config.command != new_config.command
+            or server.config.args != new_config.args
+            or server.config.env != new_config.env
+        ):
+            logger.info("Server '%s' command/args changed, restarting connection...", name)
+            await self._disconnect_server(server)
+            server.config = new_config
+            await self._connect_server(server)
+        else:
+            # For other config changes (priority, health check, etc.), just update config
+            server.config = new_config
+
+            # Re-validate health check configuration
+            if server.session and server.health.capabilities:
+                await self._validate_health_check_config(server)
+
+        logger.info("Successfully updated server '%s'", name)
+
+    def _server_config_changed(
+        self, old_config: BridgeServerConfig, new_config: BridgeServerConfig
+    ) -> bool:
+        """Check if server configuration has meaningfully changed."""
+        # Check key fields that would require action
+        return (
+            old_config.enabled != new_config.enabled
+            or old_config.command != new_config.command
+            or old_config.args != new_config.args
+            or old_config.env != new_config.env
+            or old_config.priority != new_config.priority
+            or old_config.timeout != new_config.timeout
+            or old_config.health_check != new_config.health_check
+            or old_config.tool_namespace != new_config.tool_namespace
+            or old_config.resource_namespace != new_config.resource_namespace
+            or old_config.prompt_namespace != new_config.prompt_namespace
+            or old_config.tags != new_config.tags
+        )
 
     async def _execute_health_check_operation(self, server: ManagedServer) -> None:
         """Execute the configured health check operation for a server."""

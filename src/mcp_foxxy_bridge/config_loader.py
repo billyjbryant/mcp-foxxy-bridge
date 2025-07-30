@@ -46,6 +46,39 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def normalize_server_name(server_name: str) -> str:
+    """Normalize server name for URL-safe usage.
+
+    Converts server names to lowercase, replaces spaces and special characters
+    with underscores, and ensures the name is URL-safe for use in endpoints.
+
+    Args:
+        server_name: The original server name from configuration
+
+    Returns:
+        Normalized server name suitable for URLs
+
+    Examples:
+        "File System" -> "file_system"
+        "GitHub API" -> "github_api"
+        "My_Special Server!" -> "my_special_server"
+    """
+    # Convert to lowercase
+    normalized = server_name.lower()
+
+    # Replace spaces, hyphens, and other non-alphanumeric chars with underscores
+    normalized = re.sub(r"[^a-z0-9]+", "_", normalized)
+
+    # Remove leading/trailing underscores
+    normalized = normalized.strip("_")
+
+    # Ensure we don't have empty string or just underscores
+    if not normalized or normalized == "_":
+        normalized = "unnamed_server"
+
+    return normalized
+
+
 def expand_env_vars(value: object) -> object:
     """Recursively expand environment variables in configuration values.
 
@@ -133,6 +166,7 @@ class BridgeServerConfig:
     prompt_namespace: str | None = None
     priority: int = 100
     tags: list[str] | None = None
+    log_level: str = "ERROR"  # Default to quiet (only errors)
 
     def __post_init__(self) -> None:
         """Initialize default values for optional fields."""
@@ -165,6 +199,15 @@ class FailoverConfig:
 
 
 @dataclass
+class ConfigReloadConfig:
+    """Configuration for dynamic config file reloading."""
+
+    enabled: bool = True
+    debounce_ms: int = 1000  # milliseconds
+    validate_only: bool = False  # if true, only validate but don't apply changes
+
+
+@dataclass
 class BridgeConfig:
     """Configuration for bridge-specific behavior."""
 
@@ -172,8 +215,10 @@ class BridgeConfig:
     default_namespace: bool = True
     aggregation: AggregationConfig | None = None
     failover: FailoverConfig | None = None
+    config_reload: ConfigReloadConfig | None = None
     host: str = "127.0.0.1"  # Default to localhost for security
     port: int = 8080  # Default port
+    mcp_log_level: str = "ERROR"  # Default log level for all MCP servers
 
     def __post_init__(self) -> None:
         """Initialize default values for bridge configuration."""
@@ -181,6 +226,8 @@ class BridgeConfig:
             self.aggregation = AggregationConfig()
         if self.failover is None:
             self.failover = FailoverConfig()
+        if self.config_reload is None:
+            self.config_reload = ConfigReloadConfig()
 
 
 @dataclass
@@ -309,6 +356,14 @@ def validate_bridge_config(config_data: dict[str, Any]) -> None:
                             "enabled": {"type": "boolean"},
                             "maxFailures": {"type": "number", "minimum": 1},
                             "recoveryInterval": {"type": "number", "minimum": 1000},
+                        },
+                    },
+                    "configReload": {
+                        "type": "object",
+                        "properties": {
+                            "enabled": {"type": "boolean"},
+                            "debounceMs": {"type": "number", "minimum": 100},
+                            "validateOnly": {"type": "boolean"},
                         },
                     },
                     "host": {"type": "string"},
@@ -563,8 +618,8 @@ def load_named_server_configs_from_file(
             env=new_env,
             cwd=None,
         )
-        logger.info(
-            "Configured named server '%s' from config: %s %s",
+        logger.debug(
+            'MCP Server Starting: %s - "%s" %s',
             name,
             command,
             " ".join(command_args),
@@ -687,6 +742,7 @@ def load_bridge_config_from_file(
             prompt_namespace=server_config.get("promptNamespace"),
             priority=server_config.get("priority", 100),
             tags=server_config.get("tags", []),
+            log_level=server_config.get("log_level", "ERROR"),
         )
 
         if not server.command:
@@ -704,8 +760,8 @@ def load_bridge_config_from_file(
             continue
 
         servers[name] = server
-        logger.info(
-            "Configured named server '%s' from config: %s %s",
+        logger.debug(
+            'MCP Server Starting: %s - "%s" %s',
             name,
             server.command,
             " ".join(server.args),
@@ -730,14 +786,24 @@ def load_bridge_config_from_file(
         recovery_interval=failover_data.get("recoveryInterval", 60000),
     )
 
+    # Parse config reload config
+    config_reload_data = bridge_data.get("configReload", {})
+    config_reload = ConfigReloadConfig(
+        enabled=config_reload_data.get("enabled", True),
+        debounce_ms=config_reload_data.get("debounceMs", 1000),
+        validate_only=config_reload_data.get("validateOnly", False),
+    )
+
     # Create bridge config
     bridge = BridgeConfig(
         conflict_resolution=bridge_data.get("conflictResolution", "namespace"),
         default_namespace=bridge_data.get("defaultNamespace", True),
         aggregation=aggregation,
         failover=failover,
+        config_reload=config_reload,
         host=bridge_data.get("host", "127.0.0.1"),
         port=bridge_data.get("port", 8080),
+        mcp_log_level=bridge_data.get("mcp_log_level", "ERROR"),
     )
 
     return BridgeConfiguration(servers=servers, bridge=bridge)
