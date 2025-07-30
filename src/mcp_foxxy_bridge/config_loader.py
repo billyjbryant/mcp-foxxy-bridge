@@ -114,6 +114,8 @@ def validate_command_security(cmd_parts: list[str]) -> None:
         "uname",
         # Version control (read-only)
         "git",
+        "gh",  # GitHub CLI
+        "glab",  # GitLab CLI
         # Secret management tools (read-only)
         "op",  # 1Password CLI
         "vault",  # HashiCorp Vault
@@ -242,8 +244,29 @@ def expand_env_vars(value: object) -> object:
 
         def replace_command(match: re.Match[str]) -> str:
             command = match.group(1).strip()
+            original_match = match.group(0)  # Full original match including $()
             logger.debug("Executing command substitution: %s", command)
-            return execute_command_substitution(command)
+            try:
+                return execute_command_substitution(command)
+            except ValueError as e:
+                # Log the error but return the original substitution pattern unchanged
+                # This allows the bridge to continue running with non-critical command failures
+                logger.warning(
+                    "Command substitution failed for '%s': %s. "
+                    "Leaving pattern unchanged to allow bridge to continue.",
+                    command,
+                    e,
+                )
+                # Return the original pattern so users can see what failed
+                return original_match
+            except Exception:
+                # Handle any unexpected errors
+                logger.exception(
+                    "Unexpected error in command substitution for '%s'. "
+                    "Leaving pattern unchanged to allow bridge to continue.",
+                    command,
+                )
+                return original_match
 
         # Apply command substitutions first
         value = re.sub(cmd_pattern, replace_command, value)
