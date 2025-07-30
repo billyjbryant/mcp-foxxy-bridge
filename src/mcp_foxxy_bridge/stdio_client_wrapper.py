@@ -19,6 +19,8 @@
 """Enhanced stdio client wrapper that adds server name prefixes to stdout/stderr logs."""
 
 import logging
+import os
+import subprocess
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -29,6 +31,8 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from anyio.streams.text import TextReceiveStream
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.shared.message import SessionMessage
+from rich.console import Console
+from rich.text import Text
 
 logger = logging.getLogger(__name__)
 
@@ -46,23 +50,27 @@ class PrefixedLogHandler:
         self.server_name = server_name
         self.original_errlog = original_errlog
         self.logger = logging.getLogger(f"mcp_foxxy_bridge.servers.{server_name}")
+        self.console = Console(stderr=True, force_terminal=True)
 
     def write(self, message: str) -> None:
-        """Write message with server name prefix."""
+        """Write message with server name prefix and Rich formatting."""
         if message.strip():  # Only log non-empty messages
             # Remove trailing newlines for clean logging
             clean_message = message.rstrip("\n\r")
             if clean_message:
+                # Create rich formatted message with server name highlighting
+                formatted_message = f"[bold cyan]{self.server_name}[/bold cyan] {clean_message}"
+                
                 # Use info level for stdout-like content, debug for verbose output
                 error_markers = ["error", "exception", "traceback"]
                 if any(marker in clean_message.lower() for marker in error_markers):
-                    self.logger.error("[%s] %s", self.server_name, clean_message)
+                    self.logger.error(formatted_message, extra={"markup": True})
                 elif any(marker in clean_message.lower() for marker in ["warn", "warning"]):
-                    self.logger.warning("[%s] %s", self.server_name, clean_message)
+                    self.logger.warning(formatted_message, extra={"markup": True})
                 elif any(marker in clean_message.lower() for marker in ["debug", "trace"]):
-                    self.logger.debug("[%s] %s", self.server_name, clean_message)
+                    self.logger.debug(formatted_message, extra={"markup": True})
                 else:
-                    self.logger.info("[%s] %s", self.server_name, clean_message)
+                    self.logger.info(formatted_message, extra={"markup": True})
 
     def flush(self) -> None:
         """Flush the original error log."""
@@ -92,7 +100,7 @@ class PrefixedLogHandler:
 
 
 class StdoutCaptureHandler:
-    """Captures and logs stdout from MCP servers with prefixes."""
+    """Captures and logs stdout from MCP servers with prefixes and Rich formatting."""
 
     def __init__(self, server_name: str) -> None:
         """Initialize stdout capture handler.
@@ -102,6 +110,7 @@ class StdoutCaptureHandler:
         """
         self.server_name = server_name
         self.logger = logging.getLogger(f"mcp_foxxy_bridge.servers.{server_name}.stdout")
+        self.console = Console(stderr=True, force_terminal=True)
 
     async def capture_stdout(self, stdout_stream: anyio.abc.ByteReceiveStream) -> None:
         """Capture stdout and log with server prefix.
@@ -120,20 +129,25 @@ class StdoutCaptureHandler:
                         # Check if this looks like a JSON-RPC message (MCP protocol)
                         if line.strip().startswith('{"') and '"jsonrpc"' in line:
                             # This is likely MCP protocol traffic, log at debug level
-                            self.logger.debug("[%s] MCP: %s", self.server_name, line.strip())
+                            formatted_msg = f"[bold cyan]{self.server_name}[/bold cyan] [dim]MCP:[/dim] {line.strip()}"
+                            self.logger.debug(formatted_msg, extra={"markup": True})
                         else:
                             # This is likely application output, log at info level
-                            self.logger.info("[%s] %s", self.server_name, line.strip())
+                            formatted_msg = f"[bold cyan]{self.server_name}[/bold cyan] {line.strip()}"
+                            self.logger.info(formatted_msg, extra={"markup": True})
 
                 # Handle any remaining content in buffer
                 if buffer.strip():
-                    self.logger.info("[%s] %s", self.server_name, buffer.strip())
+                    formatted_msg = f"[bold cyan]{self.server_name}[/bold cyan] {buffer.strip()}"
+                    self.logger.info(formatted_msg, extra={"markup": True})
 
         except anyio.ClosedResourceError:
             # Stream was closed, normal during shutdown
-            self.logger.debug("[%s] Stdout stream closed", self.server_name)
+            formatted_msg = f"[bold cyan]{self.server_name}[/bold cyan] [dim]Stdout stream closed[/dim]"
+            self.logger.debug(formatted_msg, extra={"markup": True})
         except Exception:
-            self.logger.exception("[%s] Error capturing stdout", self.server_name)
+            formatted_msg = f"[bold cyan]{self.server_name}[/bold cyan] [red]Error capturing stdout[/red]"
+            self.logger.exception(formatted_msg, extra={"markup": True})
 
 
 @asynccontextmanager
@@ -141,6 +155,7 @@ async def stdio_client_with_logging(
     server: StdioServerParameters,
     server_name: str,
     errlog: TextIO = sys.stderr,
+    log_level: str = "ERROR",
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -153,10 +168,14 @@ async def stdio_client_with_logging(
     This is a wrapper around the standard MCP stdio_client that captures
     stderr output and adds server name prefixes for easier debugging.
 
+    Note: MCP server stdout will still appear directly in console logs.
+    This is a limitation of the current MCP client library architecture.
+
     Args:
         server: Server parameters for the stdio client
         server_name: Name of the server (used for prefixing logs)
         errlog: Original error log stream
+        log_level: Log level for the MCP server (DEBUG, INFO, WARNING, ERROR)
 
     Yields:
         Tuple of (read_stream, write_stream) for MCP communication
@@ -165,9 +184,35 @@ async def stdio_client_with_logging(
 
     # Create a prefixed error log handler
     prefixed_errlog = PrefixedLogHandler(server_name, errlog)
+    
+    # Set the log level for this server's logger
+    server_logger = logging.getLogger(f"mcp_foxxy_bridge.servers.{server_name}")
+    numeric_level = getattr(logging, log_level.upper(), logging.ERROR)
+    server_logger.setLevel(numeric_level)
+    logger.debug("Set log level for server '%s' to: %s", server_name, log_level)
+
+    # For quiet servers (ERROR level), modify the server to redirect stdout to /dev/null
+    if log_level.upper() == "ERROR":
+        # Create modified server parameters for quiet operation
+        quiet_env = (server.env or {}).copy()
+        
+        # For unix-like systems, redirect stdout using shell command
+        # This is a workaround since we can't easily control stdout in stdio_client
+        command_args = [server.command] + (server.args or [])
+        command_str = " ".join(f'"{arg}"' if " " in arg else arg for arg in command_args)
+        
+        quiet_server = StdioServerParameters(
+            command="sh",
+            args=["-c", f"exec {command_str} 2>/dev/null"],
+            env=quiet_env,
+            cwd=server.cwd,
+        )
+        logger.debug("Wrapping command for quiet mode: sh -c 'exec %s 2>/dev/null'", command_str)
+    else:
+        quiet_server = server
 
     # Use the standard stdio_client with our prefixed error handler
-    async with stdio_client(server, errlog=prefixed_errlog) as (read_stream, write_stream):  # type: ignore[arg-type]
+    async with stdio_client(quiet_server, errlog=prefixed_errlog) as (read_stream, write_stream):  # type: ignore[arg-type]
         logger.debug("Stdio client established for server: %s", server_name)
         yield read_stream, write_stream
         logger.debug("Stdio client closing for server: %s", server_name)

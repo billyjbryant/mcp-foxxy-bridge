@@ -48,6 +48,7 @@ from .config_loader import (
     load_bridge_config_from_file,
     load_named_server_configs_from_file,
 )
+from .logging_config import setup_rich_logging
 from .mcp_server import MCPServerSettings, run_bridge_server
 from .sse_client import run_sse_client
 from .streamablehttp_client import run_streamablehttp_client
@@ -255,17 +256,8 @@ def _add_arguments_to_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def _setup_logging(*, debug: bool) -> logging.Logger:
-    """Set up logging configuration and return the logger."""
-    logging.basicConfig(
-        level=logging.DEBUG if debug else logging.INFO,
-        format="[%(levelname)1.1s %(asctime)s.%(msecs).03d %(name)s] %(message)s",
-    )
-
-    # Suppress noisy asyncio errors during shutdown
-    asyncio_logger = logging.getLogger("asyncio")
-    asyncio_logger.setLevel(logging.CRITICAL)
-
-    return logging.getLogger(__name__)
+    """Set up Rich-based logging configuration and return the logger."""
+    return setup_rich_logging(debug=debug)
 
 
 def _handle_sse_client_mode(

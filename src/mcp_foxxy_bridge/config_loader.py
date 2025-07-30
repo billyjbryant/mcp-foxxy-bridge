@@ -166,6 +166,7 @@ class BridgeServerConfig:
     prompt_namespace: str | None = None
     priority: int = 100
     tags: list[str] | None = None
+    log_level: str = "ERROR"  # Default to quiet (only errors)
 
     def __post_init__(self) -> None:
         """Initialize default values for optional fields."""
@@ -217,6 +218,7 @@ class BridgeConfig:
     config_reload: ConfigReloadConfig | None = None
     host: str = "127.0.0.1"  # Default to localhost for security
     port: int = 8080  # Default port
+    mcp_log_level: str = "ERROR"  # Default log level for all MCP servers
 
     def __post_init__(self) -> None:
         """Initialize default values for bridge configuration."""
@@ -740,6 +742,7 @@ def load_bridge_config_from_file(
             prompt_namespace=server_config.get("promptNamespace"),
             priority=server_config.get("priority", 100),
             tags=server_config.get("tags", []),
+            log_level=server_config.get("log_level", "ERROR"),
         )
 
         if not server.command:
@@ -800,6 +803,7 @@ def load_bridge_config_from_file(
         config_reload=config_reload,
         host=bridge_data.get("host", "127.0.0.1"),
         port=bridge_data.get("port", 8080),
+        mcp_log_level=bridge_data.get("mcp_log_level", "ERROR"),
     )
 
     return BridgeConfiguration(servers=servers, bridge=bridge)

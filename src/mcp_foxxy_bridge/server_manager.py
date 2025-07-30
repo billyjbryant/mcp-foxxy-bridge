@@ -33,6 +33,7 @@ from typing import Any
 from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters
+from mcp.shared.exceptions import McpError
 from pydantic import AnyUrl
 
 from .config_loader import BridgeConfig, BridgeConfiguration, BridgeServerConfig
@@ -112,6 +113,17 @@ class ServerManager:
         self._shutdown_event = asyncio.Event()
         self._context_stack = contextlib.AsyncExitStack()
         self._restart_locks: dict[str, asyncio.Lock] = {}
+
+    def _get_effective_log_level(self, server_config: BridgeServerConfig) -> str:
+        """Get the effective log level for a server (server-specific or global default)."""
+        # Server-specific log level takes precedence over global setting
+        if hasattr(server_config, 'log_level') and server_config.log_level:
+            return server_config.log_level
+        # Fall back to global bridge log level
+        if self.bridge_config.bridge and hasattr(self.bridge_config.bridge, 'mcp_log_level'):
+            return self.bridge_config.bridge.mcp_log_level
+        # Final fallback to ERROR (quiet mode)
+        return "ERROR"
 
     async def start(self) -> None:
         """Start the server manager and connect to all configured servers."""
@@ -222,9 +234,12 @@ class ServerManager:
 
             # Connect with timeout and manage lifetime with context stack
             async with asyncio.timeout(server.config.timeout):
+                # Get the effective log level for this server
+                log_level = self._get_effective_log_level(server.config)
+                
                 # Enter the enhanced stdio_client into the context stack to keep it alive
                 read_stream, write_stream = await self._context_stack.enter_async_context(
-                    stdio_client_with_logging(params, server.name),
+                    stdio_client_with_logging(params, server.name, log_level=log_level),
                 )
 
                 # Create session and manage its lifetime
@@ -631,6 +646,15 @@ class ServerManager:
         # Call the tool
         try:
             return await server.session.call_tool(actual_tool_name, arguments)
+        except McpError as e:
+            # Log MCP errors as warnings and re-raise
+            logger.warning(
+                "MCP error calling tool '%s' on server '%s': %s",
+                actual_tool_name,
+                server.name,
+                e.message,
+            )
+            raise
         except Exception:
             logger.exception(
                 "Error calling tool '%s' on server '%s'",
@@ -669,6 +693,15 @@ class ServerManager:
         # Call the resource
         try:
             return await server.session.read_resource(AnyUrl(actual_uri))
+        except McpError as e:
+            # Log MCP errors as warnings and re-raise
+            logger.warning(
+                "MCP error reading resource '%s' on server '%s': %s",
+                actual_uri,
+                server.name,
+                e.message,
+            )
+            raise
         except Exception:
             logger.exception(
                 "Error reading resource '%s' on server '%s'",
@@ -711,6 +744,15 @@ class ServerManager:
         # Call the prompt
         try:
             return await server.session.get_prompt(actual_prompt_name, arguments)
+        except McpError as e:
+            # Log MCP errors as warnings and re-raise
+            logger.warning(
+                "MCP error getting prompt '%s' on server '%s': %s",
+                actual_prompt_name,
+                server.name,
+                e.message,
+            )
+            raise
         except Exception:
             logger.exception(
                 "Error getting prompt '%s' on server '%s'",

@@ -26,6 +26,7 @@ import logging
 from typing import Any
 
 from mcp import server, types
+from mcp.shared.exceptions import McpError
 
 from .config_loader import BridgeConfiguration, BridgeServerConfig
 from .server_manager import ServerManager
@@ -61,6 +62,10 @@ def _configure_prompts_capability(
                 req.params.arguments,
             )
             return types.ServerResult(result)
+        except McpError as e:
+            # Re-raise MCP errors so they're properly returned to the client
+            logger.warning("MCP error getting prompt '%s': %s", req.params.name, e.message)
+            raise
         except Exception:
             logger.exception("Error getting prompt '%s'", req.params.name)
             return types.ServerResult(
@@ -110,6 +115,10 @@ def _configure_resources_capability(
         try:
             result = await server_manager.read_resource(str(req.params.uri))
             return types.ServerResult(result)
+        except McpError as e:
+            # Re-raise MCP errors so they're properly returned to the client
+            logger.warning("MCP error reading resource '%s': %s", req.params.uri, e.message)
+            raise
         except Exception:
             logger.exception("Error reading resource '%s'", req.params.uri)
             return types.ServerResult(
@@ -174,6 +183,10 @@ def _configure_tools_capability(
                 req.params.arguments or {},
             )
             return types.ServerResult(result)
+        except McpError as e:
+            # Re-raise MCP errors so they're properly returned to the client
+            logger.warning("MCP error calling tool '%s': %s", req.params.name, e.message)
+            raise
         except Exception:
             logger.exception("Error calling tool '%s'", req.params.name)
             return types.ServerResult(
@@ -346,6 +359,89 @@ async def shutdown_bridge_server(app: server.Server[object]) -> None:
             await server_manager.stop()
 
     logger.info("Bridge server shutdown complete")
+
+
+async def create_tag_filtered_bridge(
+    servers: dict[str, BridgeServerConfig],
+    tags: list[str],
+    tag_mode: str = "intersection",
+    bridge_name_suffix: str = "",
+) -> server.Server[object]:
+    """Create a bridge server with servers filtered by tags.
+
+    Args:
+        servers: Dictionary of all available servers
+        tags: List of tags to filter by
+        tag_mode: "intersection" (servers must have ALL tags) or "union" (servers must have ANY tag)
+        bridge_name_suffix: Optional suffix for the bridge name (e.g., tag names)
+
+    Returns:
+        A configured MCP server that bridges to tag-filtered servers
+    """
+
+    def matches_tag_filter(server_config: BridgeServerConfig) -> bool:
+        if not server_config.tags:
+            return False
+
+        server_tags = set(server_config.tags)
+        filter_tags = set(tags)
+
+        if tag_mode == "intersection":
+            return filter_tags.issubset(server_tags)
+        if tag_mode == "union":
+            return bool(filter_tags.intersection(server_tags))
+        return False
+
+    # Filter servers by tag criteria
+    filtered_servers = {
+        name: config
+        for name, config in servers.items()
+        if config.enabled and matches_tag_filter(config)
+    }
+
+    logger.info(
+        "Creating tag-filtered bridge for tags %s (%s mode) - %d servers match",
+        tags,
+        tag_mode,
+        len(filtered_servers),
+    )
+
+    if not filtered_servers:
+        logger.warning("No servers match the tag filter: %s (%s)", tags, tag_mode)
+
+    # Create bridge configuration with filtered servers
+    tag_bridge_config = BridgeConfiguration(
+        servers=filtered_servers,
+        bridge=None,  # Use default bridge config
+    )
+
+    # Create server manager with filtered servers
+    server_manager = ServerManager(tag_bridge_config)
+    await server_manager.start()
+
+    # Create the bridge server
+    bridge_name = f"MCP Foxxy Bridge - Tags: {'+'.join(tags) if tag_mode == 'intersection' else ','.join(tags)}{bridge_name_suffix}"
+    app: server.Server[object] = server.Server(name=bridge_name)
+
+    # Store server manager for cleanup
+    _server_manager_registry[id(app)] = server_manager
+
+    # Configure capabilities with aggregation (since we may have multiple servers)
+    # Use default aggregation settings - tools, resources, and prompts enabled
+    _configure_prompts_capability(app, server_manager)
+    _configure_resources_capability(app, server_manager)
+    _configure_tools_capability(app, server_manager)
+    _configure_logging_capability(app, server_manager)
+    _configure_notifications_and_completion(app, server_manager)
+
+    active_servers = server_manager.get_active_servers()
+    logger.info(
+        "Tag-filtered bridge created successfully for tags %s - %d active servers",
+        tags,
+        len(active_servers),
+    )
+
+    return app
 
 
 async def create_single_server_bridge(

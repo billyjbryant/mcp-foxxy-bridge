@@ -51,6 +51,7 @@ from .bridge_server import (
     _server_manager_registry,
     create_bridge_server,
     create_single_server_bridge,
+    create_tag_filtered_bridge,
     shutdown_bridge_server,
 )
 from .config_loader import (
@@ -291,6 +292,163 @@ def create_individual_server_routes(
     return individual_routes
 
 
+def create_tag_based_routes(
+    bridge_config: BridgeConfiguration,
+) -> list[BaseRoute]:
+    """Create routes for tag-based MCP server access.
+
+    Creates routes of the form /sse/tag/{tag_query} for accessing servers filtered by tags.
+    Tag queries support:
+    - Single tags: /sse/tag/development
+    - Intersection (ALL tags): /sse/tag/dev+local
+    - Union (ANY tag): /sse/tag/web,api,remote
+
+    Routes are created on-demand to improve startup performance.
+
+    Args:
+        bridge_config: Bridge configuration containing server definitions
+
+    Returns:
+        List of routes for tag-based server access
+    """
+    # Create a handler class similar to the individual server routes approach
+    class TagRouteHandler:
+        def __init__(self) -> None:
+            self._tag_bridge_cache: dict[str, tuple[Any, Any]] = {}
+            self._bridge_config = bridge_config
+
+        async def get_or_create_tag_bridge(self, tag_path: str) -> tuple[Any, Any]:
+            cache_key = tag_path
+            if cache_key not in self._tag_bridge_cache:
+                logger.debug("Initializing tag-filtered bridge for: %s", tag_path)
+
+                # Parse the tag query
+                tags, tag_mode = parse_tag_query(tag_path)
+
+                # Create tag-filtered bridge
+                tag_bridge = await create_tag_filtered_bridge(
+                    self._bridge_config.servers, tags, tag_mode
+                )
+
+                # Create SSE transport for this tag combination
+                sse_transport = SseServerTransport(f"/sse/tag/{tag_path}/messages/")
+
+                self._tag_bridge_cache[cache_key] = (tag_bridge, sse_transport)
+
+            return self._tag_bridge_cache[cache_key]
+
+    # Create the handler instance
+    tag_handler = TagRouteHandler()
+
+    async def handle_tag_sse(request: Request) -> Response:
+        try:
+            # Extract tag path from URL
+            tag_path = request.path_params.get("tag_path", "")
+            if not tag_path:
+                return Response(content="Tag path required", status_code=400)
+
+            bridge, sse_transport = await tag_handler.get_or_create_tag_bridge(tag_path)
+            async with sse_transport.connect_sse(
+                request.scope,
+                request.receive,
+                request._send,  # type: ignore[attr-defined]
+            ) as (read_stream, write_stream):
+                _update_global_activity()
+                await bridge.run(
+                    read_stream,
+                    write_stream,
+                    bridge.create_initialization_options(),
+                )
+            return Response()
+        except Exception:
+            logger.exception(
+                "Error handling tag SSE for path: %s", request.path_params.get("tag_path", "")
+            )
+            return Response(status_code=500)
+
+    async def handle_tag_messages(scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            # Extract tag path from the full URL path
+            # The full path will be something like "/sse/tag/development/messages/"
+            full_path = scope.get("path", "")
+            
+            # Extract tag path from URL like "/sse/tag/development/messages/"
+            if full_path.startswith("/sse/tag/") and "/messages/" in full_path:
+                # Extract the tag part between "/sse/tag/" and "/messages/"
+                tag_start = len("/sse/tag/")
+                tag_end = full_path.find("/messages/")
+                tag_path = full_path[tag_start:tag_end] if tag_end > tag_start else ""
+            else:
+                tag_path = ""
+            
+            if not tag_path:
+                logger.warning("No tag path found in URL: %s", full_path)
+                await send({
+                    "type": "http.response.start",
+                    "status": 400,
+                    "headers": [("content-type", "text/plain")],
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": b"Tag path required",
+                })
+                return
+
+            logger.debug("Handling tag messages for tag path: %s", tag_path)
+            _, sse_transport = await tag_handler.get_or_create_tag_bridge(tag_path)
+            _update_global_activity()
+            await sse_transport.handle_post_message(scope, receive, send)
+        except Exception:
+            logger.exception("Error handling tag messages for path: %s", 
+                           scope.get("path", ""))
+            await send({
+                "type": "http.response.start",
+                "status": 500,
+                "headers": [("content-type", "text/plain")],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b"Internal server error",
+            })
+
+    tag_routes = [
+        Route("/sse/tag/{tag_path:path}", endpoint=handle_tag_sse),
+        Mount("/sse/tag/{tag_path:path}/messages/", app=handle_tag_messages),
+    ]
+
+    logger.info("Created %d tag-based routes", len(tag_routes))
+    return tag_routes
+
+
+def parse_tag_query(tag_path: str) -> tuple[list[str], str]:
+    """Parse tag path into tags and operation mode.
+
+    Args:
+        tag_path: URL path segment containing tags (e.g., "dev+local" or "web,api")
+
+    Returns:
+        Tuple of (tags_list, mode) where mode is "intersection" or "union"
+
+    Examples:
+        "development" -> (["development"], "union")
+        "dev+local" -> (["dev", "local"], "intersection")
+        "web,api,remote" -> (["web", "api", "remote"], "union")
+    """
+    # URL decode the tag path first
+    import urllib.parse
+
+    tag_path = urllib.parse.unquote(tag_path)
+
+    if "+" in tag_path:
+        # Intersection: servers must have ALL tags
+        return tag_path.split("+"), "intersection"
+    if "," in tag_path:
+        # Union: servers must have ANY tag
+        return tag_path.split(","), "union"
+    # Single tag
+    return [tag_path], "union"
+
+
 async def handle_server_discovery(request: Request) -> Response:
     """Handle server discovery endpoint that lists available individual servers.
 
@@ -336,6 +494,71 @@ async def handle_server_discovery(request: Request) -> Response:
 
     except Exception:
         logger.exception("Error in server discovery endpoint")
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
+
+
+async def handle_tag_discovery(request: Request) -> Response:
+    """Handle tag discovery endpoint that lists available tags and their servers.
+
+    Returns JSON with information about all available tags and which servers belong to each.
+    """
+    try:
+        # Get current bridge configuration from global state
+        if not _current_bridge_config:
+            return JSONResponse({"error": "No bridge configuration available"}, status_code=500)
+
+        tag_mapping: dict[str, list[dict[str, str]]] = {}
+        base_url = f"{request.url.scheme}://{request.url.netloc}"
+
+        # Build mapping of tags to servers
+        for server_name, server_config in _current_bridge_config.servers.items():
+            if server_config.enabled and server_config.tags:
+                # Get server status
+                server_status = "unknown"
+                for manager in _server_manager_registry.values():
+                    server = manager.get_server_by_name(server_name)
+                    if server:
+                        server_status = server.health.status.value
+                        break
+
+                # Add this server to each of its tags
+                for tag in server_config.tags:
+                    if tag not in tag_mapping:
+                        tag_mapping[tag] = []
+
+                    tag_mapping[tag].append(
+                        {
+                            "server": server_name,
+                            "status": server_status,
+                        }
+                    )
+
+        # Build the response with tag information
+        tags_info = {}
+        for tag, servers in tag_mapping.items():
+            tags_info[tag] = {
+                "servers": servers,
+                "count": len(servers),
+                "endpoint": f"{base_url}/sse/tag/{tag}",
+            }
+
+        return JSONResponse(
+            {
+                "tags": tags_info,
+                "tag_count": len(tags_info),
+                "total_servers": len(
+                    [s for s in _current_bridge_config.servers.values() if s.enabled]
+                ),
+                "examples": {
+                    "single_tag": f"{base_url}/sse/tag/development",
+                    "intersection": f"{base_url}/sse/tag/development+local",
+                    "union": f"{base_url}/sse/tag/web,api",
+                },
+            }
+        )
+
+    except Exception:
+        logger.exception("Error in tag discovery endpoint")
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
@@ -616,9 +839,19 @@ async def run_bridge_server(
         except Exception:
             logger.exception("Failed to create individual server routes")
 
-        # Add server discovery endpoint
+        # Create tag-based routes
+        logger.info("Creating tag-based routes...")
+        try:
+            tag_routes = create_tag_based_routes(bridge_config)
+            all_routes.extend(tag_routes)
+            logger.info("Created %d tag-based routes", len(tag_routes))
+        except Exception:
+            logger.exception("Failed to create tag-based routes")
+
+        # Add discovery endpoints
         server_discovery_route = Route("/sse/servers", endpoint=handle_server_discovery)
-        all_routes.append(server_discovery_route)
+        tag_discovery_route = Route("/sse/tags", endpoint=handle_tag_discovery)
+        all_routes.extend([server_discovery_route, tag_discovery_route])
 
         # Update server status
         server_manager = getattr(bridge_server, "_server_manager", None)
