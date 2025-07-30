@@ -32,10 +32,11 @@ from typing import Any
 
 from mcp import types
 from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.stdio import StdioServerParameters
 from pydantic import AnyUrl
 
 from .config_loader import BridgeConfig, BridgeConfiguration, BridgeServerConfig
+from .stdio_client_wrapper import stdio_client_with_logging
 
 logger = logging.getLogger(__name__)
 
@@ -221,9 +222,9 @@ class ServerManager:
 
             # Connect with timeout and manage lifetime with context stack
             async with asyncio.timeout(server.config.timeout):
-                # Enter the stdio_client into the context stack to keep it alive
+                # Enter the enhanced stdio_client into the context stack to keep it alive
                 read_stream, write_stream = await self._context_stack.enter_async_context(
-                    stdio_client(params),
+                    stdio_client_with_logging(params, server.name),
                 )
 
                 # Create session and manage its lifetime

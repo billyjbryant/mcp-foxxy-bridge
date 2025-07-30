@@ -47,8 +47,18 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import BaseRoute, Mount, Route
 from starlette.types import Receive, Scope, Send
 
-from .bridge_server import _server_manager_registry, create_bridge_server, shutdown_bridge_server
-from .config_loader import BridgeConfiguration, load_bridge_config_from_file
+from .bridge_server import (
+    _server_manager_registry,
+    create_bridge_server,
+    create_single_server_bridge,
+    shutdown_bridge_server,
+)
+from .config_loader import (
+    BridgeConfiguration,
+    BridgeServerConfig,
+    load_bridge_config_from_file,
+    normalize_server_name,
+)
 from .config_watcher import ConfigWatcher
 from .proxy_server import create_proxy_server
 
@@ -164,6 +174,169 @@ def create_single_instance_routes(
         Mount("/messages/", app=sse_transport.handle_post_message),
     ]
     return routes, http_session_manager
+
+
+def create_individual_server_routes(
+    bridge_config: BridgeConfiguration,
+) -> list[BaseRoute]:
+    """Create routes for individual MCP server access.
+
+    Creates routes of the form /sse/mcp/{server-name} for each configured server,
+    allowing clients to connect to individual servers without aggregation.
+    Routes are created lazily when accessed to improve startup performance.
+
+    Args:
+        bridge_config: Bridge configuration containing server definitions
+
+    Returns:
+        List of routes for individual server access
+    """
+    individual_routes: list[BaseRoute] = []
+
+    for server_name, server_config in bridge_config.servers.items():
+        if not server_config.enabled:
+            logger.debug("Skipping disabled server '%s' for individual routes", server_name)
+            continue
+
+        # Normalize server name for URL
+        normalized_name = normalize_server_name(server_name)
+        logger.info("Creating lazy route for '%s' -> /sse/mcp/%s", server_name, normalized_name)
+
+        # Create a factory function with proper closure isolation
+        def create_lazy_routes_factory(
+            srv_name: str, srv_config: BridgeServerConfig, norm_name: str
+        ) -> list[BaseRoute]:
+            """Factory function to create lazy routes with proper SSE session management."""
+
+            # Create a class to properly encapsulate the server state
+            class IndividualServerHandler:
+                def __init__(self) -> None:
+                    self._server_bridge_cache: Any = None
+                    self._sse_transport_cache: Any = None
+                    self._server_name = srv_name
+                    self._server_config = srv_config
+                    self._normalized_name = norm_name
+
+                async def get_or_create_bridge(self) -> tuple[Any, Any]:
+                    if self._server_bridge_cache is None:
+                        logger.debug("Initializing server bridge for '%s'", self._server_name)
+                        self._server_bridge_cache = await create_single_server_bridge(
+                            self._server_name, self._server_config
+                        )
+                        self._sse_transport_cache = SseServerTransport(
+                            f"/sse/mcp/{self._normalized_name}/messages/"
+                        )
+                    return self._server_bridge_cache, self._sse_transport_cache
+
+            # Create the handler instance
+            handler = IndividualServerHandler()
+
+            async def handle_individual_sse(request: Request) -> Response:
+                try:
+                    bridge, sse_transport = await handler.get_or_create_bridge()
+                    async with sse_transport.connect_sse(
+                        request.scope,
+                        request.receive,
+                        request._send,  # noqa: SLF001
+                    ) as (read_stream, write_stream):
+                        _update_global_activity()
+                        await bridge.run(
+                            read_stream,
+                            write_stream,
+                            bridge.create_initialization_options(),
+                        )
+                    return Response()
+                except Exception:
+                    logger.exception("Error handling individual SSE for '%s'", srv_name)
+                    return Response(status_code=500)
+
+            async def handle_individual_messages(
+                scope: Scope, receive: Receive, send: Send
+            ) -> None:
+                try:
+                    _, sse_transport = await handler.get_or_create_bridge()
+                    _update_global_activity()
+                    await sse_transport.handle_post_message(scope, receive, send)
+                except Exception:
+                    logger.exception("Error handling individual messages for '%s'", srv_name)
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": 500,
+                            "headers": [],
+                        }
+                    )
+                    await send(
+                        {
+                            "type": "http.response.body",
+                            "body": b"",
+                        }
+                    )
+
+            return [
+                Route(f"/sse/mcp/{norm_name}", endpoint=handle_individual_sse),
+                Mount(f"/sse/mcp/{norm_name}/messages/", app=handle_individual_messages),
+            ]
+
+        # Create the lazy routes for this server with proper isolation
+        server_routes = create_lazy_routes_factory(server_name, server_config, normalized_name)
+        individual_routes.extend(server_routes)
+
+        logger.info(
+            "Lazy routes created: /sse/mcp/%s and /sse/mcp/%s/messages/",
+            normalized_name,
+            normalized_name,
+        )
+
+    return individual_routes
+
+
+async def handle_server_discovery(request: Request) -> Response:
+    """Handle server discovery endpoint that lists available individual servers.
+
+    Returns JSON with information about all available individual server endpoints.
+    """
+    try:
+        # Get current bridge configuration from global state
+        if not _current_bridge_config:
+            return JSONResponse({"error": "No bridge configuration available"}, status_code=500)
+
+        available_servers = []
+        base_url = f"{request.url.scheme}://{request.url.netloc}"
+
+        for server_name, server_config in _current_bridge_config.servers.items():
+            if server_config.enabled:
+                normalized_name = normalize_server_name(server_name)
+
+                # Get server status if we can access the server manager
+                server_status = "unknown"
+                for manager in _server_manager_registry.values():
+                    server = manager.get_server_by_name(server_name)
+                    if server:
+                        server_status = server.health.status.value
+                        break
+
+                available_servers.append(
+                    {
+                        "name": normalized_name,
+                        "endpoint": f"{base_url}/sse/mcp/{normalized_name}",
+                        "tags": server_config.tags or [],
+                        "status": server_status,
+                        "transport_type": getattr(server_config, "transport_type", "stdio"),
+                    }
+                )
+
+        return JSONResponse(
+            {
+                "servers": available_servers,
+                "count": len(available_servers),
+                "aggregated_endpoint": f"{base_url}/sse",
+            }
+        )
+
+    except Exception:
+        logger.exception("Error in server discovery endpoint")
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
 async def run_mcp_server(
@@ -430,6 +603,22 @@ async def run_bridge_server(
         )
         await stack.enter_async_context(http_manager.run())
         all_routes.extend(instance_routes)
+
+        # Create individual server routes
+        # Note: Individual server routes are created at startup. For dynamic updates
+        # when config changes, a server restart is currently required. Future enhancement
+        # could implement dynamic route management with more complex routing logic.
+        logger.info("Creating individual server routes...")
+        try:
+            individual_routes = create_individual_server_routes(bridge_config)
+            all_routes.extend(individual_routes)
+            logger.info("Created %d individual server routes", len(individual_routes))
+        except Exception:
+            logger.exception("Failed to create individual server routes")
+
+        # Add server discovery endpoint
+        server_discovery_route = Route("/sse/servers", endpoint=handle_server_discovery)
+        all_routes.append(server_discovery_route)
 
         # Update server status
         server_manager = getattr(bridge_server, "_server_manager", None)

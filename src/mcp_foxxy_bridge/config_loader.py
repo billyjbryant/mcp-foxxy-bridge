@@ -46,6 +46,39 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def normalize_server_name(server_name: str) -> str:
+    """Normalize server name for URL-safe usage.
+
+    Converts server names to lowercase, replaces spaces and special characters
+    with underscores, and ensures the name is URL-safe for use in endpoints.
+
+    Args:
+        server_name: The original server name from configuration
+
+    Returns:
+        Normalized server name suitable for URLs
+
+    Examples:
+        "File System" -> "file_system"
+        "GitHub API" -> "github_api"
+        "My_Special Server!" -> "my_special_server"
+    """
+    # Convert to lowercase
+    normalized = server_name.lower()
+
+    # Replace spaces, hyphens, and other non-alphanumeric chars with underscores
+    normalized = re.sub(r"[^a-z0-9]+", "_", normalized)
+
+    # Remove leading/trailing underscores
+    normalized = normalized.strip("_")
+
+    # Ensure we don't have empty string or just underscores
+    if not normalized or normalized == "_":
+        normalized = "unnamed_server"
+
+    return normalized
+
+
 def expand_env_vars(value: object) -> object:
     """Recursively expand environment variables in configuration values.
 

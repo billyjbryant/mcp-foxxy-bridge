@@ -27,7 +27,7 @@ from typing import Any
 
 from mcp import server, types
 
-from .config_loader import BridgeConfiguration
+from .config_loader import BridgeConfiguration, BridgeServerConfig
 from .server_manager import ServerManager
 
 logger = logging.getLogger(__name__)
@@ -346,3 +346,65 @@ async def shutdown_bridge_server(app: server.Server[object]) -> None:
             await server_manager.stop()
 
     logger.info("Bridge server shutdown complete")
+
+
+async def create_single_server_bridge(
+    server_name: str, server_config: BridgeServerConfig
+) -> server.Server[object]:
+    """Create a bridge server that exposes only a single MCP server.
+
+    This creates an MCP server instance that connects to only one backend server,
+    without any aggregation or namespacing. Tools, resources, and prompts are
+    exposed directly with their original names.
+
+    Args:
+        server_name: The name of the server (for logging/identification)
+        server_config: Configuration for the single MCP server
+
+    Returns:
+        A configured MCP server that bridges to a single backend server
+    """
+    logger.info("Creating single-server bridge for '%s'", server_name)
+
+    # Create a minimal bridge configuration with just this one server
+    single_server_config = BridgeConfiguration(
+        servers={server_name: server_config},
+        bridge=None,  # Use default bridge config
+    )
+
+    # Create a server manager with just this one server
+    server_manager = ServerManager(single_server_config)
+    await server_manager.start()
+
+    # Create the bridge server
+    bridge_name = f"MCP Foxxy Bridge - {server_name}"
+    app: server.Server[object] = server.Server(name=bridge_name)
+
+    # Store server manager for cleanup
+    _server_manager_registry[id(app)] = server_manager
+
+    # For single server bridges, we want to expose capabilities directly
+    # without namespacing, so we configure all capabilities regardless of
+    # aggregation settings (there's no aggregation conflict with one server)
+
+    # Configure all capabilities (no aggregation conflicts with single server)
+    _configure_prompts_capability(app, server_manager)
+    _configure_resources_capability(app, server_manager)
+    _configure_tools_capability(app, server_manager)
+    _configure_logging_capability(app, server_manager)
+    _configure_notifications_and_completion(app, server_manager)
+
+    active_servers = server_manager.get_active_servers()
+    if active_servers:
+        logger.info(
+            "Single-server bridge created successfully for '%s' "
+            "(%d tools, %d resources, %d prompts)",
+            server_name,
+            len(active_servers[0].tools),
+            len(active_servers[0].resources),
+            len(active_servers[0].prompts),
+        )
+    else:
+        logger.warning("Single-server bridge created but server '%s' is not active", server_name)
+
+    return app
