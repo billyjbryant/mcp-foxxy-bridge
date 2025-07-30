@@ -218,7 +218,17 @@ async def stdio_client_with_logging(
         quiet_server = server
 
     # Use the standard stdio_client with our prefixed error handler
-    async with stdio_client(quiet_server, errlog=prefixed_errlog) as (read_stream, write_stream):  # type: ignore[arg-type]
-        logger.debug("Stdio client established for server: %s", server_name)
-        yield read_stream, write_stream
-        logger.debug("Stdio client closing for server: %s", server_name)
+    try:
+        async with stdio_client(quiet_server, errlog=prefixed_errlog) as (  # type: ignore[arg-type]
+            read_stream,
+            write_stream,
+        ):
+            logger.debug("Stdio client established for server: %s", server_name)
+            yield read_stream, write_stream
+            logger.debug("Stdio client closing for server: %s", server_name)
+    except (ProcessLookupError, RuntimeError) as e:
+        # Handle process cleanup errors gracefully during shutdown
+        if "cancel scope" in str(e) or isinstance(e, ProcessLookupError):
+            logger.debug("Process cleanup during shutdown for server '%s': %s", server_name, e)
+        else:
+            raise

@@ -108,12 +108,30 @@ def setup_rich_logging(*, debug: bool = False) -> logging.Logger:
 
     uvicorn_access_logger = logging.getLogger("uvicorn.access")
     uvicorn_access_logger.handlers.clear()
-    if debug:
-        uvicorn_access_logger.addHandler(rich_handler)
-        uvicorn_access_logger.setLevel(logging.INFO)
-    else:
-        uvicorn_access_logger.setLevel(logging.WARNING)  # Suppress access logs in production
+    uvicorn_access_logger.addHandler(rich_handler)
+    uvicorn_access_logger.setLevel(logging.INFO)
     uvicorn_access_logger.propagate = False
+
+    # Create a custom formatter for uvicorn access logs to match our style
+    class UvicornAccessFormatter(logging.Formatter):
+        def format(self, record: logging.LogRecord) -> str:
+            # Extract client info and request details from uvicorn's access log
+            min_args_count = 3
+            if (
+                hasattr(record, "args")
+                and record.args
+                and isinstance(record.args, tuple)
+                and len(record.args) >= min_args_count
+            ):
+                client = record.args[0]
+                method_path = record.args[1]
+                status = record.args[2]
+                return f'{client} - "{method_path}" {status}'
+            return super().format(record)
+
+    # Apply custom formatter to access logger
+    for handler in uvicorn_access_logger.handlers:
+        handler.setFormatter(UvicornAccessFormatter())
 
     uvicorn_error_logger = logging.getLogger("uvicorn.error")
     uvicorn_error_logger.handlers.clear()

@@ -618,8 +618,8 @@ def load_named_server_configs_from_file(
             env=new_env,
             cwd=None,
         )
-        logger.info(
-            "Configured named server '%s' from config: %s %s",
+        logger.debug(
+            'MCP Server Starting: %s - "%s" %s',
             name,
             command,
             " ".join(command_args),
@@ -760,8 +760,8 @@ def load_bridge_config_from_file(
             continue
 
         servers[name] = server
-        logger.info(
-            "Configured named server '%s' from config: %s %s",
+        logger.debug(
+            'MCP Server Starting: %s - "%s" %s',
             name,
             server.command,
             " ".join(server.args),

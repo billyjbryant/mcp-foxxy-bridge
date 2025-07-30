@@ -36,7 +36,12 @@ from mcp.client.stdio import StdioServerParameters
 from mcp.shared.exceptions import McpError
 from pydantic import AnyUrl
 
-from .config_loader import BridgeConfig, BridgeConfiguration, BridgeServerConfig
+from .config_loader import (
+    BridgeConfig,
+    BridgeConfiguration,
+    BridgeServerConfig,
+    normalize_server_name,
+)
 from .stdio_client_wrapper import stdio_client_with_logging
 
 logger = logging.getLogger(__name__)
@@ -138,9 +143,11 @@ class ServerManager:
                 logger.info("Server '%s' is disabled, skipping", name)
                 continue
 
-            managed_server = ManagedServer(name=name, config=config)
-            self.servers[name] = managed_server
-            self._restart_locks[name] = asyncio.Lock()
+            # Normalize server name to replace dots and special characters
+            normalized_name = normalize_server_name(name)
+            managed_server = ManagedServer(name=normalized_name, config=config)
+            self.servers[normalized_name] = managed_server
+            self._restart_locks[normalized_name] = asyncio.Lock()
 
         # Start connections
         connection_tasks = []
@@ -197,19 +204,25 @@ class ServerManager:
         # This will gracefully terminate all child processes
         try:
             # Set a shorter timeout for cleanup to avoid hanging
-            await asyncio.wait_for(self._context_stack.aclose(), timeout=1.0)
-        except (TimeoutError, Exception) as e:
+            await asyncio.wait_for(self._context_stack.aclose(), timeout=2.0)
+        except (TimeoutError, asyncio.CancelledError, RuntimeError, ProcessLookupError) as e:
             logger.debug(
-                "Context cleanup completed with exceptions (normal during shutdown): %s",
+                "Context cleanup completed with expected exceptions during shutdown: %s",
                 type(e).__name__,
+            )
+        except (OSError, ValueError, AttributeError) as e:
+            logger.warning(
+                "Unexpected exception during context cleanup: %s: %s",
+                type(e).__name__,
+                e,
             )
 
         logger.info("Server manager stopped")
 
     async def _connect_server(self, server: ManagedServer) -> None:
         """Connect to a single MCP server."""
-        logger.info(
-            "Connecting to server '%s': %s %s",
+        logger.debug(
+            'MCP Server Starting: %s - "%s" %s',
             server.name,
             server.config.command,
             " ".join(server.config.args or []),
@@ -481,7 +494,8 @@ class ServerManager:
 
     def get_server_by_name(self, name: str) -> ManagedServer | None:
         """Get a server by name."""
-        return self.servers.get(name)
+        normalized_name = normalize_server_name(name)
+        return self.servers.get(normalized_name)
 
     def get_aggregated_tools(self) -> list[types.Tool]:
         """Get aggregated tools from all active servers."""
@@ -497,7 +511,7 @@ class ServerManager:
             for tool in server.tools:
                 tool_name = tool.name
                 if namespace:
-                    tool_name = f"{namespace}.{tool.name}"
+                    tool_name = f"{namespace}__{tool.name}"
 
                 # Handle name conflicts based on configuration
                 if tool_name in seen_names:
@@ -540,7 +554,11 @@ class ServerManager:
             for resource in server.resources:
                 resource_uri = str(resource.uri)
                 if namespace:
-                    resource_uri = f"{namespace}://{resource.uri!s}"
+                    # Create a safe namespace-prefixed URI
+                    # Use a simple prefix approach instead of trying to create a valid URL scheme
+                    original_uri = str(resource.uri)
+                    # Just prefix with namespace and double underscore separator
+                    resource_uri = f"{namespace}__{original_uri}"
 
                 # Handle URI conflicts
                 if resource_uri in seen_uris:
@@ -557,12 +575,36 @@ class ServerManager:
                         continue
 
                 # Create namespaced resource
-                namespaced_resource = types.Resource(
-                    uri=AnyUrl(resource_uri),
-                    name=resource.name,
-                    description=resource.description,
-                    mimeType=resource.mimeType,
-                )
+                try:
+                    # Validate the URI first
+                    parsed_uri = AnyUrl(resource_uri)
+                    namespaced_resource = types.Resource(
+                        uri=parsed_uri,
+                        name=resource.name,
+                        description=resource.description,
+                        mimeType=resource.mimeType,
+                    )
+                except (ValueError, TypeError) as e:
+                    # Skip resources with invalid URIs and log a detailed warning
+                    error_msg = str(e)
+                    if "Input should be a valid URL" in error_msg:
+                        # Extract the relevant part of the pydantic validation error
+                        error_details = error_msg.split("Input should be a valid URL")[0].strip()
+                        if not error_details:
+                            error_details = "Invalid URL format"
+                    else:
+                        error_details = error_msg
+
+                    logger.warning(
+                        "Skipping resource '%s' from server '%s' - URI validation failed: %s "
+                        "(original: '%s', namespaced: '%s')",
+                        resource.name,
+                        server.name,
+                        error_details,
+                        str(resource.uri),
+                        resource_uri,
+                    )
+                    continue
 
                 resources.append(namespaced_resource)
                 seen_uris.add(resource_uri)
@@ -583,7 +625,7 @@ class ServerManager:
             for prompt in server.prompts:
                 prompt_name = prompt.name
                 if namespace:
-                    prompt_name = f"{namespace}.{prompt.name}"
+                    prompt_name = f"{namespace}__{prompt.name}"
 
                 # Handle name conflicts
                 if prompt_name in seen_names:
@@ -614,8 +656,8 @@ class ServerManager:
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         """Call a tool by name, routing to the appropriate server."""
         # Parse namespace from tool name
-        if "." in tool_name:
-            namespace, actual_tool_name = tool_name.split(".", 1)
+        if "__" in tool_name:
+            namespace, actual_tool_name = tool_name.split("__", 1)
             # Find server that provides this namespaced tool
             server = None
             for s in self.get_active_servers():
@@ -665,15 +707,15 @@ class ServerManager:
 
     async def read_resource(self, resource_uri: str) -> types.ReadResourceResult:
         """Read a resource by URI, routing to the appropriate server."""
-        # Parse namespace from URI
-        if "://" in resource_uri:
-            namespace, actual_uri = resource_uri.split("://", 1)
+        # Parse namespace from URI using our double underscore separator
+        if "__" in resource_uri:
+            namespace, actual_uri = resource_uri.split("__", 1)
             # Find server that provides this namespaced resource
             server = None
             for s in self.get_active_servers():
                 server_namespace = s.get_effective_namespace("resources", self.bridge_config.bridge)
                 if server_namespace == namespace and any(
-                    resource.uri == actual_uri for resource in s.resources
+                    str(resource.uri) == actual_uri for resource in s.resources
                 ):
                     server = s
                     break
@@ -682,7 +724,7 @@ class ServerManager:
             server = None
             actual_uri = resource_uri
             for s in self.get_active_servers():
-                if any(resource.uri == actual_uri for resource in s.resources):
+                if any(str(resource.uri) == actual_uri for resource in s.resources):
                     server = s
                     break
 
@@ -692,7 +734,17 @@ class ServerManager:
 
         # Call the resource
         try:
-            return await server.session.read_resource(AnyUrl(actual_uri))
+            # Try to create a valid URL from the actual URI
+            try:
+                resource_url = AnyUrl(actual_uri)
+            except Exception as url_error:
+                # If the URI is invalid, wrap it in a more informative error
+                msg = (
+                    f"Invalid resource URI '{actual_uri}' from server '{server.name}': {url_error}"
+                )
+                raise ValueError(msg) from url_error
+
+            return await server.session.read_resource(resource_url)
         except McpError as e:
             # Log MCP errors as warnings and re-raise
             logger.warning(
@@ -717,8 +769,8 @@ class ServerManager:
     ) -> types.GetPromptResult:
         """Get a prompt by name, routing to the appropriate server."""
         # Parse namespace from prompt name
-        if "." in prompt_name:
-            namespace, actual_prompt_name = prompt_name.split(".", 1)
+        if "__" in prompt_name:
+            namespace, actual_prompt_name = prompt_name.split("__", 1)
             # Find server that provides this namespaced prompt
             server = None
             for s in self.get_active_servers():
@@ -1122,9 +1174,9 @@ class ServerManager:
         """
         logger.info("Updating server configurations...")
 
-        # Get current server names and new server names
+        # Get current server names and new server names (normalized)
         current_names = set(self.servers.keys())
-        new_names = set(new_server_configs.keys())
+        new_names = {normalize_server_name(name) for name in new_server_configs}
 
         # Determine what changes need to be made
         servers_to_add = new_names - current_names
@@ -1142,19 +1194,33 @@ class ServerManager:
         for server_name in servers_to_remove:
             await self._remove_server(server_name)
 
-        # Add new servers
-        for server_name in servers_to_add:
-            config = new_server_configs[server_name]
-            await self._add_server(server_name, config)
+        # Add new servers (need to find original config name from normalized name)
+        for normalized_name in servers_to_add:
+            # Find the original config name that normalizes to this name
+            original_name = None
+            for orig_name in new_server_configs:
+                if normalize_server_name(orig_name) == normalized_name:
+                    original_name = orig_name
+                    break
+            if original_name:
+                config = new_server_configs[original_name]
+                await self._add_server(original_name, config)
 
         # Check for configuration updates on existing servers
-        for server_name in servers_to_check_update:
-            old_config = self.servers[server_name].config
-            new_config = new_server_configs[server_name]
+        for normalized_name in servers_to_check_update:
+            # Find the original config name that normalizes to this name
+            original_name = None
+            for orig_name in new_server_configs:
+                if normalize_server_name(orig_name) == normalized_name:
+                    original_name = orig_name
+                    break
+            if original_name:
+                old_config = self.servers[normalized_name].config
+                new_config = new_server_configs[original_name]
 
-            if self._server_config_changed(old_config, new_config):
-                logger.info("Configuration changed for server '%s', updating...", server_name)
-                await self._update_server(server_name, new_config)
+                if self._server_config_changed(old_config, new_config):
+                    logger.info("Configuration changed for server '%s', updating...", original_name)
+                    await self._update_server(original_name, new_config)
 
         logger.info("Server configuration update completed")
 
@@ -1166,10 +1232,11 @@ class ServerManager:
 
         logger.info("Adding new server '%s'", name)
 
-        # Create managed server
-        managed_server = ManagedServer(name=name, config=config)
-        self.servers[name] = managed_server
-        self._restart_locks[name] = asyncio.Lock()
+        # Create managed server with normalized name
+        normalized_name = normalize_server_name(name)
+        managed_server = ManagedServer(name=normalized_name, config=config)
+        self.servers[normalized_name] = managed_server
+        self._restart_locks[normalized_name] = asyncio.Lock()
 
         # Connect to the server
         await self._connect_server(managed_server)
@@ -1180,21 +1247,25 @@ class ServerManager:
         """Remove a server from the manager."""
         logger.info("Removing server '%s'", name)
 
-        server = self.servers.get(name)
+        # Server is stored with normalized name
+        normalized_name = normalize_server_name(name)
+        server = self.servers.get(normalized_name)
         if server:
             # Disconnect the server
             await self._disconnect_server(server)
 
             # Remove from tracking
-            del self.servers[name]
-            if name in self._restart_locks:
-                del self._restart_locks[name]
+            del self.servers[normalized_name]
+            if normalized_name in self._restart_locks:
+                del self._restart_locks[normalized_name]
 
         logger.info("Successfully removed server '%s'", name)
 
     async def _update_server(self, name: str, new_config: BridgeServerConfig) -> None:
         """Update an existing server's configuration."""
-        server = self.servers.get(name)
+        # Server is stored with normalized name
+        normalized_name = normalize_server_name(name)
+        server = self.servers.get(normalized_name)
         if not server:
             logger.warning("Attempted to update non-existent server '%s'", name)
             return

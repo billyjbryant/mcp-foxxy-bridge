@@ -202,7 +202,7 @@ def create_individual_server_routes(
 
         # Normalize server name for URL
         normalized_name = normalize_server_name(server_name)
-        logger.info("Creating lazy route for '%s' -> /sse/mcp/%s", server_name, normalized_name)
+        logger.debug("Creating lazy route for '%s' -> /sse/mcp/%s", server_name, normalized_name)
 
         # Create a factory function with proper closure isolation
         def create_lazy_routes_factory(
@@ -284,7 +284,7 @@ def create_individual_server_routes(
         server_routes = create_lazy_routes_factory(server_name, server_config, normalized_name)
         individual_routes.extend(server_routes)
 
-        logger.info(
+        logger.debug(
             "Lazy routes created: /sse/mcp/%s and /sse/mcp/%s/messages/",
             normalized_name,
             normalized_name,
@@ -668,6 +668,7 @@ async def run_mcp_server(
             host=mcp_settings.bind_host,
             port=actual_port,
             log_level=mcp_settings.log_level.lower(),
+            access_log=False,  # Disable uvicorn's default access logging
         )
         http_server = uvicorn.Server(config)
 
@@ -797,8 +798,9 @@ async def run_bridge_server(
                 yield
             finally:
                 logger.info("Bridge application lifespan shutting down...")
-                # Brief cleanup delay
-                await asyncio.sleep(0.05)
+                # Give some time for cleanup
+                with contextlib.suppress(asyncio.CancelledError):
+                    await asyncio.sleep(0.1)
 
         # Create and configure the bridge server
         bridge_server = await create_bridge_server(bridge_config)
@@ -890,15 +892,76 @@ async def run_bridge_server(
 
         starlette_app.router.redirect_slashes = False
 
+        # Custom exception handler to suppress shutdown-related errors
+        async def handle_shutdown_exceptions(scope: Scope, receive: Receive, send: Send) -> None:
+            try:
+                await starlette_app(scope, receive, send)
+            except RuntimeError as e:
+                if "Expected ASGI message" in str(e) or "response" in str(e).lower():
+                    # These are normal during graceful shutdown
+                    logger.debug("ASGI shutdown error suppressed: %s", e)
+                    return
+                raise
+            except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+                # Client disconnected during shutdown
+                logger.debug("Client connection error during shutdown")
+                return
+
         # Find an available port
         actual_port = _find_available_port(mcp_settings.bind_host, mcp_settings.port)
 
+        # Create a custom log config to force uvicorn to use our Rich handler
+        log_config = {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "default": {
+                    "format": "%(message)s",
+                    "use_colors": False,
+                },
+                "access": {
+                    "format": "%(message)s",
+                    "use_colors": False,
+                },
+            },
+            "handlers": {
+                "default": {
+                    "class": "mcp_foxxy_bridge.logging_config.MCPRichHandler",
+                    "formatter": "default",
+                },
+                "access": {
+                    "class": "mcp_foxxy_bridge.logging_config.MCPRichHandler",
+                    "formatter": "access",
+                },
+            },
+            "loggers": {
+                "uvicorn": {
+                    "handlers": ["default"],
+                    "level": "INFO",
+                    "propagate": False,
+                },
+                "uvicorn.error": {
+                    "handlers": ["default"],
+                    "level": "INFO",
+                    "propagate": False,
+                },
+                "uvicorn.access": {
+                    "handlers": ["access"],
+                    "level": "INFO",
+                    "propagate": False,
+                },
+            },
+        }
+
         # Configure uvicorn server with the available port
         config = uvicorn.Config(
-            starlette_app,
+            handle_shutdown_exceptions,  # Use our exception handler
             host=mcp_settings.bind_host,
             port=actual_port,
             log_level=mcp_settings.log_level.lower(),
+            access_log=True,  # Enable access logging
+            use_colors=False,  # Disable uvicorn's built-in colors since we use Rich
+            log_config=log_config,  # Use our custom log config
         )
         http_server = uvicorn.Server(config)
 
@@ -935,8 +998,8 @@ async def run_bridge_server(
             if shutdown_task in done:
                 logger.info("Shutdown requested, stopping server...")
                 server_task.cancel()
-                with contextlib.suppress(TimeoutError, asyncio.CancelledError):
-                    await asyncio.wait_for(server_task, timeout=0.5)
+                with contextlib.suppress(TimeoutError, asyncio.CancelledError, RuntimeError):
+                    await asyncio.wait_for(server_task, timeout=2.0)
 
             # Cancel remaining tasks
             for task in pending:
@@ -947,11 +1010,19 @@ async def run_bridge_server(
         except Exception:
             logger.exception("Server error")
         finally:
+            logger.info("Starting graceful shutdown cleanup...")
+
             # Restore original signal handlers
-            signal.signal(signal.SIGINT, old_sigint_handler)
-            signal.signal(signal.SIGTERM, old_sigterm_handler)
+            with contextlib.suppress(Exception):
+                signal.signal(signal.SIGINT, old_sigint_handler)
+                signal.signal(signal.SIGTERM, old_sigterm_handler)
 
             # Force close any remaining HTTP connections
             with contextlib.suppress(Exception):
                 await http_server.shutdown()
+
+            # Give AsyncExitStack time to clean up
+            with contextlib.suppress(asyncio.CancelledError, RuntimeError, ProcessLookupError):
+                await asyncio.sleep(0.2)
+
             logger.info("Bridge server shutdown complete")

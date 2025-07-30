@@ -22,6 +22,7 @@ This server aggregates capabilities from multiple MCP servers and provides
 a unified interface for AI tools to interact with all of them.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -293,11 +294,10 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
     """
     logger.info("Creating bridge server with %d configured servers", len(bridge_config.servers))
 
-    # Create and start the server manager
+    # Create the server manager without starting it yet
     server_manager = ServerManager(bridge_config)
-    await server_manager.start()
 
-    # Create the bridge server
+    # Create the bridge server first
     bridge_name = "MCP Foxxy Bridge"
     app: server.Server[object] = server.Server(name=bridge_name)
 
@@ -333,12 +333,16 @@ async def create_bridge_server(bridge_config: BridgeConfiguration) -> server.Ser
     # Add notifications and completion capabilities
     _configure_notifications_and_completion(app, server_manager)
 
-    # Completion handler is configured in _configure_notifications_and_completion
+    # Start server manager asynchronously in the background
+    # This allows the bridge server to start immediately without waiting for all servers
+    start_task = asyncio.create_task(server_manager.start())
+    # Store task reference to prevent garbage collection
+    if not hasattr(app, "background_tasks"):
+        app.background_tasks = set()  # type: ignore[attr-defined]
+    app.background_tasks.add(start_task)  # type: ignore[attr-defined]
+    start_task.add_done_callback(app.background_tasks.discard)  # type: ignore[attr-defined]
 
-    logger.info(
-        "Bridge server created successfully with %d active servers",
-        len(server_manager.get_active_servers()),
-    )
+    logger.info("Bridge server created successfully, servers connecting in background...")
 
     return app
 
