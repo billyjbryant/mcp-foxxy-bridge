@@ -258,15 +258,17 @@ class TestExpandEnvVarsWithCommandSubstitution:
 
         assert result == ["item1", "static_item", "item3"]
 
-    def test_failed_command_substitution_raises_error(self) -> None:
-        """Test that failed command substitution propagates error."""
-        with pytest.raises(ValueError, match="Command substitution failed"):
-            expand_env_vars("$(grep nonexistent_pattern_12345)")
+    def test_failed_command_substitution_soft_failure(self) -> None:
+        """Test that failed command substitution returns original pattern (soft failure)."""
+        result = expand_env_vars("$(grep nonexistent_pattern_12345)")
+        # Should return the original pattern unchanged due to soft failure handling
+        assert result == "$(grep nonexistent_pattern_12345)"
 
-    def test_empty_command_substitution_raises_error(self) -> None:
-        """Test that whitespace-only command substitution raises error."""
-        with pytest.raises(ValueError, match="Empty command in substitution"):
-            expand_env_vars("$(   )")
+    def test_empty_command_substitution_soft_failure(self) -> None:
+        """Test that whitespace-only command substitution returns original pattern."""
+        result = expand_env_vars("$(   )")
+        # Should return the original pattern unchanged due to soft failure handling
+        assert result == "$(   )"
 
     def test_truly_empty_command_substitution_ignored(self) -> None:
         """Test that completely empty $() is left as-is (no match)."""
