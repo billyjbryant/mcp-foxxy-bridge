@@ -1068,6 +1068,149 @@ class ServerManager:
                 logger.exception("Error during server restart for '%s'", server.name)
                 server.health.last_error = f"Restart failed: {e!s}"
 
+    async def update_servers(self, new_server_configs: dict[str, BridgeServerConfig]) -> None:
+        """Update server configurations dynamically.
+
+        This method compares the current server configuration with the new configuration
+        and performs the necessary operations to add, remove, or update servers.
+
+        Args:
+            new_server_configs: New server configurations to apply
+        """
+        logger.info("Updating server configurations...")
+
+        # Get current server names and new server names
+        current_names = set(self.servers.keys())
+        new_names = set(new_server_configs.keys())
+
+        # Determine what changes need to be made
+        servers_to_add = new_names - current_names
+        servers_to_remove = current_names - new_names
+        servers_to_check_update = current_names & new_names
+
+        logger.info(
+            "Server configuration changes: %d to add, %d to remove, %d to check for updates",
+            len(servers_to_add),
+            len(servers_to_remove),
+            len(servers_to_check_update),
+        )
+
+        # Remove servers that are no longer in configuration
+        for server_name in servers_to_remove:
+            await self._remove_server(server_name)
+
+        # Add new servers
+        for server_name in servers_to_add:
+            config = new_server_configs[server_name]
+            await self._add_server(server_name, config)
+
+        # Check for configuration updates on existing servers
+        for server_name in servers_to_check_update:
+            old_config = self.servers[server_name].config
+            new_config = new_server_configs[server_name]
+
+            if self._server_config_changed(old_config, new_config):
+                logger.info("Configuration changed for server '%s', updating...", server_name)
+                await self._update_server(server_name, new_config)
+
+        logger.info("Server configuration update completed")
+
+    async def _add_server(self, name: str, config: BridgeServerConfig) -> None:
+        """Add a new server to the manager."""
+        if not config.enabled:
+            logger.info("Server '%s' is disabled, skipping", name)
+            return
+
+        logger.info("Adding new server '%s'", name)
+
+        # Create managed server
+        managed_server = ManagedServer(name=name, config=config)
+        self.servers[name] = managed_server
+        self._restart_locks[name] = asyncio.Lock()
+
+        # Connect to the server
+        await self._connect_server(managed_server)
+
+        logger.info("Successfully added server '%s'", name)
+
+    async def _remove_server(self, name: str) -> None:
+        """Remove a server from the manager."""
+        logger.info("Removing server '%s'", name)
+
+        server = self.servers.get(name)
+        if server:
+            # Disconnect the server
+            await self._disconnect_server(server)
+
+            # Remove from tracking
+            del self.servers[name]
+            if name in self._restart_locks:
+                del self._restart_locks[name]
+
+        logger.info("Successfully removed server '%s'", name)
+
+    async def _update_server(self, name: str, new_config: BridgeServerConfig) -> None:
+        """Update an existing server's configuration."""
+        server = self.servers.get(name)
+        if not server:
+            logger.warning("Attempted to update non-existent server '%s'", name)
+            return
+
+        logger.info("Updating configuration for server '%s'", name)
+
+        # If the server is becoming disabled, just disconnect it
+        if not new_config.enabled:
+            await self._disconnect_server(server)
+            server.config = new_config
+            server.health.status = ServerStatus.DISABLED
+            return
+
+        # If server was disabled and is now enabled, reconnect with new config
+        if not server.config.enabled and new_config.enabled:
+            server.config = new_config
+            await self._connect_server(server)
+            return
+
+        # For other configuration changes, we need to restart the connection
+        # Check if command/args changed (requires restart)
+        if (
+            server.config.command != new_config.command
+            or server.config.args != new_config.args
+            or server.config.env != new_config.env
+        ):
+            logger.info("Server '%s' command/args changed, restarting connection...", name)
+            await self._disconnect_server(server)
+            server.config = new_config
+            await self._connect_server(server)
+        else:
+            # For other config changes (priority, health check, etc.), just update config
+            server.config = new_config
+
+            # Re-validate health check configuration
+            if server.session and server.health.capabilities:
+                await self._validate_health_check_config(server)
+
+        logger.info("Successfully updated server '%s'", name)
+
+    def _server_config_changed(
+        self, old_config: BridgeServerConfig, new_config: BridgeServerConfig
+    ) -> bool:
+        """Check if server configuration has meaningfully changed."""
+        # Check key fields that would require action
+        return (
+            old_config.enabled != new_config.enabled
+            or old_config.command != new_config.command
+            or old_config.args != new_config.args
+            or old_config.env != new_config.env
+            or old_config.priority != new_config.priority
+            or old_config.timeout != new_config.timeout
+            or old_config.health_check != new_config.health_check
+            or old_config.tool_namespace != new_config.tool_namespace
+            or old_config.resource_namespace != new_config.resource_namespace
+            or old_config.prompt_namespace != new_config.prompt_namespace
+            or old_config.tags != new_config.tags
+        )
+
     async def _execute_health_check_operation(self, server: ManagedServer) -> None:
         """Execute the configured health check operation for a server."""
         if not server.session:

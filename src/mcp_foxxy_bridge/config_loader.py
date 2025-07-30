@@ -165,6 +165,15 @@ class FailoverConfig:
 
 
 @dataclass
+class ConfigReloadConfig:
+    """Configuration for dynamic config file reloading."""
+
+    enabled: bool = True
+    debounce_ms: int = 1000  # milliseconds
+    validate_only: bool = False  # if true, only validate but don't apply changes
+
+
+@dataclass
 class BridgeConfig:
     """Configuration for bridge-specific behavior."""
 
@@ -172,6 +181,7 @@ class BridgeConfig:
     default_namespace: bool = True
     aggregation: AggregationConfig | None = None
     failover: FailoverConfig | None = None
+    config_reload: ConfigReloadConfig | None = None
     host: str = "127.0.0.1"  # Default to localhost for security
     port: int = 8080  # Default port
 
@@ -181,6 +191,8 @@ class BridgeConfig:
             self.aggregation = AggregationConfig()
         if self.failover is None:
             self.failover = FailoverConfig()
+        if self.config_reload is None:
+            self.config_reload = ConfigReloadConfig()
 
 
 @dataclass
@@ -309,6 +321,14 @@ def validate_bridge_config(config_data: dict[str, Any]) -> None:
                             "enabled": {"type": "boolean"},
                             "maxFailures": {"type": "number", "minimum": 1},
                             "recoveryInterval": {"type": "number", "minimum": 1000},
+                        },
+                    },
+                    "configReload": {
+                        "type": "object",
+                        "properties": {
+                            "enabled": {"type": "boolean"},
+                            "debounceMs": {"type": "number", "minimum": 100},
+                            "validateOnly": {"type": "boolean"},
                         },
                     },
                     "host": {"type": "string"},
@@ -730,12 +750,21 @@ def load_bridge_config_from_file(
         recovery_interval=failover_data.get("recoveryInterval", 60000),
     )
 
+    # Parse config reload config
+    config_reload_data = bridge_data.get("configReload", {})
+    config_reload = ConfigReloadConfig(
+        enabled=config_reload_data.get("enabled", True),
+        debounce_ms=config_reload_data.get("debounceMs", 1000),
+        validate_only=config_reload_data.get("validateOnly", False),
+    )
+
     # Create bridge config
     bridge = BridgeConfig(
         conflict_resolution=bridge_data.get("conflictResolution", "namespace"),
         default_namespace=bridge_data.get("defaultNamespace", True),
         aggregation=aggregation,
         failover=failover,
+        config_reload=config_reload,
         host=bridge_data.get("host", "127.0.0.1"),
         port=bridge_data.get("port", 8080),
     )

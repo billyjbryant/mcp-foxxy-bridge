@@ -25,6 +25,7 @@
 import asyncio
 import contextlib
 import logging
+import os
 import signal
 import socket
 from collections.abc import AsyncIterator
@@ -46,11 +47,17 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import BaseRoute, Mount, Route
 from starlette.types import Receive, Scope, Send
 
-from .bridge_server import create_bridge_server, shutdown_bridge_server
-from .config_loader import BridgeConfiguration
+from .bridge_server import _server_manager_registry, create_bridge_server, shutdown_bridge_server
+from .config_loader import BridgeConfiguration, load_bridge_config_from_file
+from .config_watcher import ConfigWatcher
 from .proxy_server import create_proxy_server
 
 logger = logging.getLogger(__name__)
+
+# Global variables for config reloading
+_current_bridge_config: BridgeConfiguration | None = None
+_current_config_path: str | None = None
+_server_manager_reference: object | None = None
 
 
 @dataclass
@@ -286,17 +293,82 @@ async def run_mcp_server(
         await http_server.serve()
 
 
+async def _handle_config_reload() -> bool:
+    """Handle configuration file reload.
+
+    Returns:
+        True if reload was successful, False otherwise.
+    """
+    global _current_bridge_config, _current_config_path, _server_manager_reference  # noqa: PLW0602, PLW0603
+
+    if not _current_config_path:
+        logger.error("No config path available for reload")
+        return False
+
+    try:
+        logger.info("Reloading configuration from: %s", _current_config_path)
+
+        # Load and validate the new configuration
+        base_env = dict(os.environ) if os.getenv("PASS_ENVIRONMENT") else {}
+
+        # This will raise an exception if configuration is invalid
+        new_config = load_bridge_config_from_file(_current_config_path, base_env)
+
+        # Validate configuration before applying
+        if (
+            not _server_manager_reference
+            or _server_manager_reference not in _server_manager_registry
+        ):
+            logger.error("No active server manager found for config reload")
+            return False
+
+        server_manager = _server_manager_registry[_server_manager_reference]
+
+        # Check if we're in validate-only mode
+        if (
+            _current_bridge_config
+            and _current_bridge_config.bridge
+            and _current_bridge_config.bridge.config_reload
+            and _current_bridge_config.bridge.config_reload.validate_only
+        ):
+            logger.info("Configuration validation successful (validate_only mode)")
+            return True
+
+        # Apply configuration changes through server manager
+        await server_manager.update_servers(new_config.servers)
+
+        # Update bridge config (this mainly affects conflict resolution, namespacing, etc.)
+        server_manager.bridge_config = new_config
+
+        # Update the global config reference
+        _current_bridge_config = new_config
+
+    except Exception:
+        logger.exception("Failed to reload configuration")
+        return False
+    else:
+        logger.info("Configuration reloaded successfully")
+        return True
+
+
 async def run_bridge_server(
     mcp_settings: MCPServerSettings,
     bridge_config: BridgeConfiguration,
+    config_file_path: str | None = None,
 ) -> None:
     """Run the bridge server that aggregates multiple MCP servers.
 
     Args:
         mcp_settings: Server settings for the bridge.
         bridge_config: Configuration for the bridge and all MCP servers.
+        config_file_path: Path to the configuration file for dynamic reloading.
     """
     logger.info("Starting MCP Foxxy Bridge server...")
+
+    # Set global variables for config reloading
+    global _current_bridge_config, _current_config_path, _server_manager_reference  # noqa: PLW0603
+    _current_bridge_config = bridge_config
+    _current_config_path = config_file_path
 
     # Global status for bridge server
     _global_status["server_instances"] = {}
@@ -326,6 +398,27 @@ async def run_bridge_server(
 
         # Create and configure the bridge server
         bridge_server = await create_bridge_server(bridge_config)
+
+        # Store server manager reference for config reloading
+        _server_manager_reference = id(bridge_server)
+
+        # Setup config file watcher if enabled and config path provided
+        config_watcher = None
+        if (
+            config_file_path
+            and bridge_config.bridge
+            and bridge_config.bridge.config_reload
+            and bridge_config.bridge.config_reload.enabled
+        ):
+            logger.info("Starting configuration file watcher...")
+            config_watcher = ConfigWatcher(
+                config_path=config_file_path,
+                reload_callback=_handle_config_reload,
+                debounce_ms=bridge_config.bridge.config_reload.debounce_ms,
+                enabled=True,
+            )
+            await stack.enter_async_context(config_watcher)
+            logger.info("Configuration file watcher started successfully")
 
         # Register cleanup on exit
         stack.callback(lambda: asyncio.create_task(shutdown_bridge_server(bridge_server)))

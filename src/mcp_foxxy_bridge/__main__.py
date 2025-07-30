@@ -203,11 +203,12 @@ def _add_arguments_to_parser(parser: argparse.ArgumentParser) -> None:
     stdio_client_options.add_argument(
         "--bridge-config",
         type=str,
-        default="config.json",
+        default=os.getenv("MCP_BRIDGE_CONFIG", "config.json"),
         metavar="FILE_PATH",
         help=(
             "Path to a bridge configuration file (JSON format). "
-            "Defaults to 'config.json' in the current directory. "
+            "Defaults to 'config.json' in the current directory, "
+            "or MCP_BRIDGE_CONFIG environment variable. "
             "When provided, starts the bridge server that aggregates multiple MCP servers. "
             "This mode ignores all other server configuration options."
         ),
@@ -417,8 +418,11 @@ def main() -> None:
 
     # Handle bridge mode first (takes precedence over all other options)
     # Check if config file exists (especially for default config.json)
-    if not Path(args_parsed.bridge_config).exists():
-        if args_parsed.bridge_config == "config.json":
+    # Resolve the actual config path used (important for config reloading)
+    config_path = args_parsed.bridge_config
+
+    if not Path(config_path).exists():
+        if config_path == "config.json":
             # Default config.json doesn't exist, provide helpful guidance
             logger.info("No config.json found in current directory.")
             logger.info("To get started with MCP Foxxy Bridge, you need a configuration file.")
@@ -442,10 +446,10 @@ def main() -> None:
             sys.exit(1)
         else:
             # Custom config file doesn't exist
-            logger.error("Bridge configuration file not found: %s", args_parsed.bridge_config)
+            logger.error("Bridge configuration file not found: %s", config_path)
             sys.exit(1)
 
-    logger.info("Starting in bridge mode with config: %s", args_parsed.bridge_config)
+    logger.info("Starting in bridge mode with config: %s", config_path)
 
     # Load bridge configuration
     bridge_base_env: dict[str, str] = {}
@@ -453,7 +457,7 @@ def main() -> None:
         bridge_base_env.update(os.environ)
 
     try:
-        bridge_config = load_bridge_config_from_file(args_parsed.bridge_config, bridge_base_env)
+        bridge_config = load_bridge_config_from_file(config_path, bridge_base_env)
     except Exception:
         logger.exception("Failed to load bridge configuration")
         sys.exit(1)
@@ -461,7 +465,7 @@ def main() -> None:
     # Create MCP server settings and run the bridge server
     mcp_settings = _create_mcp_settings(args_parsed, bridge_config)
     try:
-        asyncio.run(run_bridge_server(mcp_settings, bridge_config))
+        asyncio.run(run_bridge_server(mcp_settings, bridge_config, config_path))
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down gracefully...")
     except Exception:
