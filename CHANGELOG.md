@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.3.0...v1.3.1) (2025-07-30)
+
+
+### 🐛 Bug Fixes
+
+* **cmd-expansion:** implement soft failure for command substitution errors ([#13](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/13)) ([c7bb263](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/c7bb2638c3b9c822b25b30d54f599cd397486454))
+
 ## [1.3.0](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.2.0...v1.3.0) (2025-07-30)
 
 
