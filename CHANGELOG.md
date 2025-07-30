@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.2.0...v1.3.0) (2025-07-30)
+
+
+### 🚀 Features
+
+* v1.2.0 - Dynamic Configuration and Path-based MCP Access ([#12](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/12)) ([3cdf692](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/3cdf69288d7092326519c81cd9acea27b9a9b414)), closes [#6](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/6) [#7](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/7) [#7](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/7) [#8](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/8) [#8](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/8)
+
+
+### 🐛 Bug Fixes
+
+* add secure bash-style command substitution $(command) support ([3fff937](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/3fff9378a1e27a4bdec54ef221371f754ee9e9ad))
+
 ## [1.2.0](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.1.2...v1.2.0) (2025-07-30)
 
 
