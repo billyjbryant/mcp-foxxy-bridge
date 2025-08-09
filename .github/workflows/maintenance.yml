@@ -409,6 +409,8 @@ jobs:
           });
 
   maintenance-summary:
+    permissions:
+      contents: write
     needs: [detect-changes, setup-labels, validate-config-changes]
     runs-on: ubuntu-latest
     if: always() && github.event_name == 'push'
