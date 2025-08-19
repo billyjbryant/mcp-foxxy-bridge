@@ -5,20 +5,20 @@ import shutil
 import tempfile
 from collections.abc import Callable, Generator
 from pathlib import Path
-from unittest.mock import patch
+from typing import Any
 
 import pytest
 from mcp.client.stdio import StdioServerParameters
 
-from mcp_foxxy_bridge.config_loader import load_named_server_configs_from_file
+from mcp_foxxy_bridge.config.config_loader import load_named_server_configs_from_file
 
 
 @pytest.fixture
-def create_temp_config_file() -> Generator[Callable[[dict], str], None, None]:
+def create_temp_config_file() -> Generator[Callable[[dict[str, Any]], str], None, None]:
     """Creates a temporary JSON config file and returns its path."""
     temp_files: list[str] = []
 
-    def _create_temp_config_file(config_content: dict) -> str:
+    def _create_temp_config_file(config_content: dict[str, Any]) -> str:
         with tempfile.NamedTemporaryFile(
             mode="w",
             delete=False,
@@ -36,7 +36,7 @@ def create_temp_config_file() -> Generator[Callable[[dict], str], None, None]:
             path.unlink()
 
 
-def test_load_valid_config(create_temp_config_file: Callable[[dict], str]) -> None:
+def test_load_valid_config(create_temp_config_file: Callable[[dict[str, Any]], str]) -> None:
     """Test loading a valid configuration file."""
     config_content = {
         "mcpServers": {
@@ -61,9 +61,7 @@ def test_load_valid_config(create_temp_config_file: Callable[[dict], str]) -> No
     assert "server1" in loaded_params
     assert loaded_params["server1"].command == "echo"
     assert loaded_params["server1"].args == ["hello"]
-    assert (
-        loaded_params["server1"].env == base_env_with_added_env
-    )  # Env is a copy, check if it contains base_env items
+    assert loaded_params["server1"].env == base_env_with_added_env  # Env is a copy, check if it contains base_env items
 
     assert "server2" in loaded_params
     assert loaded_params["server2"].command == "cat"
@@ -72,7 +70,7 @@ def test_load_valid_config(create_temp_config_file: Callable[[dict], str]) -> No
 
 
 def test_load_config_with_not_enabled_server(
-    create_temp_config_file: Callable[[dict], str],
+    create_temp_config_file: Callable[[dict[str, Any]], str],
 ) -> None:
     """Test loading a configuration with disabled servers."""
     config_content = {
@@ -134,7 +132,7 @@ def test_load_example_fetch_config_if_uvx_exists() -> None:
         )
 
     base_env = {"EXAMPLE_ENV": "true"}
-    loaded_params = load_named_server_configs_from_file(example_config_path, base_env)
+    loaded_params = load_named_server_configs_from_file(str(example_config_path), base_env)
 
     assert "fetch" in loaded_params
     fetch_param = loaded_params["fetch"]
@@ -147,7 +145,7 @@ def test_load_example_fetch_config_if_uvx_exists() -> None:
 
 
 def test_invalid_config_format_missing_mcpservers(
-    create_temp_config_file: Callable[[dict], str],
+    create_temp_config_file: Callable[[dict[str, Any]], str],
 ) -> None:
     """Test handling of configuration files missing the mcpServers key."""
     config_content = {"some_other_key": "value"}
@@ -157,44 +155,32 @@ def test_invalid_config_format_missing_mcpservers(
         load_named_server_configs_from_file(tmp_config_path, {})
 
 
-@patch("mcp_foxxy_bridge.config_loader.logger")
 def test_invalid_server_entry_not_dict(
-    mock_logger: object,
-    create_temp_config_file: Callable[[dict], str],
+    create_temp_config_file: Callable[[dict[str, Any]], str],
 ) -> None:
     """Test handling of server entries that are not dictionaries."""
     config_content = {"mcpServers": {"server1": "not_a_dict"}}
     tmp_config_path = create_temp_config_file(config_content)
 
-    loaded_params = load_named_server_configs_from_file(tmp_config_path, {})
-    assert len(loaded_params) == 0  # No servers should be loaded
-    mock_logger.warning.assert_called_with(
-        "Skipping invalid server config for '%s' in %s. Entry is not a dictionary.",
-        "server1",
-        tmp_config_path,
-    )
+    # Schema validation should now catch this and raise an exception
+    with pytest.raises(ValueError, match="Invalid configuration"):
+        load_named_server_configs_from_file(tmp_config_path, {})
 
 
-@patch("mcp_foxxy_bridge.config_loader.logger")
 def test_server_entry_missing_command(
-    mock_logger: object,
-    create_temp_config_file: Callable[[dict], str],
+    create_temp_config_file: Callable[[dict[str, Any]], str],
 ) -> None:
     """Test handling of server entries missing the command field."""
     config_content = {"mcpServers": {"server_no_command": {"args": ["arg1"]}}}
     tmp_config_path = create_temp_config_file(config_content)
-    loaded_params = load_named_server_configs_from_file(tmp_config_path, {})
-    assert "server_no_command" not in loaded_params
-    mock_logger.warning.assert_called_with(
-        "Named server '%s' from config is missing 'command'. Skipping.",
-        "server_no_command",
-    )
+
+    # Should raise ValueError due to schema validation failure
+    with pytest.raises(ValueError, match="Invalid configuration"):
+        load_named_server_configs_from_file(tmp_config_path, {})
 
 
-@patch("mcp_foxxy_bridge.config_loader.logger")
 def test_server_entry_invalid_args_type(
-    mock_logger: object,
-    create_temp_config_file: Callable[[dict], str],
+    create_temp_config_file: Callable[[dict[str, Any]], str],
 ) -> None:
     """Test handling of server entries with invalid args type."""
     config_content = {
@@ -203,25 +189,23 @@ def test_server_entry_invalid_args_type(
         },
     }
     tmp_config_path = create_temp_config_file(config_content)
-    loaded_params = load_named_server_configs_from_file(tmp_config_path, {})
-    assert "server_invalid_args" not in loaded_params
-    mock_logger.warning.assert_called_with(
-        "Named server '%s' from config has invalid 'args' (must be a list). Skipping.",
-        "server_invalid_args",
-    )
+
+    # Should raise ValueError due to schema validation failure
+    with pytest.raises(ValueError, match="Invalid configuration"):
+        load_named_server_configs_from_file(tmp_config_path, {})
 
 
-def test_empty_mcpservers_dict(create_temp_config_file: Callable[[dict], str]) -> None:
+def test_empty_mcpservers_dict(create_temp_config_file: Callable[[dict[str, Any]], str]) -> None:
     """Test handling of configuration files with empty mcpServers dictionary."""
-    config_content = {"mcpServers": {}}
+    config_content: dict[str, Any] = {"mcpServers": {}}
     tmp_config_path = create_temp_config_file(config_content)
     loaded_params = load_named_server_configs_from_file(tmp_config_path, {})
     assert len(loaded_params) == 0
 
 
-def test_config_file_is_empty_json_object(create_temp_config_file: Callable[[dict], str]) -> None:
+def test_config_file_is_empty_json_object(create_temp_config_file: Callable[[dict[str, Any]], str]) -> None:
     """Test handling of configuration files with empty JSON objects."""
-    config_content = {}  # Empty JSON object
+    config_content: dict[str, Any] = {}  # Empty JSON object
     tmp_config_path = create_temp_config_file(config_content)
     with pytest.raises(ValueError, match="Missing 'mcpServers' key"):
         load_named_server_configs_from_file(tmp_config_path, {})

@@ -3,24 +3,39 @@
     "filesystem": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"],
-      "tags": ["development", "local", "files"]
+      "tags": ["development", "local", "files"],
+      "log_level": "WARNING"
     },
     "github": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
       "tags": ["development", "remote", "git"],
-      "enabled": false
+      "enabled": false,
+      "log_level": "WARNING"
     },
     "fetch": {
       "command": "uvx",
       "args": ["mcp-server-fetch"],
       "tags": ["development", "web", "http"],
-      "enabled": false
+      "enabled": false,
+      "log_level": "WARNING"
+    },
+    "atlassian": {
+      "transport": "sse",
+      "url": "https://mcp.atlassian.com/v1/sse",
+      "tags": ["remote", "atlassian", "jira", "confluence"],
+      "enabled": true,
+      "log_level": "ERROR",
+      "oauth_config": {
+        "enabled": true,
+        "issuer": "https://auth.atlassian.com"
+      }
     }
   },
   "bridge": {
     "host": "127.0.0.1",
-    "port": 8080,
-    "conflictResolution": "namespace"
+    "port": 9000,
+    "conflictResolution": "namespace",
+    "log_level": "INFO"
   }
 }

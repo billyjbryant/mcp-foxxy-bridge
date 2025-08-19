@@ -1,5 +1,4 @@
 """Tests for the sse server."""
-# ruff: noqa: PLR2004
 
 import asyncio
 import contextlib
@@ -18,7 +17,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
-from mcp_foxxy_bridge.mcp_server import (
+from mcp_foxxy_bridge.server.mcp_server import (
     MCPServerSettings,
     _global_status,
     create_single_instance_routes,
@@ -97,7 +96,7 @@ class BackgroundServer(uvicorn.Server):
         return f"http://{hostport[0]}:{hostport[1]}"
 
 
-def make_background_server(**kwargs) -> BackgroundServer:  # noqa: ANN003
+def make_background_server(**kwargs: t.Any) -> BackgroundServer:
     """Create a BackgroundServer instance with specified parameters."""
     mcp = FastMCP("TestServer")
 
@@ -110,7 +109,7 @@ def make_background_server(**kwargs) -> BackgroundServer:  # noqa: ANN003
         return f"Echo: {message}"
 
     app = create_starlette_app(
-        mcp._mcp_server,  # noqa: SLF001
+        mcp._mcp_server,
         allow_origins=["*"],
         **kwargs,
     )
@@ -195,20 +194,20 @@ def mock_stdio_params() -> StdioServerParameters:
         command="echo",
         args=["hello"],
         env={"TEST_VAR": "test_value"},
-        cwd="/tmp",  # noqa: S108
+        cwd="/tmp",
     )
 
 
 class AsyncContextManagerMock:  # noqa: D101
-    def __init__(self, mock) -> None:  # noqa: ANN001
+    def __init__(self, mock: t.Any) -> None:
         """Initialize the async context manager mock."""
         self.mock = mock
 
-    async def __aenter__(self):  # noqa: ANN204
+    async def __aenter__(self) -> t.Any:
         """Enter the async context manager."""
         return self.mock
 
-    async def __aexit__(self, *args):  # noqa: ANN002, ANN204
+    async def __aexit__(self, *args: object) -> None:
         """Exit the async context manager.
 
         Args:
@@ -247,7 +246,7 @@ def setup_async_context_mocks() -> tuple[
 
 async def test_run_mcp_server_no_servers_configured(mock_settings: MCPServerSettings) -> None:
     """Test run_mcp_server when no servers are configured."""
-    with patch("mcp_foxxy_bridge.mcp_server.logger") as mock_logger:
+    with patch("mcp_foxxy_bridge.server.mcp_server.logger") as mock_logger:
         await run_mcp_server(mock_settings, None, {})
         mock_logger.error.assert_called_once_with("No servers configured to run.")
 
@@ -258,12 +257,12 @@ async def test_run_mcp_server_with_default_server(
 ) -> None:
     """Test run_mcp_server with a default server configuration."""
     with (
-        patch("mcp_foxxy_bridge.mcp_server.stdio_client") as mock_stdio_client,
-        patch("mcp_foxxy_bridge.mcp_server.ClientSession") as mock_client_session,
-        patch("mcp_foxxy_bridge.mcp_server.create_proxy_server") as mock_create_proxy,
-        patch("mcp_foxxy_bridge.mcp_server.create_single_instance_routes") as mock_create_routes,
+        patch("mcp_foxxy_bridge.server.mcp_server.stdio_client") as mock_stdio_client,
+        patch("mcp_foxxy_bridge.server.mcp_server.ClientSession") as mock_client_session,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_proxy_server") as mock_create_proxy,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_single_instance_routes") as mock_create_routes,
         patch("uvicorn.Server") as mock_uvicorn_server,
-        patch("mcp_foxxy_bridge.mcp_server.logger") as mock_logger,
+        patch("mcp_foxxy_bridge.server.mcp_server.logger") as mock_logger,
     ):
         # Setup mocks
         mock_stdio_context, mock_session_context, mock_session, mock_http_manager, mock_routes = (
@@ -313,12 +312,12 @@ async def test_run_mcp_server_with_named_servers(
     }
 
     with (
-        patch("mcp_foxxy_bridge.mcp_server.stdio_client") as mock_stdio_client,
-        patch("mcp_foxxy_bridge.mcp_server.ClientSession") as mock_client_session,
-        patch("mcp_foxxy_bridge.mcp_server.create_proxy_server") as mock_create_proxy,
-        patch("mcp_foxxy_bridge.mcp_server.create_single_instance_routes") as mock_create_routes,
+        patch("mcp_foxxy_bridge.server.mcp_server.stdio_client") as mock_stdio_client,
+        patch("mcp_foxxy_bridge.server.mcp_server.ClientSession") as mock_client_session,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_proxy_server") as mock_create_proxy,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_single_instance_routes") as mock_create_routes,
         patch("uvicorn.Server") as mock_uvicorn_server,
-        patch("mcp_foxxy_bridge.mcp_server.logger") as mock_logger,
+        patch("mcp_foxxy_bridge.server.mcp_server.logger") as mock_logger,
     ):
         # Setup mocks
         mock_stdio_context, mock_session_context, mock_session, mock_http_manager, mock_routes = (
@@ -370,11 +369,12 @@ async def test_run_mcp_server_with_cors_middleware(
     )
 
     with (
-        patch("mcp_foxxy_bridge.mcp_server.stdio_client") as mock_stdio_client,
-        patch("mcp_foxxy_bridge.mcp_server.ClientSession") as mock_client_session,
-        patch("mcp_foxxy_bridge.mcp_server.create_proxy_server") as mock_create_proxy,
-        patch("mcp_foxxy_bridge.mcp_server.create_single_instance_routes") as mock_create_routes,
-        patch("mcp_foxxy_bridge.mcp_server.Starlette") as mock_starlette,
+        patch("mcp_foxxy_bridge.server.mcp_server.stdio_client") as mock_stdio_client,
+        patch("mcp_foxxy_bridge.server.mcp_server.ClientSession") as mock_client_session,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_proxy_server") as mock_create_proxy,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_single_instance_routes") as mock_create_routes,
+        patch("mcp_foxxy_bridge.server.mcp_server.Starlette") as mock_starlette,
+        patch("socket.socket") as mock_socket,
         patch("uvicorn.Server") as mock_uvicorn_server,
     ):
         # Setup mocks
@@ -387,6 +387,11 @@ async def test_run_mcp_server_with_cors_middleware(
         mock_proxy = AsyncMock()
         mock_create_proxy.return_value = mock_proxy
         mock_create_routes.return_value = (mock_routes, mock_http_manager)
+
+        # Mock socket to allow port binding
+        mock_socket_instance = MagicMock()
+        mock_socket.return_value.__enter__ = MagicMock(return_value=mock_socket_instance)
+        mock_socket.return_value.__exit__ = MagicMock(return_value=None)
 
         mock_server_instance = AsyncMock()
         mock_uvicorn_server.return_value = mock_server_instance
@@ -414,11 +419,11 @@ async def test_run_mcp_server_debug_mode(
     )
 
     with (
-        patch("mcp_foxxy_bridge.mcp_server.stdio_client") as mock_stdio_client,
-        patch("mcp_foxxy_bridge.mcp_server.ClientSession") as mock_client_session,
-        patch("mcp_foxxy_bridge.mcp_server.create_proxy_server") as mock_create_proxy,
-        patch("mcp_foxxy_bridge.mcp_server.create_single_instance_routes") as mock_create_routes,
-        patch("mcp_foxxy_bridge.mcp_server.Starlette") as mock_starlette,
+        patch("mcp_foxxy_bridge.server.mcp_server.stdio_client") as mock_stdio_client,
+        patch("mcp_foxxy_bridge.server.mcp_server.ClientSession") as mock_client_session,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_proxy_server") as mock_create_proxy,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_single_instance_routes") as mock_create_routes,
+        patch("mcp_foxxy_bridge.server.mcp_server.Starlette") as mock_starlette,
         patch("uvicorn.Server") as mock_uvicorn_server,
     ):
         # Setup mocks
@@ -455,10 +460,10 @@ async def test_run_mcp_server_stateless_mode(
     )
 
     with (
-        patch("mcp_foxxy_bridge.mcp_server.stdio_client") as mock_stdio_client,
-        patch("mcp_foxxy_bridge.mcp_server.ClientSession") as mock_client_session,
-        patch("mcp_foxxy_bridge.mcp_server.create_proxy_server") as mock_create_proxy,
-        patch("mcp_foxxy_bridge.mcp_server.create_single_instance_routes") as mock_create_routes,
+        patch("mcp_foxxy_bridge.server.mcp_server.stdio_client") as mock_stdio_client,
+        patch("mcp_foxxy_bridge.server.mcp_server.ClientSession") as mock_client_session,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_proxy_server") as mock_create_proxy,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_single_instance_routes") as mock_create_routes,
         patch("uvicorn.Server") as mock_uvicorn_server,
     ):
         # Setup mocks
@@ -491,11 +496,11 @@ async def test_run_mcp_server_uvicorn_config(
 ) -> None:
     """Test run_mcp_server creates correct uvicorn configuration."""
     with (
-        patch("mcp_foxxy_bridge.mcp_server.stdio_client") as mock_stdio_client,
-        patch("mcp_foxxy_bridge.mcp_server.ClientSession") as mock_client_session,
-        patch("mcp_foxxy_bridge.mcp_server.create_proxy_server") as mock_create_proxy,
-        patch("mcp_foxxy_bridge.mcp_server.create_single_instance_routes") as mock_create_routes,
-        patch("mcp_foxxy_bridge.mcp_server._find_available_port") as mock_find_port,
+        patch("mcp_foxxy_bridge.server.mcp_server.stdio_client") as mock_stdio_client,
+        patch("mcp_foxxy_bridge.server.mcp_server.ClientSession") as mock_client_session,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_proxy_server") as mock_create_proxy,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_single_instance_routes") as mock_create_routes,
+        patch("socket.socket") as mock_socket,
         patch("uvicorn.Config") as mock_uvicorn_config,
         patch("uvicorn.Server") as mock_uvicorn_server,
     ):
@@ -510,8 +515,10 @@ async def test_run_mcp_server_uvicorn_config(
         mock_create_proxy.return_value = mock_proxy
         mock_create_routes.return_value = (mock_routes, mock_http_manager)
 
-        # Mock _find_available_port to return the expected port
-        mock_find_port.return_value = mock_settings.port
+        # Mock socket to allow port binding
+        mock_socket_instance = MagicMock()
+        mock_socket.return_value.__enter__ = MagicMock(return_value=mock_socket_instance)
+        mock_socket.return_value.__exit__ = MagicMock(return_value=None)
 
         mock_config = MagicMock()
         mock_uvicorn_config.return_value = mock_config
@@ -542,10 +549,10 @@ async def test_run_mcp_server_global_status_updates(
     named_servers = {"test_server": mock_stdio_params}
 
     with (
-        patch("mcp_foxxy_bridge.mcp_server.stdio_client") as mock_stdio_client,
-        patch("mcp_foxxy_bridge.mcp_server.ClientSession") as mock_client_session,
-        patch("mcp_foxxy_bridge.mcp_server.create_proxy_server") as mock_create_proxy,
-        patch("mcp_foxxy_bridge.mcp_server.create_single_instance_routes") as mock_create_routes,
+        patch("mcp_foxxy_bridge.server.mcp_server.stdio_client") as mock_stdio_client,
+        patch("mcp_foxxy_bridge.server.mcp_server.ClientSession") as mock_client_session,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_proxy_server") as mock_create_proxy,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_single_instance_routes") as mock_create_routes,
         patch("uvicorn.Server") as mock_uvicorn_server,
     ):
         # Setup mocks
@@ -580,13 +587,13 @@ async def test_run_mcp_server_sse_url_logging(
     named_servers = {"test_server": mock_stdio_params}
 
     with (
-        patch("mcp_foxxy_bridge.mcp_server.stdio_client") as mock_stdio_client,
-        patch("mcp_foxxy_bridge.mcp_server.ClientSession") as mock_client_session,
-        patch("mcp_foxxy_bridge.mcp_server.create_proxy_server") as mock_create_proxy,
-        patch("mcp_foxxy_bridge.mcp_server.create_single_instance_routes") as mock_create_routes,
-        patch("mcp_foxxy_bridge.mcp_server._find_available_port") as mock_find_port,
+        patch("mcp_foxxy_bridge.server.mcp_server.stdio_client") as mock_stdio_client,
+        patch("mcp_foxxy_bridge.server.mcp_server.ClientSession") as mock_client_session,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_proxy_server") as mock_create_proxy,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_single_instance_routes") as mock_create_routes,
+        patch("socket.socket") as mock_socket,
         patch("uvicorn.Server") as mock_uvicorn_server,
-        patch("mcp_foxxy_bridge.mcp_server.logger") as mock_logger,
+        patch("mcp_foxxy_bridge.server.mcp_server.logger") as mock_logger,
     ):
         # Setup mocks
         mock_stdio_context, mock_session_context, mock_session, mock_http_manager, mock_routes = (
@@ -599,8 +606,10 @@ async def test_run_mcp_server_sse_url_logging(
         mock_create_proxy.return_value = mock_proxy
         mock_create_routes.return_value = (mock_routes, mock_http_manager)
 
-        # Mock _find_available_port to return the expected port
-        mock_find_port.return_value = mock_settings.port
+        # Mock socket to allow port binding
+        mock_socket_instance = MagicMock()
+        mock_socket.return_value.__enter__ = MagicMock(return_value=mock_socket_instance)
+        mock_socket.return_value.__exit__ = MagicMock(return_value=None)
 
         mock_server_instance = AsyncMock()
         mock_uvicorn_server.return_value = mock_server_instance
@@ -610,9 +619,7 @@ async def test_run_mcp_server_sse_url_logging(
 
         # Verify SSE URLs were logged
         expected_default_url = f"http://{mock_settings.bind_host}:{mock_settings.port}/sse"
-        expected_named_url = (
-            f"http://{mock_settings.bind_host}:{mock_settings.port}/servers/test_server/sse"
-        )
+        expected_named_url = f"http://{mock_settings.bind_host}:{mock_settings.port}/servers/test_server/sse"
 
         mock_logger.info.assert_any_call("Serving MCP Servers via SSE:")
         mock_logger.info.assert_any_call("  - %s", expected_default_url)
@@ -625,8 +632,8 @@ async def test_run_mcp_server_exception_handling(
 ) -> None:
     """Test run_mcp_server handles exceptions properly."""
     with (
-        patch("mcp_foxxy_bridge.mcp_server.stdio_client") as mock_stdio_client,
-        patch("mcp_foxxy_bridge.mcp_server.ClientSession"),
+        patch("mcp_foxxy_bridge.server.mcp_server.stdio_client") as mock_stdio_client,
+        patch("mcp_foxxy_bridge.server.mcp_server.ClientSession"),
     ):
         # Setup mocks to raise an exception
         mock_stdio_client.side_effect = Exception("Connection failed")
@@ -634,7 +641,7 @@ async def test_run_mcp_server_exception_handling(
         # Should not raise, function should handle exceptions gracefully
         try:
             await run_mcp_server(mock_settings, mock_stdio_params, {})
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             # If an exception is raised, it should be the expected one
             assert "Connection failed" in str(e)  # noqa: PT017
 
@@ -647,12 +654,12 @@ async def test_run_mcp_server_both_default_and_named_servers(
     named_servers = {"named_server": mock_stdio_params}
 
     with (
-        patch("mcp_foxxy_bridge.mcp_server.stdio_client") as mock_stdio_client,
-        patch("mcp_foxxy_bridge.mcp_server.ClientSession") as mock_client_session,
-        patch("mcp_foxxy_bridge.mcp_server.create_proxy_server") as mock_create_proxy,
-        patch("mcp_foxxy_bridge.mcp_server.create_single_instance_routes") as mock_create_routes,
+        patch("mcp_foxxy_bridge.server.mcp_server.stdio_client") as mock_stdio_client,
+        patch("mcp_foxxy_bridge.server.mcp_server.ClientSession") as mock_client_session,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_proxy_server") as mock_create_proxy,
+        patch("mcp_foxxy_bridge.server.mcp_server.create_single_instance_routes") as mock_create_routes,
         patch("uvicorn.Server") as mock_uvicorn_server,
-        patch("mcp_foxxy_bridge.mcp_server.logger") as mock_logger,
+        patch("mcp_foxxy_bridge.server.mcp_server.logger") as mock_logger,
     ):
         # Setup mocks
         mock_stdio_context, mock_session_context, mock_session, mock_http_manager, mock_routes = (

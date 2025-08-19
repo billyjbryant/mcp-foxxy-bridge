@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from rich.console import Console
 
-from mcp_foxxy_bridge.logging_config import (
+from mcp_foxxy_bridge.utils.logging_config import (
     MCPRichHandler,
     setup_rich_logging,
 )
@@ -66,14 +66,14 @@ class TestEnhancedLogging:
 
         # Check MCP loggers
         mcp_logger = logging.getLogger("mcp")
-        assert mcp_logger.level == logging.INFO
+        assert mcp_logger.level == logging.WARNING
         assert not mcp_logger.propagate
 
         mcp_server_logger = logging.getLogger("mcp.server")
         assert mcp_server_logger.level == logging.INFO  # Debug mode
         assert not mcp_server_logger.propagate
 
-    @patch("mcp_foxxy_bridge.logging_config.Console")
+    @patch("mcp_foxxy_bridge.utils.logging_config.Console")
     def test_rich_console_configuration(self, mock_console_class: MagicMock) -> None:
         """Test Rich console configuration."""
         mock_console = MagicMock()

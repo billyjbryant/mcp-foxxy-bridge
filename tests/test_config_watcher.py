@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mcp_foxxy_bridge.config_watcher import ConfigWatcher
+from mcp_foxxy_bridge.utils.config_watcher import ConfigWatcher
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ class TestConfigWatcher:
 
         assert watcher.config_path.resolve() == temp_config_file.resolve()
         assert watcher.reload_callback == mock_callback
-        assert watcher._observer is None  # noqa: SLF001
+        assert watcher._observer is None
         assert not watcher.is_running()
 
     @pytest.mark.asyncio
@@ -59,17 +59,15 @@ class TestConfigWatcher:
         # Start the watcher
         await watcher.start()
         assert watcher.is_running()
-        assert watcher._observer is not None  # noqa: SLF001
+        assert watcher._observer is not None
 
         # Stop the watcher
         await watcher.stop()
         assert not watcher.is_running()
-        assert watcher._observer is None  # noqa: SLF001
+        assert watcher._observer is None
 
     @pytest.mark.asyncio
-    async def test_start_already_running(
-        self, temp_config_file: Path, mock_callback: AsyncMock
-    ) -> None:
+    async def test_start_already_running(self, temp_config_file: Path, mock_callback: AsyncMock) -> None:
         """Test starting watcher when already running."""
         watcher = ConfigWatcher(str(temp_config_file), mock_callback)
 
@@ -91,9 +89,7 @@ class TestConfigWatcher:
 
     @pytest.mark.asyncio
     @pytest.mark.skip(reason="Integration test - requires complex async/threading setup")
-    async def test_file_modification_triggers_callback(
-        self, temp_config_file: Path, mock_callback: AsyncMock
-    ) -> None:
+    async def test_file_modification_triggers_callback(self, temp_config_file: Path, mock_callback: AsyncMock) -> None:
         """Test that file modification triggers the callback."""
         # This test requires complex setup to handle asyncio tasks from watchdog threads
         # Skipped for now - functionality works in practice but hard to test in unit tests
@@ -118,27 +114,23 @@ class TestConfigWatcher:
 
     @pytest.mark.asyncio
     @pytest.mark.skip(reason="Integration test - requires complex async/threading setup")
-    async def test_multiple_rapid_changes(
-        self, temp_config_file: Path, mock_callback: AsyncMock
-    ) -> None:
+    async def test_multiple_rapid_changes(self, temp_config_file: Path, mock_callback: AsyncMock) -> None:
         """Test handling of multiple rapid file changes."""
         # This test requires complex setup to handle asyncio tasks from watchdog threads
         # Skipped for now - functionality works in practice but hard to test in unit tests
 
     @pytest.mark.asyncio
-    async def test_directory_watching(
-        self, temp_config_file: Path, mock_callback: AsyncMock
-    ) -> None:
+    async def test_directory_watching(self, temp_config_file: Path, mock_callback: AsyncMock) -> None:
         """Test that watcher monitors the correct directory."""
         watcher = ConfigWatcher(str(temp_config_file), mock_callback)
 
         await watcher.start()
 
         # Verify the watcher is monitoring the parent directory
-        assert watcher._observer is not None  # noqa: SLF001
+        assert watcher._observer is not None
 
         # The observer should have at least one watch for the directory
-        watches = watcher._observer._watches  # noqa: SLF001
+        watches = watcher._observer._watches
         assert len(watches) > 0
 
         await watcher.stop()
@@ -149,10 +141,10 @@ class TestConfigWatcher:
         async def test_context() -> None:
             async with ConfigWatcher(str(temp_config_file), mock_callback) as watcher:
                 assert watcher.is_running()
-                assert watcher._observer is not None  # noqa: SLF001
+                assert watcher._observer is not None
 
             # After exiting context, should be stopped
             assert not watcher.is_running()
-            assert watcher._observer is None  # noqa: SLF001
+            assert watcher._observer is None
 
         asyncio.run(test_context())

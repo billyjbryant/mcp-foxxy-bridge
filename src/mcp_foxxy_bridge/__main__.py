@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import shlex
+import shutil
 import sys
 import typing as t
 from importlib.metadata import version
@@ -43,15 +44,15 @@ from pathlib import Path
 
 from mcp.client.stdio import StdioServerParameters
 
-from .config_loader import (
+from .clients.sse_client import run_sse_client
+from .clients.streamablehttp_client import run_streamablehttp_client
+from .config.config_loader import (
     BridgeConfiguration,
     load_bridge_config_from_file,
     load_named_server_configs_from_file,
 )
-from .logging_config import setup_rich_logging
-from .mcp_server import MCPServerSettings, run_bridge_server
-from .sse_client import run_sse_client
-from .streamablehttp_client import run_streamablehttp_client
+from .server.mcp_server import MCPServerSettings, run_bridge_server
+from .utils.logging_config import setup_rich_logging
 
 # Deprecated env var. Here for backwards compatibility.
 SSE_URL: t.Final[str | None] = os.getenv(
@@ -86,15 +87,12 @@ def _add_arguments_to_parser(parser: argparse.ArgumentParser) -> None:
     """Add all arguments to the argument parser."""
     try:
         package_version = version("mcp-foxxy-bridge")
-    except Exception:  # noqa: BLE001
+    except Exception:
         try:
             # Try to read from VERSION file
             version_file = Path(__file__).parent.parent.parent / "VERSION"
-            if version_file.exists():
-                package_version = version_file.read_text().strip()
-            else:
-                package_version = "unknown"
-        except Exception:  # noqa: BLE001
+            package_version = version_file.read_text().strip() if version_file.exists() else "unknown"
+        except Exception:
             package_version = "unknown"
 
     parser.add_argument(
@@ -139,8 +137,7 @@ def _add_arguments_to_parser(parser: argparse.ArgumentParser) -> None:
         "args",
         nargs="*",
         help=(
-            "Any extra arguments to the command to spawn the default server. "
-            "Ignored if only named servers are defined."
+            "Any extra arguments to the command to spawn the default server. Ignored if only named servers are defined."
         ),
     )
     stdio_client_options.add_argument(
@@ -177,6 +174,18 @@ def _add_arguments_to_parser(parser: argparse.ArgumentParser) -> None:
         default=False,
     )
     stdio_client_options.add_argument(
+        "--allow-command-substitution",
+        action=argparse.BooleanOptionalAction,
+        help="Enable command substitution in configuration files for operations like $(op read ...).",
+        default=False,
+    )
+    stdio_client_options.add_argument(
+        "--allow-dangerous-commands",
+        action=argparse.BooleanOptionalAction,
+        help="⚠️ UNSAFE: Allow ANY command without security validation. Testing only!",
+        default=False,
+    )
+    stdio_client_options.add_argument(
         "--named-server",
         action="append",
         nargs=2,
@@ -204,14 +213,23 @@ def _add_arguments_to_parser(parser: argparse.ArgumentParser) -> None:
     stdio_client_options.add_argument(
         "--bridge-config",
         type=str,
-        default=os.getenv("MCP_BRIDGE_CONFIG", "config.json"),
+        default=os.getenv("MCP_BRIDGE_CONFIG", None),
         metavar="FILE_PATH",
         help=(
             "Path to a bridge configuration file (JSON format). "
-            "Defaults to 'config.json' in the current directory, "
-            "or MCP_BRIDGE_CONFIG environment variable. "
-            "When provided, starts the bridge server that aggregates multiple MCP servers. "
-            "This mode ignores all other server configuration options."
+            "If not specified, uses {config_dir}/config.json. "
+            "Can also be set via MCP_BRIDGE_CONFIG environment variable."
+        ),
+    )
+    stdio_client_options.add_argument(
+        "--config-dir",
+        type=str,
+        default=os.getenv("MCP_CONFIG_DIR", None),
+        metavar="DIRECTORY_PATH",
+        help=(
+            "Root configuration directory. Defaults to ~/.foxxy-bridge/ or MCP_CONFIG_DIR "
+            "environment variable. Config file will be {config_dir}/config.json, "
+            "OAuth tokens in {config_dir}/auth/"
         ),
     )
 
@@ -248,10 +266,7 @@ def _add_arguments_to_parser(parser: argparse.ArgumentParser) -> None:
         "--allow-origin",
         nargs="+",
         default=[],
-        help=(
-            "Allowed origins for the SSE server. Can be used multiple times. "
-            "Default is no CORS allowed."
-        ),
+        help=("Allowed origins for the SSE server. Can be used multiple times. Default is no CORS allowed."),
     )
 
 
@@ -288,10 +303,7 @@ def _configure_default_server(
     logger: logging.Logger,
 ) -> StdioServerParameters | None:
     """Configure the default server if applicable."""
-    if not (
-        args_parsed.command_or_url
-        and not args_parsed.command_or_url.startswith(("http://", "https://"))
-    ):
+    if not (args_parsed.command_or_url and not args_parsed.command_or_url.startswith(("http://", "https://"))):
         return None
 
     default_server_env = base_env.copy()
@@ -397,7 +409,7 @@ def _create_mcp_settings(
         bind_host=host,
         port=port,
         stateless=args_parsed.stateless,
-        allow_origins=args_parsed.allow_origin if len(args_parsed.allow_origin) > 0 else None,
+        allow_origins=(args_parsed.allow_origin if len(args_parsed.allow_origin) > 0 else None),
         log_level="DEBUG" if args_parsed.debug else "INFO",
     )
 
@@ -408,40 +420,77 @@ def main() -> None:
     args_parsed = parser.parse_args()
     logger = _setup_logging(debug=args_parsed.debug)
 
-    # Handle bridge mode first (takes precedence over all other options)
-    # Check if config file exists (especially for default config.json)
-    # Resolve the actual config path used (important for config reloading)
-    config_path = args_parsed.bridge_config
+    # Set command substitution environment variable if flag is provided
+    if args_parsed.allow_command_substitution:
+        os.environ["MCP_ALLOW_COMMAND_SUBSTITUTION"] = "true"
 
-    if not Path(config_path).exists():
-        if config_path == "config.json":
-            # Default config.json doesn't exist, provide helpful guidance
-            logger.info("No config.json found in current directory.")
-            logger.info("To get started with MCP Foxxy Bridge, you need a configuration file.")
-            logger.info("You can:")
-            logger.info("  1. Copy an example: cp docs/examples/basic-config.json config.json")
-            logger.info("  2. Create a minimal config:")
-            logger.info(
-                '     echo \'{"servers": {"filesystem": {"command": "npx", '
-                '"args": ["-y", "@modelcontextprotocol/server-filesystem", "./"]}}}\' '
-                "> config.json",
-            )
-            logger.info(
-                "  3. Use a different config: mcp-foxxy-bridge --bridge-config "
-                "path/to/your/config.json",
-            )
-            logger.info("  4. See available examples in docs/examples/ directory")
-            logger.info("")
-            logger.info(
-                "For more help, see: https://github.com/billyjbryant/mcp-foxxy-bridge/blob/main/docs/configuration.md",
-            )
-            sys.exit(1)
-        else:
-            # Custom config file doesn't exist
+    # Set dangerous commands flag with prominent warning
+    if args_parsed.allow_dangerous_commands:
+        os.environ["MCP_ALLOW_DANGEROUS_COMMANDS"] = "true"
+        logger.warning("⚠️" * 10)
+        logger.warning("🚨 DANGER: UNSAFE MODE ENABLED - Command validation DISABLED!")
+        logger.warning("🚨 ANY command can now execute via command substitution")
+        logger.warning("🚨 This includes rm, curl uploads, privilege escalation, etc.")
+        logger.warning("🚨 Only use this for testing/development environments!")
+        logger.warning("⚠️" * 10)
+
+    # Handle bridge mode first (takes precedence over all other options)
+    # Determine config directory
+    if args_parsed.config_dir:
+        config_dir = Path(args_parsed.config_dir).expanduser().absolute()
+    else:
+        config_dir = Path.home() / ".foxxy-bridge"
+
+    # Ensure config directory exists
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine config file path
+    if args_parsed.bridge_config:
+        # Explicit config file path provided
+        config_path = Path(args_parsed.bridge_config).expanduser().absolute()
+        if not config_path.exists():
             logger.error("Bridge configuration file not found: %s", config_path)
             sys.exit(1)
+    else:
+        # Use default config path: {config_dir}/config.json
+        config_path = config_dir / "config.json"
 
-    logger.info("Starting in bridge mode with config: %s", config_path)
+        if not config_path.exists():
+            # Create example config and copy to config.json
+            example_config_path = config_dir / "config.example.json"
+
+            # Create basic example config
+            example_config = {
+                "mcpServers": {
+                    "filesystem": {
+                        "transport": "stdio",
+                        "command": "npx",
+                        "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"],
+                    }
+                },
+                "bridge": {
+                    "conflictResolution": "namespace",
+                    "defaultNamespace": True,
+                    "aggregation": {"tools": True, "resources": True, "prompts": True},
+                },
+            }
+
+            # Write example config
+            with Path(example_config_path).open("w") as f:
+                json.dump(example_config, f, indent=2)
+
+            # Copy example to config.json
+
+            shutil.copy2(example_config_path, config_path)
+
+            logger.info("Created new configuration directory: %s", config_dir)
+            logger.info("Created example configuration: %s", example_config_path)
+            logger.info("Created default configuration: %s", config_path)
+            logger.info("You can now edit %s to customize your configuration", config_path)
+
+    config_path_str = str(config_path)
+
+    logger.info("Starting in bridge mode with config: %s", config_path_str)
 
     # Load bridge configuration
     bridge_base_env: dict[str, str] = {}
@@ -449,15 +498,23 @@ def main() -> None:
         bridge_base_env.update(os.environ)
 
     try:
-        bridge_config = load_bridge_config_from_file(config_path, bridge_base_env)
+        # Only pass CLI override if explicitly set to True, otherwise use config file value
+        cli_allow_substitution = (
+            args_parsed.allow_command_substitution if args_parsed.allow_command_substitution else None
+        )
+        bridge_config = load_bridge_config_from_file(config_path_str, bridge_base_env, cli_allow_substitution)
     except Exception:
         logger.exception("Failed to load bridge configuration")
         sys.exit(1)
 
     # Create MCP server settings and run the bridge server
     mcp_settings = _create_mcp_settings(args_parsed, bridge_config)
+
+    # Set OAuth config directory (auth subdirectory of config directory)
+    oauth_config_dir = str(config_dir / "auth")
+
     try:
-        asyncio.run(run_bridge_server(mcp_settings, bridge_config, config_path))
+        asyncio.run(run_bridge_server(mcp_settings, bridge_config, config_path_str, oauth_config_dir))
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down gracefully...")
     except Exception:

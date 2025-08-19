@@ -28,23 +28,63 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from mcp import types
 from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters
 from mcp.shared.exceptions import McpError
 from pydantic import AnyUrl
 
-from .config_loader import (
+from mcp_foxxy_bridge.clients.sse_client_wrapper import (
+    http_client_with_logging,
+    sse_client_with_logging,
+)
+from mcp_foxxy_bridge.clients.stdio_client_wrapper import stdio_client_with_logging
+from mcp_foxxy_bridge.config.config_loader import (
     BridgeConfig,
     BridgeConfiguration,
     BridgeServerConfig,
     normalize_server_name,
 )
-from .stdio_client_wrapper import stdio_client_with_logging
+from mcp_foxxy_bridge.utils.mcp_file_logger import log_to_server_file
+
+
+def _create_resource_uri(uri_string: str) -> AnyUrl | str:
+    """Create a resource URI, allowing custom schemes for MCP resources.
+
+    Args:
+        uri_string: The URI string to validate
+
+    Returns:
+        AnyUrl object if it's a standard scheme, or string if it's a custom scheme
+
+    Raises:
+        ValueError: If the URI format is invalid
+    """
+    try:
+        # Try standard URL validation first
+        return AnyUrl(uri_string)
+    except (ValueError, TypeError):
+        # If AnyUrl fails, check if it's a reasonable URI with custom scheme
+        if "://" in uri_string and not uri_string.startswith("//"):
+            # Allow custom schemes like lambda-powertools://, config://, slack://
+            return uri_string
+        raise ValueError(f"Invalid URI format: {uri_string}") from None
+
 
 logger = logging.getLogger(__name__)
+
+
+# Import OAuth function (avoid circular import by importing only when needed)
+def _get_oauth_env_vars(server_name: str) -> dict[str, str]:
+    """Get OAuth environment variables for a server."""
+    # Import here to avoid circular import
+    from .mcp_server import get_oauth_env_vars  # noqa: PLC0415
+
+    return get_oauth_env_vars(server_name)
 
 
 class ServerStatus(Enum):
@@ -116,8 +156,16 @@ class ServerManager:
         self.health_check_task: asyncio.Task[None] | None = None
         self.keep_alive_task: asyncio.Task[None] | None = None
         self._shutdown_event = asyncio.Event()
-        self._context_stack = contextlib.AsyncExitStack()
+        self._server_contexts: dict[str, contextlib.AsyncExitStack] = {}
         self._restart_locks: dict[str, asyncio.Lock] = {}
+
+        # Capability change notification system
+        self.capability_change_notifier: Callable[[dict[str, Any]], Any] | None = None
+        self._last_capabilities: dict[str, Any] = {
+            "tools": [],
+            "resources": [],
+            "prompts": [],
+        }
 
     def _get_effective_log_level(self, server_config: BridgeServerConfig) -> str:
         """Get the effective log level for a server (server-specific or global default)."""
@@ -174,13 +222,22 @@ class ServerManager:
             self.health_check_task = asyncio.create_task(self._health_check_loop())
 
         # Start keep-alive task for all servers with keep-alive enabled
-        if any(
-            server.config.health_check and server.config.health_check.enabled
-            for server in self.servers.values()
-        ):
+        if any(server.config.health_check and server.config.health_check.enabled for server in self.servers.values()):
             self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
 
-        logger.info("Server manager started with %d active servers", len(self.get_active_servers()))
+        logger.info(
+            "Server manager started with %d active servers",
+            len(self.get_active_servers()),
+        )
+
+        # Initialize baseline capabilities for change detection
+        self._last_capabilities = self._get_current_capability_names()
+        logger.debug(
+            "Initialized capability change tracking with %d tools, %d resources, %d prompts",
+            len(self._last_capabilities["tools"]),
+            len(self._last_capabilities["resources"]),
+            len(self._last_capabilities["prompts"]),
+        )
 
     async def stop(self) -> None:
         """Stop the server manager and disconnect from all servers."""
@@ -200,22 +257,39 @@ class ServerManager:
             with contextlib.suppress(asyncio.CancelledError):
                 await self.keep_alive_task
 
-        # Close the context stack to cleanup all managed connections
-        # This will gracefully terminate all child processes
-        try:
-            # Set a shorter timeout for cleanup to avoid hanging
-            await asyncio.wait_for(self._context_stack.aclose(), timeout=2.0)
-        except (TimeoutError, asyncio.CancelledError, RuntimeError, ProcessLookupError) as e:
-            logger.debug(
-                "Context cleanup completed with expected exceptions during shutdown: %s",
-                type(e).__name__,
-            )
-        except (OSError, ValueError, AttributeError) as e:
-            logger.warning(
-                "Unexpected exception during context cleanup: %s: %s",
-                type(e).__name__,
-                e,
-            )
+        # Close all server context stacks to cleanup managed connections
+        cleanup_tasks = []
+        for server_name, context_stack in self._server_contexts.items():
+
+            async def cleanup_context(name: str, stack: contextlib.AsyncExitStack) -> None:
+                try:
+                    await asyncio.wait_for(stack.aclose(), timeout=2.0)
+                    logger.debug("Cleaned up context for server: %s", name)
+                except (
+                    TimeoutError,
+                    asyncio.CancelledError,
+                    RuntimeError,
+                    ProcessLookupError,
+                ) as e:
+                    logger.debug(
+                        "Context cleanup for server '%s' completed with expected exceptions: %s",
+                        name,
+                        type(e).__name__,
+                    )
+                except (OSError, ValueError, AttributeError) as e:
+                    logger.warning(
+                        "Unexpected exception during context cleanup for server '%s': %s: %s",
+                        name,
+                        type(e).__name__,
+                        e,
+                    )
+
+            cleanup_tasks.append(asyncio.create_task(cleanup_context(server_name, context_stack)))
+
+        if cleanup_tasks:
+            await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+
+        self._server_contexts.clear()
 
         logger.info("Server manager stopped")
 
@@ -230,34 +304,143 @@ class ServerManager:
 
         server.health.status = ServerStatus.CONNECTING
 
+        # Create a dedicated context stack for this server
+        context_stack = contextlib.AsyncExitStack()
+        self._server_contexts[server.name] = context_stack
+
         try:
             # Create server parameters with modified environment for cleaner shutdown
             server_env = (server.config.env or {}).copy()
             # Add environment variable to help child processes handle shutdown gracefully
             server_env["MCP_BRIDGE_CHILD"] = "1"
-            # Suppress traceback output during shutdown
-            server_env["PYTHONPATH"] = server_env.get("PYTHONPATH", "")
 
-            params = StdioServerParameters(
-                command=server.config.command,
-                args=server.config.args or [],
-                env=server_env,
-                cwd=None,
-            )
+            # Get the effective log level for this server
+            effective_log_level = self._get_effective_log_level(server.config)
+            server_env["MCP_SERVER_LOG_LEVEL"] = effective_log_level
+
+            # Configure logging environment for child processes
+            server_env["PYTHONPATH"] = server_env.get("PYTHONPATH", "")
+            server_env["PYTHONUNBUFFERED"] = "1"  # Enable unbuffered output for real-time logging
+            server_env["MCP_LOG_LEVEL"] = effective_log_level
+            server_env["UVICORN_LOG_LEVEL"] = effective_log_level.lower()
+            server_env["FASTAPI_LOG_LEVEL"] = effective_log_level.lower()
+            server_env["LOGURU_LEVEL"] = effective_log_level
+            server_env["LOG_LEVEL"] = effective_log_level
+            server_env["MCP_SERVER_NAME"] = server.name  # For logging context
+
+            # Add OAuth environment variables if this server needs OAuth proxy (not passthrough)
+            if server.config.needs_oauth_proxy():
+                oauth_env = _get_oauth_env_vars(server.name)
+                server_env.update(oauth_env)
+                if oauth_env:
+                    logger.debug("Added OAuth environment variables for server '%s'", server.name)
 
             # Connect with timeout and manage lifetime with context stack
             async with asyncio.timeout(server.config.timeout):
                 # Get the effective log level for this server
-                log_level = self._get_effective_log_level(server.config)
+                self._get_effective_log_level(server.config)
 
-                # Enter the enhanced stdio_client into the context stack to keep it alive
-                read_stream, write_stream = await self._context_stack.enter_async_context(
-                    stdio_client_with_logging(params, server.name, log_level=log_level),
-                )
+                # Handle different transport types
+                if server.config.transport_type == "sse":
+                    if not server.config.url:
+                        msg = f"SSE transport requires 'url' field for server '{server.name}'"
+                        raise ValueError(msg)
+
+                    # Create headers from environment variables if needed
+                    headers = {}
+                    if server_env:
+                        # Convert OAuth and other env vars to headers if needed
+                        for key, value in server_env.items():
+                            if key.startswith("OAUTH_") or key.upper() in [
+                                "AUTHORIZATION",
+                                "BEARER",
+                            ]:
+                                # These might be useful as headers for SSE auth
+                                header_key = key.lower().replace("_", "-")
+                                if key.upper() == "AUTHORIZATION" or key.startswith("OAUTH_"):
+                                    headers[header_key] = value
+
+                    # Add custom headers from configuration (issue #10 compliance)
+                    if server.config.headers:
+                        headers.update(server.config.headers)
+                        logger.debug(
+                            "Added custom headers for server '%s': %s",
+                            server.name,
+                            list(server.config.headers.keys()),
+                        )
+
+                    # Enter the enhanced sse_client into the server's context stack
+                    read_stream, write_stream = await context_stack.enter_async_context(
+                        sse_client_with_logging(
+                            server.config.url,
+                            server.name,
+                            headers=headers or None,
+                            oauth_enabled=server.config.is_oauth_enabled(),
+                            oauth_config=server.config.oauth_config,
+                            authentication=server.config.authentication,
+                            verify_ssl=server.config.verify_ssl,
+                        ),
+                    )
+                elif server.config.transport_type == "http":
+                    if not server.config.url:
+                        msg = f"HTTP transport requires 'url' field for server '{server.name}'"
+                        raise ValueError(msg)
+
+                    # Create headers from environment variables if needed
+                    headers = {}
+                    if server_env:
+                        # Convert OAuth and other env vars to headers if needed
+                        for key, value in server_env.items():
+                            if key.startswith("OAUTH_") or key.upper() in [
+                                "AUTHORIZATION",
+                                "BEARER",
+                            ]:
+                                # These might be useful as headers for HTTP auth
+                                header_key = key.lower().replace("_", "-")
+                                if key.upper() == "AUTHORIZATION" or key.startswith("OAUTH_"):
+                                    headers[header_key] = value
+
+                    # Add custom headers from configuration (issue #10 compliance)
+                    if server.config.headers:
+                        headers.update(server.config.headers)
+                        logger.debug(
+                            "Added custom headers for server '%s': %s",
+                            server.name,
+                            list(server.config.headers.keys()),
+                        )
+
+                    # Enter the enhanced http_client into the server's context stack
+                    read_stream, write_stream = await context_stack.enter_async_context(
+                        http_client_with_logging(
+                            server.config.url,
+                            server.name,
+                            headers=headers or None,
+                            oauth_enabled=server.config.is_oauth_enabled(),
+                            authentication=server.config.authentication,
+                            verify_ssl=server.config.verify_ssl,
+                        ),
+                    )
+                else:
+                    # Default to stdio transport
+                    if not server.config.command:
+                        msg = f"STDIO transport requires 'command' field for server '{server.name}'"
+                        raise ValueError(msg)
+
+                    # Enter the enhanced stdio_client into the server's context stack
+                    read_stream, write_stream = await context_stack.enter_async_context(
+                        stdio_client_with_logging(
+                            command=server.config.command,
+                            args=server.config.args or [],
+                            server_name=server.name,
+                            cwd=None,
+                            env=server_env,
+                            timeout=30.0,
+                        ),
+                    )
 
                 # Create session and manage its lifetime
-                session = await self._context_stack.enter_async_context(
-                    ClientSession(read_stream, write_stream),
+                session = await context_stack.enter_async_context(
+                    ClientSession(read_stream, write_stream),  # type: ignore[arg-type]
                 )
                 server.session = session
 
@@ -279,6 +462,14 @@ class ServerManager:
 
                 logger.info("Successfully connected to server '%s'", server.name)
 
+                # Log connection success to server's file
+                log_to_server_file(
+                    server.name,
+                    f"Successfully connected to MCP server (transport: {server.config.transport_type})",
+                    logging.INFO,
+                    effective_log_level,
+                )
+
         except Exception as e:
             logger.exception("Failed to connect to server '%s'", server.name)
             server.health.status = ServerStatus.FAILED
@@ -287,11 +478,41 @@ class ServerManager:
             server.health.last_error = str(e)
             server.session = None
 
+            # Log connection failure to server's file
+            effective_log_level = self._get_effective_log_level(server.config)
+            log_to_server_file(
+                server.name,
+                f"Failed to connect to MCP server: {e}",
+                logging.ERROR,
+                effective_log_level,
+            )
+
+            # Clean up the context stack on failure
+            try:
+                await context_stack.aclose()
+            except (RuntimeError, OSError) as e:
+                logger.debug("Context cleanup error for server '%s': %s", server.name, e)
+            except Exception as e:
+                logger.warning("Unexpected context cleanup error for server '%s': %s", server.name, str(e))
+
+            # Remove from tracking
+            self._server_contexts.pop(server.name, None)
+
     async def _disconnect_server(self, server: ManagedServer) -> None:
         """Disconnect from a single MCP server."""
         logger.info("Disconnecting from server '%s'", server.name)
 
-        # The context stack will handle the actual cleanup
+        # Clean up the server's context stack
+        context_stack = self._server_contexts.pop(server.name, None)
+        if context_stack:
+            try:
+                await context_stack.aclose()
+                logger.debug("Cleaned up context stack for server '%s'", server.name)
+            except (RuntimeError, OSError) as e:
+                logger.debug("Context cleanup error for server '%s': %s", server.name, e)
+            except Exception as e:
+                logger.warning("Unexpected context cleanup error for server '%s': %s", server.name, str(e))
+
         server.session = None
         server.health.status = ServerStatus.DISCONNECTED
         server.health.consecutive_failures = 0
@@ -330,7 +551,11 @@ class ServerManager:
             if server.health.capabilities.prompts:
                 prompts_result = await server.session.list_prompts()
                 server.prompts = prompts_result.prompts
-                logger.debug("Loaded %d prompts from server '%s'", len(server.prompts), server.name)
+                logger.debug(
+                    "Loaded %d prompts from server '%s'",
+                    len(server.prompts),
+                    server.name,
+                )
 
         except Exception:
             logger.exception(
@@ -349,20 +574,17 @@ class ServerManager:
         # Validate operation against server capabilities
         if hc.operation == "call_tool" and not caps.tools:
             logger.warning(
-                "Server '%s' health check configured for 'call_tool' "
-                "but server doesn't support tools",
+                "Server '%s' health check configured for 'call_tool' but server doesn't support tools",
                 server.name,
             )
         elif hc.operation == "read_resource" and not caps.resources:
             logger.warning(
-                "Server '%s' health check configured for 'read_resource' "
-                "but server doesn't support resources",
+                "Server '%s' health check configured for 'read_resource' but server doesn't support resources",
                 server.name,
             )
         elif hc.operation == "get_prompt" and not caps.prompts:
             logger.warning(
-                "Server '%s' health check configured for 'get_prompt' "
-                "but server doesn't support prompts",
+                "Server '%s' health check configured for 'get_prompt' but server doesn't support prompts",
                 server.name,
             )
 
@@ -378,9 +600,7 @@ class ServerManager:
 
         # Validate resource URI exists if configured
         if hc.operation == "read_resource" and hc.resource_uri and server.resources:
-            resource_exists = any(
-                str(resource.uri) == hc.resource_uri for resource in server.resources
-            )
+            resource_exists = any(str(resource.uri) == hc.resource_uri for resource in server.resources)
             if not resource_exists:
                 logger.warning(
                     "Server '%s' health check configured for resource '%s' but resource not found",
@@ -449,6 +669,11 @@ class ServerManager:
                     server.health.consecutive_failures = 0  # Reset on successful check
 
                 except Exception as e:
+                    # Handle OAuth SSE endpoints with special logic
+                    if await self._handle_oauth_health_check_failure(server, e):
+                        # OAuth recovery was attempted, continue to next server
+                        continue
+
                     logger.warning("Health check failed for server '%s': %s", server.name, str(e))
                     server.health.failure_count += 1
                     server.health.consecutive_failures += 1
@@ -460,6 +685,15 @@ class ServerManager:
                         max_failures = self.bridge_config.bridge.failover.max_failures
                     elif server.config.health_check:
                         max_failures = server.config.health_check.max_consecutive_failures
+
+                    # OAuth SSE endpoints get more tolerance for connection issues
+                    if self._is_oauth_sse_endpoint(server):
+                        max_failures = max(max_failures * 2, 6)  # Double the tolerance
+                        logger.debug(
+                            "OAuth SSE endpoint '%s' gets increased failure tolerance: %d",
+                            server.name,
+                            max_failures,
+                        )
 
                     if server.health.consecutive_failures >= max_failures:
                         logger.exception(
@@ -474,8 +708,7 @@ class ServerManager:
                         if (
                             server.config.health_check
                             and server.config.health_check.auto_restart
-                            and server.health.restart_count
-                            < server.config.health_check.max_restart_attempts
+                            and server.health.restart_count < server.config.health_check.max_restart_attempts
                         ):
                             # Start restart task and store reference to prevent GC
                             restart_task = asyncio.create_task(self._restart_server(server))
@@ -486,11 +719,89 @@ class ServerManager:
 
     def get_active_servers(self) -> list[ManagedServer]:
         """Get list of active (connected) servers."""
-        return [
-            server
-            for server in self.servers.values()
-            if server.health.status == ServerStatus.CONNECTED
-        ]
+        return [server for server in self.servers.values() if server.health.status == ServerStatus.CONNECTED]
+
+    def _get_current_capability_names(self) -> dict[str, list[str]]:
+        """Get current capability names for change detection."""
+        try:
+            tools = [tool.name for tool in self.get_aggregated_tools()]
+            resources = [str(resource.uri) for resource in self.get_aggregated_resources()]
+            prompts = [prompt.name for prompt in self.get_aggregated_prompts()]
+
+            return {
+                "tools": sorted(tools),
+                "resources": sorted(resources),
+                "prompts": sorted(prompts),
+            }
+        except Exception:
+            logger.exception("Error getting current capabilities")
+            return {"tools": [], "resources": [], "prompts": []}
+
+    async def _check_and_notify_capability_changes(self) -> None:
+        """Check for capability changes and notify clients if any are detected."""
+        if not self.capability_change_notifier:
+            return
+
+        try:
+            current_capabilities = self._get_current_capability_names()
+
+            # Compare with last known capabilities
+            changes_detected = False
+            notification_data = {
+                "tools_added": [],
+                "tools_removed": [],
+                "resources_added": [],
+                "resources_removed": [],
+                "prompts_added": [],
+                "prompts_removed": [],
+                "message": "Server capabilities have changed due to configuration update",
+            }
+
+            # Check tools changes
+            old_tools = set(self._last_capabilities.get("tools", []))
+            new_tools = set(current_capabilities["tools"])
+            tools_added = list(new_tools - old_tools)
+            tools_removed = list(old_tools - new_tools)
+
+            if tools_added or tools_removed:
+                changes_detected = True
+                notification_data["tools_added"] = tools_added
+                notification_data["tools_removed"] = tools_removed
+
+            # Check resources changes
+            old_resources = set(self._last_capabilities.get("resources", []))
+            new_resources = set(current_capabilities["resources"])
+            resources_added = list(new_resources - old_resources)
+            resources_removed = list(old_resources - new_resources)
+
+            if resources_added or resources_removed:
+                changes_detected = True
+                notification_data["resources_added"] = resources_added
+                notification_data["resources_removed"] = resources_removed
+
+            # Check prompts changes
+            old_prompts = set(self._last_capabilities.get("prompts", []))
+            new_prompts = set(current_capabilities["prompts"])
+            prompts_added = list(new_prompts - old_prompts)
+            prompts_removed = list(old_prompts - new_prompts)
+
+            if prompts_added or prompts_removed:
+                changes_detected = True
+                notification_data["prompts_added"] = prompts_added
+                notification_data["prompts_removed"] = prompts_removed
+
+            # Update stored capabilities
+            self._last_capabilities = current_capabilities
+
+            # Send notification if changes were detected
+            if changes_detected:
+                logger.info("Capability changes detected, sending notification to clients")
+                await self.capability_change_notifier(notification_data)
+            else:
+                logger.debug("No capability changes detected")
+
+        except Exception:
+            logger.exception("Error checking capability changes")
 
     def get_server_by_name(self, name: str) -> ManagedServer | None:
         """Get a server by name."""
@@ -515,16 +826,10 @@ class ServerManager:
 
                 # Handle name conflicts based on configuration
                 if tool_name in seen_names:
-                    if (
-                        self.bridge_config.bridge
-                        and self.bridge_config.bridge.conflict_resolution == "error"
-                    ):
+                    if self.bridge_config.bridge and self.bridge_config.bridge.conflict_resolution == "error":
                         msg = f"Tool name conflict: {tool_name}"
                         raise ValueError(msg)
-                    if (
-                        self.bridge_config.bridge
-                        and self.bridge_config.bridge.conflict_resolution == "first"
-                    ):
+                    if self.bridge_config.bridge and self.bridge_config.bridge.conflict_resolution == "first":
                         continue  # Skip this tool
                     # For "priority" and "namespace", we already handled it above
 
@@ -562,24 +867,21 @@ class ServerManager:
 
                 # Handle URI conflicts
                 if resource_uri in seen_uris:
-                    if (
-                        self.bridge_config.bridge
-                        and self.bridge_config.bridge.conflict_resolution == "error"
-                    ):
+                    if self.bridge_config.bridge and self.bridge_config.bridge.conflict_resolution == "error":
                         msg = f"Resource URI conflict: {resource_uri}"
                         raise ValueError(msg)
-                    if (
-                        self.bridge_config.bridge
-                        and self.bridge_config.bridge.conflict_resolution == "first"
-                    ):
+                    if self.bridge_config.bridge and self.bridge_config.bridge.conflict_resolution == "first":
                         continue
 
                 # Create namespaced resource
                 try:
-                    # Validate the URI first
-                    parsed_uri = AnyUrl(resource_uri)
+                    # Use helper function to handle both standard and custom URI schemes
+                    parsed_uri = _create_resource_uri(resource_uri)
+
+                    # Convert to AnyUrl if it's a string
+                    resource_uri_typed = AnyUrl(parsed_uri) if isinstance(parsed_uri, str) else parsed_uri
                     namespaced_resource = types.Resource(
-                        uri=parsed_uri,
+                        uri=resource_uri_typed,
                         name=resource.name,
                         description=resource.description,
                         mimeType=resource.mimeType,
@@ -629,16 +931,10 @@ class ServerManager:
 
                 # Handle name conflicts
                 if prompt_name in seen_names:
-                    if (
-                        self.bridge_config.bridge
-                        and self.bridge_config.bridge.conflict_resolution == "error"
-                    ):
+                    if self.bridge_config.bridge and self.bridge_config.bridge.conflict_resolution == "error":
                         msg = f"Prompt name conflict: {prompt_name}"
                         raise ValueError(msg)
-                    if (
-                        self.bridge_config.bridge
-                        and self.bridge_config.bridge.conflict_resolution == "first"
-                    ):
+                    if self.bridge_config.bridge and self.bridge_config.bridge.conflict_resolution == "first":
                         continue
 
                 # Create namespaced prompt
@@ -662,9 +958,7 @@ class ServerManager:
             server = None
             for s in self.get_active_servers():
                 server_namespace = s.get_effective_namespace("tools", self.bridge_config.bridge)
-                if server_namespace == namespace and any(
-                    tool.name == actual_tool_name for tool in s.tools
-                ):
+                if server_namespace == namespace and any(tool.name == actual_tool_name for tool in s.tools):
                     server = s
                     break
         else:
@@ -714,9 +1008,7 @@ class ServerManager:
             server = None
             for s in self.get_active_servers():
                 server_namespace = s.get_effective_namespace("resources", self.bridge_config.bridge)
-                if server_namespace == namespace and any(
-                    str(resource.uri) == actual_uri for resource in s.resources
-                ):
+                if server_namespace == namespace and any(str(resource.uri) == actual_uri for resource in s.resources):
                     server = s
                     break
         else:
@@ -734,17 +1026,17 @@ class ServerManager:
 
         # Call the resource
         try:
-            # Try to create a valid URL from the actual URI
+            # Create resource URL using helper function
             try:
-                resource_url = AnyUrl(actual_uri)
-            except Exception as url_error:
+                resource_url = _create_resource_uri(actual_uri)
+                # Convert to AnyUrl if needed
+                typed_resource_url = AnyUrl(resource_url) if isinstance(resource_url, str) else resource_url
+            except ValueError as url_error:
                 # If the URI is invalid, wrap it in a more informative error
-                msg = (
-                    f"Invalid resource URI '{actual_uri}' from server '{server.name}': {url_error}"
-                )
+                msg = f"Invalid resource URI '{actual_uri}' from server '{server.name}': {url_error}"
                 raise ValueError(msg) from url_error
 
-            return await server.session.read_resource(resource_url)
+            return await server.session.read_resource(typed_resource_url)
         except McpError as e:
             # Log MCP errors as warnings and re-raise
             logger.warning(
@@ -775,9 +1067,7 @@ class ServerManager:
             server = None
             for s in self.get_active_servers():
                 server_namespace = s.get_effective_namespace("prompts", self.bridge_config.bridge)
-                if server_namespace == namespace and any(
-                    prompt.name == actual_prompt_name for prompt in s.prompts
-                ):
+                if server_namespace == namespace and any(prompt.name == actual_prompt_name for prompt in s.prompts):
                     server = s
                     break
         else:
@@ -840,15 +1130,13 @@ class ServerManager:
                     "args": server.config.args,
                     "priority": server.config.priority,
                     "tags": server.config.tags,
-                    "health_check_enabled": server.config.health_check.enabled
-                    if server.config.health_check
-                    else False,
-                    "health_check_operation": server.config.health_check.operation
-                    if server.config.health_check
-                    else "list_tools",
-                    "auto_restart": server.config.health_check.auto_restart
-                    if server.config.health_check
-                    else False,
+                    "health_check_enabled": (
+                        server.config.health_check.enabled if server.config.health_check else False
+                    ),
+                    "health_check_operation": (
+                        server.config.health_check.operation if server.config.health_check else "list_tools"
+                    ),
+                    "auto_restart": (server.config.health_check.auto_restart if server.config.health_check else False),
                 },
             }
         return status
@@ -862,15 +1150,18 @@ class ServerManager:
             namespace, actual_uri = resource_uri.split("://", 1)
             # Find server that provides this namespaced resource
             for server in self.get_active_servers():
-                server_namespace = server.get_effective_namespace(
-                    "resources", self.bridge_config.bridge
-                )
-                if server_namespace == namespace and any(
-                    resource.uri == actual_uri for resource in server.resources
-                ):
+                server_namespace = server.get_effective_namespace("resources", self.bridge_config.bridge)
+                if server_namespace == namespace and any(resource.uri == actual_uri for resource in server.resources):
                     if server.session:
                         try:
-                            await server.session.subscribe_resource(AnyUrl(actual_uri))
+                            # Convert to AnyUrl for type safety
+                            resource_uri_parsed = _create_resource_uri(actual_uri)
+                            typed_resource_uri = (
+                                AnyUrl(resource_uri_parsed)
+                                if isinstance(resource_uri_parsed, str)
+                                else resource_uri_parsed
+                            )
+                            await server.session.subscribe_resource(typed_resource_uri)
                             logger.debug(
                                 "Subscribed to resource '%s' on server '%s'",
                                 actual_uri,
@@ -888,10 +1179,7 @@ class ServerManager:
             actual_uri = resource_uri
             subscribed_count = 0
             for server in self.get_active_servers():
-                if (
-                    any(resource.uri == actual_uri for resource in server.resources)
-                    and server.session
-                ):
+                if any(resource.uri == actual_uri for resource in server.resources) and server.session:
                     try:
                         await server.session.subscribe_resource(AnyUrl(actual_uri))
                         logger.debug(
@@ -919,15 +1207,18 @@ class ServerManager:
             namespace, actual_uri = resource_uri.split("://", 1)
             # Find server that provides this namespaced resource
             for server in self.get_active_servers():
-                server_namespace = server.get_effective_namespace(
-                    "resources", self.bridge_config.bridge
-                )
-                if server_namespace == namespace and any(
-                    resource.uri == actual_uri for resource in server.resources
-                ):
+                server_namespace = server.get_effective_namespace("resources", self.bridge_config.bridge)
+                if server_namespace == namespace and any(resource.uri == actual_uri for resource in server.resources):
                     if server.session:
                         try:
-                            await server.session.unsubscribe_resource(AnyUrl(actual_uri))
+                            # Convert to AnyUrl for type safety
+                            resource_uri_parsed = _create_resource_uri(actual_uri)
+                            typed_resource_uri = (
+                                AnyUrl(resource_uri_parsed)
+                                if isinstance(resource_uri_parsed, str)
+                                else resource_uri_parsed
+                            )
+                            await server.session.unsubscribe_resource(typed_resource_uri)
                             logger.debug(
                                 "Unsubscribed from resource '%s' on server '%s'",
                                 actual_uri,
@@ -945,10 +1236,7 @@ class ServerManager:
             actual_uri = resource_uri
             unsubscribed_count = 0
             for server in self.get_active_servers():
-                if (
-                    any(resource.uri == actual_uri for resource in server.resources)
-                    and server.session
-                ):
+                if any(resource.uri == actual_uri for resource in server.resources) and server.session:
                     try:
                         await server.session.unsubscribe_resource(AnyUrl(actual_uri))
                         logger.debug(
@@ -1102,8 +1390,7 @@ class ServerManager:
                 # Attempt restart if enabled
                 if (
                     server.config.health_check.auto_restart
-                    and server.health.restart_count
-                    < server.config.health_check.max_restart_attempts
+                    and server.health.restart_count < server.config.health_check.max_restart_attempts
                 ):
                     # Start restart task and store reference to prevent GC
                     restart_task = asyncio.create_task(self._restart_server(server))
@@ -1129,9 +1416,7 @@ class ServerManager:
                 "Attempting to restart server '%s' (attempt %d/%d)",
                 server.name,
                 server.health.restart_count,
-                server.config.health_check.max_restart_attempts
-                if server.config.health_check
-                else 5,
+                (server.config.health_check.max_restart_attempts if server.config.health_check else 5),
             )
 
             try:
@@ -1219,10 +1504,16 @@ class ServerManager:
                 new_config = new_server_configs[original_name]
 
                 if self._server_config_changed(old_config, new_config):
-                    logger.info("Configuration changed for server '%s', updating...", original_name)
+                    logger.info(
+                        "Configuration changed for server '%s', updating...",
+                        original_name,
+                    )
                     await self._update_server(original_name, new_config)
 
         logger.info("Server configuration update completed")
+
+        # Check for capability changes and notify clients
+        await self._check_and_notify_capability_changes()
 
     async def _add_server(self, name: str, config: BridgeServerConfig) -> None:
         """Add a new server to the manager."""
@@ -1306,9 +1597,7 @@ class ServerManager:
 
         logger.info("Successfully updated server '%s'", name)
 
-    def _server_config_changed(
-        self, old_config: BridgeServerConfig, new_config: BridgeServerConfig
-    ) -> bool:
+    def _server_config_changed(self, old_config: BridgeServerConfig, new_config: BridgeServerConfig) -> bool:
         """Check if server configuration has meaningfully changed."""
         # Check key fields that would require action
         return (
@@ -1369,7 +1658,10 @@ class ServerManager:
                     await session.list_tools()
                     return
 
-                await session.read_resource(AnyUrl(server.config.health_check.resource_uri))
+                # Convert to AnyUrl for type safety
+                resource_uri = _create_resource_uri(server.config.health_check.resource_uri)
+                typed_uri = AnyUrl(resource_uri) if isinstance(resource_uri, str) else resource_uri
+                await session.read_resource(typed_uri)
 
             elif operation == "get_prompt":
                 if not server.config.health_check.prompt_name:
@@ -1398,8 +1690,7 @@ class ServerManager:
 
             else:
                 logger.warning(
-                    "Unknown health check operation '%s' for server '%s', "
-                    "falling back to list_tools",
+                    "Unknown health check operation '%s' for server '%s', falling back to list_tools",
                     operation,
                     server.name,
                 )
@@ -1415,3 +1706,103 @@ class ServerManager:
             )
             # Re-raise the exception to be handled by the calling function
             raise
+
+    def _is_oauth_sse_endpoint(self, server: ManagedServer) -> bool:
+        """Check if server is an OAuth-enabled SSE endpoint."""
+        return server.config.transport_type == "sse" and server.config.is_oauth_enabled()
+
+    async def _handle_oauth_health_check_failure(self, server: ManagedServer, error: Exception) -> bool:
+        """Handle health check failures for OAuth SSE endpoints.
+
+        Returns:
+            True if OAuth recovery was attempted (skip normal failure handling)
+            False if normal failure handling should proceed
+        """
+        if not self._is_oauth_sse_endpoint(server):
+            return False
+
+        error_str = str(error).lower()
+
+        # Check for OAuth/connection-related errors
+        oauth_error_indicators = [
+            "unauthorized",
+            "401",
+            "authentication",
+            "token",
+            "closedresourceerror",
+            "readerror",
+            "connectionerror",
+            "timeout",
+            "connection closed",
+            "broken",
+        ]
+
+        is_oauth_related = any(indicator in error_str for indicator in oauth_error_indicators)
+
+        if is_oauth_related:
+            logger.info(
+                "[BRIDGE] OAuth SSE endpoint '%s' health check failed with connection issue - attempting recovery",
+                server.name,
+            )
+
+            # Increment failure count but with special handling
+            server.health.failure_count += 1
+            server.health.consecutive_failures += 1
+            server.health.last_error = str(error)
+
+            # For OAuth endpoints, try to reconnect instead of immediate failure
+            if server.health.consecutive_failures <= 3:  # Give it a few tries
+                logger.info(
+                    '[BRIDGE] %s - "%d"',
+                    server.name,
+                    server.health.consecutive_failures,
+                )
+
+                # Schedule a reconnection attempt in background
+                reconnect_task = asyncio.create_task(self._attempt_oauth_sse_reconnection(server))
+                if not hasattr(self, "_oauth_reconnect_tasks"):
+                    self._oauth_reconnect_tasks = set()
+                self._oauth_reconnect_tasks.add(reconnect_task)
+                reconnect_task.add_done_callback(self._oauth_reconnect_tasks.discard)
+
+                return True  # Skip normal failure handling
+
+        return False  # Proceed with normal failure handling
+
+    async def _attempt_oauth_sse_reconnection(self, server: ManagedServer) -> None:
+        """Attempt to reconnect an OAuth SSE endpoint with fresh authentication.
+
+        This method:
+        1. Disconnects the current failed connection
+        2. Waits a brief period for cleanup
+        3. Attempts to reconnect with OAuth token refresh
+        """
+        try:
+            logger.debug("Attempting OAuth SSE reconnection for server '%s'", server.name)
+
+            # Disconnect current failed connection
+            await self._disconnect_server(server)
+
+            # Brief wait for cleanup
+            await asyncio.sleep(2)
+
+            # Attempt reconnection - this will trigger OAuth flow if needed
+            await self._connect_server(server)
+
+            if server.health.status == ServerStatus.CONNECTED:
+                logger.info(
+                    "[BRIDGE] OAuth SSE reconnection successful for server '%s'",
+                    server.name,
+                )
+                # Reset consecutive failures on successful reconnection
+                server.health.consecutive_failures = 0
+            else:
+                logger.warning(
+                    "[BRIDGE] OAuth SSE reconnection failed for server '%s'",
+                    server.name,
+                )
+
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.warning("OAuth SSE reconnection network error for server '%s': %s", server.name, e)
+        except Exception:
+            logger.exception("Unexpected OAuth SSE reconnection error for server '%s'", server.name)

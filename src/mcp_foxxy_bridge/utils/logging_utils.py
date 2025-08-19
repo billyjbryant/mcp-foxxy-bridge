@@ -1,0 +1,472 @@
+#
+# MCP Foxxy Bridge - Logging Utilities
+#
+# Copyright (C) 2024 Billy Bryant
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+"""Logging Utilities for MCP Foxxy Bridge.
+
+This module provides comprehensive logging configuration and utilities
+for the MCP Foxxy Bridge system, including structured logging, custom
+formatters, and MCP-specific logging configuration.
+
+Key Features:
+    - Structured JSON logging support
+    - Color-coded console output
+    - MCP protocol-specific logging
+    - Per-server logging configuration
+    - Log level management
+    - Custom log formatters
+
+Example:
+    Basic logging setup:
+
+    >>> setup_logging(level="INFO")
+    >>> logger = get_logger("my_module")
+    >>> logger.info("Application started")
+
+    MCP server logging:
+
+    >>> configure_mcp_logging("server_name", level="DEBUG")
+    >>> logger = get_logger("mcp.server_name")
+    >>> logger.debug("MCP message received")
+"""
+
+import json
+import logging
+import logging.handlers
+import sys
+from collections.abc import MutableMapping
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+
+# ANSI color codes for console output
+class LogColors:
+    """ANSI color codes for colorized console logging."""
+
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+
+    # Level colors
+    DEBUG = "\033[36m"  # Cyan
+    INFO = "\033[32m"  # Green
+    WARNING = "\033[33m"  # Yellow
+    ERROR = "\033[31m"  # Red
+    CRITICAL = "\033[35m"  # Magenta
+
+    # Component colors
+    TIMESTAMP = "\033[90m"  # Dark gray
+    LOGGER = "\033[94m"  # Light blue
+    MESSAGE = "\033[97m"  # White
+
+
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter that adds color coding to console log output.
+
+    This formatter provides color-coded log levels and structured
+    formatting for improved readability in console output.
+
+    Example:
+        >>> formatter = ColoredFormatter()
+        >>> handler = logging.StreamHandler()
+        >>> handler.setFormatter(formatter)
+    """
+
+    def __init__(self, include_timestamp: bool = True, include_logger: bool = True) -> None:
+        """Initialize colored formatter.
+
+        Args:
+            include_timestamp: Whether to include timestamp in output
+            include_logger: Whether to include logger name in output
+        """
+        self.include_timestamp = include_timestamp
+        self.include_logger = include_logger
+        super().__init__()
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format log record with colors."""
+        # Get level color
+        level_colors = {
+            "DEBUG": LogColors.DEBUG,
+            "INFO": LogColors.INFO,
+            "WARNING": LogColors.WARNING,
+            "ERROR": LogColors.ERROR,
+            "CRITICAL": LogColors.CRITICAL,
+        }
+        level_color = level_colors.get(record.levelname, LogColors.RESET)
+
+        # Build formatted message parts
+        parts = []
+
+        if self.include_timestamp:
+            timestamp = datetime.fromtimestamp(record.created, tz=UTC).strftime("%H:%M:%S.%f")[:-3]
+            parts.append(f"{LogColors.TIMESTAMP}{timestamp}{LogColors.RESET}")
+
+        # Colored level name
+        parts.append(f"{level_color}{LogColors.BOLD}{record.levelname:<8}{LogColors.RESET}")
+
+        if self.include_logger:
+            parts.append(f"{LogColors.LOGGER}{record.name}{LogColors.RESET}")
+
+        # Message
+        message = record.getMessage()
+        parts.append(f"{LogColors.MESSAGE}{message}{LogColors.RESET}")
+
+        # Join parts
+        formatted = " ".join(parts)
+
+        # Add exception info if present
+        if record.exc_info:
+            formatted += f"\n{LogColors.ERROR}{self.formatException(record.exc_info)}{LogColors.RESET}"
+
+        return formatted
+
+
+class JSONFormatter(logging.Formatter):
+    """JSON formatter for structured logging.
+
+    This formatter outputs log records as JSON objects, making them
+    suitable for log aggregation systems and structured analysis.
+
+    Example:
+        >>> formatter = JSONFormatter()
+        >>> handler = logging.FileHandler("app.log")
+        >>> handler.setFormatter(formatter)
+    """
+
+    def __init__(self, include_extra: bool = True) -> None:
+        """Initialize JSON formatter.
+
+        Args:
+            include_extra: Whether to include extra fields from log record
+        """
+        self.include_extra = include_extra
+        super().__init__()
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format log record as JSON."""
+        log_obj = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno,
+        }
+
+        # Add process/thread info
+        if record.processName != "MainProcess":
+            log_obj["process"] = record.processName
+        if record.threadName != "MainThread":
+            log_obj["thread"] = record.threadName
+
+        # Add exception info if present
+        if record.exc_info:
+            exc_type = record.exc_info[0]
+            if exc_type is not None:
+                log_obj["exception"] = {
+                    "type": exc_type.__name__,
+                    "message": str(record.exc_info[1]),
+                    "traceback": self.formatException(record.exc_info),
+                }
+            else:
+                log_obj["exception"] = {
+                    "type": "Unknown",
+                    "message": str(record.exc_info[1]),
+                    "traceback": self.formatException(record.exc_info),
+                }
+
+        # Add extra fields
+        if self.include_extra:
+            extra_fields = {}
+            for key, value in record.__dict__.items():
+                if key not in log_obj and not key.startswith("_"):
+                    # Skip standard logging fields
+                    if key not in (
+                        "name",
+                        "msg",
+                        "args",
+                        "levelname",
+                        "levelno",
+                        "pathname",
+                        "filename",
+                        "module",
+                        "lineno",
+                        "funcName",
+                        "created",
+                        "msecs",
+                        "relativeCreated",
+                        "thread",
+                        "threadName",
+                        "processName",
+                        "process",
+                        "getMessage",
+                        "exc_info",
+                        "exc_text",
+                        "stack_info",
+                    ):
+                        extra_fields[key] = value
+
+            if extra_fields:
+                log_obj["extra"] = extra_fields
+
+        return json.dumps(log_obj, default=str)
+
+
+class MCPLoggerAdapter(logging.LoggerAdapter[logging.Logger]):
+    """Logger adapter that adds MCP-specific context to log records.
+
+    This adapter automatically adds server name and other MCP-specific
+    information to log records for better traceability.
+
+    Example:
+        >>> logger = logging.getLogger("mcp")
+        >>> adapter = MCPLoggerAdapter(logger, {"server": "filesystem"})
+        >>> adapter.info("Tool call received")
+    """
+
+    def __init__(self, logger: logging.Logger, extra: dict[str, Any]) -> None:
+        """Initialize MCP logger adapter.
+
+        Args:
+            logger: Base logger instance
+            extra: Extra context to add to log records
+        """
+        super().__init__(logger, extra)
+
+    def process(self, msg: Any, kwargs: MutableMapping[str, Any]) -> tuple[Any, MutableMapping[str, Any]]:
+        """Process log record to add MCP context."""
+        # Add server context to extra fields
+        if "extra" not in kwargs:
+            kwargs["extra"] = {}
+        kwargs["extra"].update(self.extra)
+
+        return msg, kwargs
+
+
+# Main logging configuration functions
+
+
+def setup_logging(
+    level: str | int = "INFO",
+    format_type: str = "colored",
+    log_file: str | None = None,
+    max_file_size: int = 10 * 1024 * 1024,  # 10MB
+    backup_count: int = 5,
+) -> None:
+    """Set up logging configuration for the application.
+
+    Configures both console and file logging with appropriate formatters
+    and handlers.
+
+    Args:
+        level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        format_type: Formatter type ("colored", "json", "simple")
+        log_file: Optional path to log file
+        max_file_size: Maximum size of log file before rotation
+        backup_count: Number of backup log files to keep
+
+    Example:
+        >>> setup_logging(level="DEBUG", format_type="colored")
+        >>> setup_logging(level="INFO", log_file="app.log", format_type="json")
+    """
+    # Convert string level to logging constant
+    numeric_level = getattr(logging, level.upper(), logging.INFO) if isinstance(level, str) else level
+
+    # Get root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(numeric_level)
+
+    # Clear any existing handlers
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Create console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(numeric_level)
+
+    # Set console formatter
+    if format_type == "colored" and sys.stdout.isatty():
+        console_formatter: logging.Formatter = ColoredFormatter()
+    elif format_type == "json":
+        console_formatter = JSONFormatter()
+    else:
+        console_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+    console_handler.setFormatter(console_formatter)
+    root_logger.addHandler(console_handler)
+
+    # Create file handler if specified
+    if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        file_handler = logging.handlers.RotatingFileHandler(log_file, maxBytes=max_file_size, backupCount=backup_count)
+        file_handler.setLevel(numeric_level)
+
+        # Use JSON formatter for file output
+        file_formatter = JSONFormatter()
+        file_handler.setFormatter(file_formatter)
+        root_logger.addHandler(file_handler)
+
+    # Set up some default logger levels
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+
+def get_logger(name: str, server_name: str | None = None) -> logging.Logger | MCPLoggerAdapter:
+    """Get a logger instance with optional MCP server context.
+
+    Args:
+        name: Logger name
+        server_name: Optional MCP server name for context
+
+    Returns:
+        Logger instance or MCPLoggerAdapter if server_name provided
+
+    Example:
+        >>> logger = get_logger("my_module")
+        >>> mcp_logger = get_logger("mcp.tools", server_name="filesystem")
+    """
+    logger = logging.getLogger(name)
+
+    if server_name:
+        return MCPLoggerAdapter(logger, {"server": server_name})
+
+    return logger
+
+
+def configure_mcp_logging(server_name: str, level: str | int = "QUIET", namespace: str | None = None) -> None:
+    """Configure logging for a specific MCP server.
+
+    Sets up logger configuration for an individual MCP server with
+    appropriate log levels and context using Rich formatting.
+
+    Args:
+        server_name: Name of the MCP server
+        level: Logging level for this server
+        namespace: Optional namespace prefix
+
+    Example:
+        >>> configure_mcp_logging("filesystem", level="DEBUG")
+        >>> configure_mcp_logging("atlassian", level="INFO", namespace="mcp")
+    """
+    # Convert string level to logging constant
+    if isinstance(level, str):
+        if level.upper() == "QUIET":
+            numeric_level = logging.CRITICAL + 1  # Higher than any real log level
+        else:
+            numeric_level = getattr(logging, level.upper(), logging.ERROR)
+    else:
+        numeric_level = level
+
+    # Create logger name
+    logger_name = f"{namespace}.{server_name}" if namespace else f"mcp.{server_name}"
+
+    # Configure logger
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(numeric_level)
+
+    # Ensure the logger uses the rich handler from root logger
+    if not logger.handlers:
+        root_logger = logging.getLogger()
+        if root_logger.handlers:
+            # Copy the rich handler from root logger
+            for handler in root_logger.handlers:
+                logger.addHandler(handler)
+
+    # Set propagation - don't propagate to avoid duplicate messages since we're using root handlers
+    logger.propagate = False
+
+
+def create_log_formatter(format_type: str = "colored") -> logging.Formatter:
+    """Create a log formatter of the specified type.
+
+    Args:
+        format_type: Type of formatter ("colored", "json", "simple")
+
+    Returns:
+        Configured formatter instance
+
+    Example:
+        >>> formatter = create_log_formatter("json")
+        >>> handler.setFormatter(formatter)
+    """
+    if format_type == "colored":
+        return ColoredFormatter()
+    if format_type == "json":
+        return JSONFormatter()
+    return logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+
+def log_mcp_message(
+    logger: logging.Logger,
+    direction: str,
+    message_type: str,
+    content: dict[str, Any],
+    server_name: str | None = None,
+) -> None:
+    """Log an MCP protocol message with structured information.
+
+    Args:
+        logger: Logger instance to use
+        direction: Message direction ("sent" or "received")
+        message_type: Type of MCP message
+        content: Message content
+        server_name: Optional server name for context
+
+    Example:
+        >>> log_mcp_message(
+        ...     logger, "received", "tools/list", {"tools": [...]},
+        ...     server_name="filesystem"
+        ... )
+    """
+    extra = {
+        "mcp_direction": direction,
+        "mcp_message_type": message_type,
+        "mcp_server": server_name,
+    }
+
+    message = f"MCP {direction}: {message_type}"
+    if server_name:
+        message += f" (server: {server_name})"
+
+    logger.debug(message, extra=extra)
+
+
+def set_verbose_logging(enabled: bool = True) -> None:
+    """Enable or disable verbose logging for debugging.
+
+    Args:
+        enabled: Whether to enable verbose logging
+
+    Example:
+        >>> set_verbose_logging(True)  # Enable debug logging
+        >>> set_verbose_logging(False)  # Restore normal logging
+    """
+    if enabled:
+        logging.getLogger().setLevel(logging.DEBUG)
+        # Enable debug logging for key modules
+        logging.getLogger("mcp_foxxy_bridge").setLevel(logging.DEBUG)
+        logging.getLogger("mcp").setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
+        # Restore default levels
+        logging.getLogger("mcp_foxxy_bridge").setLevel(logging.INFO)
+        logging.getLogger("mcp").setLevel(logging.INFO)

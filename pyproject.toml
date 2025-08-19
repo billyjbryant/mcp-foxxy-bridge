@@ -26,7 +26,18 @@ classifiers = [
 ]
 dynamic = ["version"]
 requires-python = ">=3.11"
-dependencies = ["mcp>=1.8.0,<2.0.0", "uvicorn>=0.34.0", "jsonschema>=4.0.0", "watchdog>=3.0.0", "rich>=13.0.0"]
+dependencies = [
+    "mcp>=1.8.0,<2.0.0",
+    "uvicorn>=0.34.0",
+    "jsonschema>=4.0.0",
+    "watchdog>=3.0.0",
+    "rich>=13.0.0",
+    "aiohttp>=3.12.15",
+    "events>=0.5",
+    "requests>=2.32.4",
+    "cryptography>=3.4.8",
+    "keyring>=23.0.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -95,6 +106,16 @@ warn_unreachable = true
 warn_unused_configs = true
 warn_unused_ignores = true
 
+# Exclude virtual environment and other non-source files
+exclude = [
+    "use/",
+    ".venv/",
+    "venv/",
+    "env/",
+    ".mypy_cache/",
+    "__pycache__/",
+]
+
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
@@ -108,16 +129,63 @@ ignore = [
     "C901",   # Function is too complex (complex functions - future refactor)
     "PLR0912", # Too many branches (complex validation - future refactor)
     "PLR0915", # Too many statements (complex functions - future refactor)
+
+    # Style preferences - reasonable to ignore for this codebase
+    "G004",   # F-strings in logging (more readable than % formatting)
+    "FBT001", # Boolean positional arguments (common in config APIs)
+    "FBT002", # Boolean default arguments (common in config APIs)
+    "PLR2004", # Magic value comparisons (obvious values like 20, 100)
+    "PLR0913", # Too many arguments (sometimes necessary for APIs)
+    "ANN401", # Any type annotation (sometimes necessary)
+    "ANN003", # Missing type annotation for **kwargs
+    "D107",   # Missing docstring in __init__ (often obvious)
+    "ARG001", # Unused function argument (often required by interfaces)
+    "PLW0603", # Global statement (sometimes necessary)
+    "TRY401", # Verbose log message (exception details useful in logs)
+    "BLE001", # Blind except - using proper graceful degradation pattern
+    "TRY300", # Consider moving statement to else block (often makes code less readable)
+    "TRY301", # Abstract raise to inner function (often makes code less readable)
+    "SIM102", # Use single if statement (sometimes nested is clearer)
+    "EM102",  # Exception must not use f-string (f-strings are fine for exceptions)
+    "ASYNC109", # Async function with timeout parameter (legitimate pattern)
+    "ANN003", # Missing type annotation for **kwargs (sometimes necessary)
+    "B023",   # Function definition does not bind loop variable (complex closure patterns)
+    "PLR0911", # Too many return statements (complex OAuth/API handlers need many returns)
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "INP001"]
+"tests/*" = [
+    "S101",    # Use of assert detected (allowed in tests)
+    "INP001",  # File is part of an implicit namespace package
+    "D102",    # Missing docstring in public method (not required in tests)
+    "D103",    # Missing docstring in public function (not required in tests)
+    "ANN001",  # Missing type annotation for function argument
+    "ANN201",  # Missing return type annotation for public function
+    "ANN202",  # Missing return type annotation for private function
+    "ANN003",  # Missing type annotation for **kwargs
+    "PLR0913", # Too many arguments (common in test fixtures)
+    "S106",    # Possible hardcoded password (test data)
+    "S105",    # Possible hardcoded password (test data)
+    "SIM117",  # Use single with statement (nested context managers are fine in tests)
+    "PLR2004", # Magic value used in comparison (test values can be literals)
+    "S108",    # Probable insecure usage of temp file/directory (acceptable in tests)
+    "ARG001",  # Unused function argument (fixtures often unused)
+    "FBT001",  # Boolean positional argument (common in test assertions)
+    "FBT002",  # Boolean default argument (common in test fixtures)
+    "FBT003",  # Boolean positional value in function call (test data/mocking)
+    "SLF001",  # Private member accessed (testing internal methods)
+    "S110",    # try-except-pass (acceptable in tests for error tolerance)
+    "SIM105",  # Use contextlib.suppress (sometimes clearer to use try-except in tests)
+]
+"src/mcp_foxxy_bridge/utils/bridge_config.py" = [
+    "PLC0415", # Import should be at the top-level (intentional to avoid circular imports)
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 
 [tool.pytest.ini_options]
 pythonpath = "src"

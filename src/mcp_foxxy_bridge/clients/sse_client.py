@@ -28,7 +28,7 @@ from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.server.stdio import stdio_server
 
-from .proxy_server import create_proxy_server
+from mcp_foxxy_bridge.server.proxy_server import create_proxy_server
 
 
 async def run_sse_client(url: str, headers: dict[str, Any] | None = None) -> None:

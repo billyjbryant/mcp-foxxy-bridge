@@ -61,19 +61,44 @@ class MCPRichHandler(RichHandler):
         message_text = Text(message)
 
         # Add server name highlighting for MCP server logs
-        if hasattr(record, "name") and "servers." in record.name:
-            server_name = record.name.split("servers.")[-1].split(".")[0]
-            # Highlight server names in brackets
-            message_text = Text.from_markup(f"[bold cyan]\\[{server_name}][/bold cyan] {message}")
+        if hasattr(record, "name") and record.name:
+            logger_name = record.name
+
+            # Handle MCP server logs with improved formatting
+            if "mcp.server." in logger_name:
+                # Extract server name from logger name like "mcp.server.servername" or "mcp.server.servername.file"
+                parts = logger_name.split(".")
+                if len(parts) >= 3:
+                    server_name = parts[2]  # server name is the 3rd part
+                    # Use different colors for different log levels
+                    if record.levelno >= logging.ERROR:
+                        server_color = "bold red"
+                    elif record.levelno >= logging.WARNING:
+                        server_color = "bold yellow"
+                    elif record.levelno >= logging.INFO:
+                        server_color = "bold green"
+                    else:
+                        server_color = "cyan"
+
+                    message_text = Text.from_markup(f"[{server_color}]\\[{server_name}][/{server_color}] {message}")
+
+            # Handle general server manager logs
+            elif "server_manager" in logger_name:
+                message_text = Text.from_markup(f"[bold blue]\\[BRIDGE][/bold blue] {message}")
+
+            # Handle bridge server logs
+            elif "bridge_server" in logger_name:
+                message_text = Text.from_markup(f"[bold magenta]\\[BRIDGE][/bold magenta] {message}")
 
         return message_text
 
 
-def setup_rich_logging(*, debug: bool = False) -> logging.Logger:
+def setup_rich_logging(*, debug: bool = False, quiet: bool = False) -> logging.Logger:
     """Set up Rich-based logging configuration.
 
     Args:
         debug: Whether to enable debug logging level
+        quiet: Whether to enable quiet mode (less startup verbosity)
 
     Returns:
         The configured logger for the main module
@@ -92,24 +117,54 @@ def setup_rich_logging(*, debug: bool = False) -> logging.Logger:
     # Set the format for the Rich handler
     rich_handler.setFormatter(logging.Formatter(fmt="%(message)s", datefmt="[%X]"))
 
-    # Configure root logger
-    root_logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    # Configure root logger - use WARNING for quiet mode
+    if quiet:
+        log_level = logging.WARNING
+    elif debug:
+        log_level = logging.DEBUG
+    else:
+        log_level = logging.INFO
+
+    root_logger.setLevel(log_level)
     root_logger.addHandler(rich_handler)
 
-    # Configure third-party loggers to use our Rich handler
-    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    # Configure third-party loggers to reduce verbosity
+    logging.getLogger("asyncio").setLevel(logging.ERROR)
+    logging.getLogger("watchdog").setLevel(logging.ERROR)
+    logging.getLogger("watchdog.observers").setLevel(logging.ERROR)
+    logging.getLogger("watchdog.events").setLevel(logging.ERROR)
+    logging.getLogger("httpx").setLevel(logging.ERROR)
+    logging.getLogger("httpcore").setLevel(logging.ERROR)
+    logging.getLogger("requests").setLevel(logging.ERROR)
+    logging.getLogger("urllib3").setLevel(logging.ERROR)
+    logging.getLogger("boto3").setLevel(logging.ERROR)
+    logging.getLogger("botocore").setLevel(logging.ERROR)
+    logging.getLogger("s3transfer").setLevel(logging.ERROR)
 
-    # Configure uvicorn to use our Rich handler and suppress access logs in non-debug mode
+    # Reduce verbosity of common MCP-related third-party libraries
+    logging.getLogger("uvloop").setLevel(logging.ERROR)
+    logging.getLogger("trio").setLevel(logging.ERROR)
+    logging.getLogger("anyio").setLevel(logging.ERROR)
+    logging.getLogger("pydantic").setLevel(logging.ERROR)
+    logging.getLogger("jsonschema").setLevel(logging.ERROR)
+    logging.getLogger("openai").setLevel(logging.ERROR)
+    logging.getLogger("anthropic").setLevel(logging.ERROR)
+
+    # Configure uvicorn to be much quieter unless debug mode
     uvicorn_logger = logging.getLogger("uvicorn")
     uvicorn_logger.handlers.clear()  # Remove default handlers
     uvicorn_logger.addHandler(rich_handler)
-    uvicorn_logger.setLevel(logging.INFO)
+    uvicorn_logger.setLevel(logging.INFO if debug else logging.WARNING)
     uvicorn_logger.propagate = False  # Don't propagate to avoid duplicates
 
+    # Suppress access logs entirely in non-debug mode
     uvicorn_access_logger = logging.getLogger("uvicorn.access")
     uvicorn_access_logger.handlers.clear()
-    uvicorn_access_logger.addHandler(rich_handler)
-    uvicorn_access_logger.setLevel(logging.INFO)
+    if debug:
+        uvicorn_access_logger.addHandler(rich_handler)
+        uvicorn_access_logger.setLevel(logging.INFO)
+    else:
+        uvicorn_access_logger.setLevel(logging.ERROR)  # Suppress access logs
     uvicorn_access_logger.propagate = False
 
     # Create a custom formatter for uvicorn access logs to match our style
@@ -136,21 +191,44 @@ def setup_rich_logging(*, debug: bool = False) -> logging.Logger:
     uvicorn_error_logger = logging.getLogger("uvicorn.error")
     uvicorn_error_logger.handlers.clear()
     uvicorn_error_logger.addHandler(rich_handler)
-    uvicorn_error_logger.setLevel(logging.INFO)
+    uvicorn_error_logger.setLevel(logging.WARNING)
     uvicorn_error_logger.propagate = False
 
     # Set MCP library loggers to appropriate levels and use our handler
     mcp_logger = logging.getLogger("mcp")
     mcp_logger.handlers.clear()
     mcp_logger.addHandler(rich_handler)
-    mcp_logger.setLevel(logging.INFO)
+    mcp_logger.setLevel(logging.WARNING)  # Only show warnings and errors from MCP lib
     mcp_logger.propagate = False
 
+    # MCP server loggers should respect individual server log levels
+    # This will be overridden by individual server configurations
     mcp_server_logger = logging.getLogger("mcp.server")
     mcp_server_logger.handlers.clear()
     mcp_server_logger.addHandler(rich_handler)
-    mcp_server_logger.setLevel(logging.INFO if debug else logging.WARNING)
+    mcp_server_logger.setLevel(logging.ERROR if not debug else logging.INFO)  # Suppress most MCP server logs
     mcp_server_logger.propagate = False
+
+    # Also suppress the lowlevel server logs that generate "Processing request" messages
+    mcp_lowlevel_logger = logging.getLogger("mcp.server.lowlevel")
+    mcp_lowlevel_logger.handlers.clear()
+    mcp_lowlevel_logger.addHandler(rich_handler)
+    mcp_lowlevel_logger.setLevel(logging.ERROR)  # Only show errors from lowlevel
+    mcp_lowlevel_logger.propagate = False
+
+    # Suppress common MCP server loggers that are very chatty
+    for logger_name in [
+        "mcp.server.lowlevel.server",
+        "mcp.server.stdio",
+        "mcp.server.session",
+        "fastmcp.server",
+        "fastmcp",
+    ]:
+        chatty_logger = logging.getLogger(logger_name)
+        chatty_logger.handlers.clear()
+        chatty_logger.addHandler(rich_handler)
+        chatty_logger.setLevel(logging.ERROR)
+        chatty_logger.propagate = False
 
     return logging.getLogger(__name__)
 
