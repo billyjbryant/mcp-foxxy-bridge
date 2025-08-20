@@ -714,8 +714,9 @@ async def _handle_oauth_authentication(
                 # Log the token type safely for debugging
                 auth_header = oauth_headers.get("Authorization", "")
                 if auth_header:
-                    masked_auth = mask_authorization_header(auth_header)
-                    logger.debug("Authorization header: %s", masked_auth)
+                    # Only log the scheme/type, not any part of the credential
+                    scheme = auth_header.split(" ", 1)[0] if " " in auth_header else "[UNKNOWN]"
+                    logger.debug("Authorization header scheme: %s", scheme)
             else:
                 logger.warning("Failed to create OAuth headers from tokens")
         else:
