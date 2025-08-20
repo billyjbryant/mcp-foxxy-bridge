@@ -29,12 +29,20 @@
 
 ## Overview
 
-**MCP Foxxy Bridge** is a one-to-many proxy for the Model Context Protocol (MCP). It lets you aggregate and route requests to multiple MCP servers through a single endpoint, so you can:
+**MCP Foxxy Bridge** is a secure, feature-rich one-to-many proxy for the Model Context Protocol (MCP). It lets you aggregate and route requests to multiple MCP servers through a single endpoint, with enterprise-grade security features:
 
+## 🔒 Security Features
+- **Command substitution security** with allow-lists and validation
+- **OAuth 2.0 + PKCE authentication** for secure server connections
+- **Shell injection protection** with comprehensive input validation
+- **Localhost-only binding** by default for maximum security
+
+## 🚀 Core Capabilities
 - Centralize configuration for all your MCP servers
 - Expose all tools, resources, and prompts from connected servers
 - Route requests transparently to the right backend
 - Use a single MCP endpoint in your AI tools (Claude Desktop, VS Code, etc.)
+- Support for command substitution with secure credential retrieval
 
 ---
 
@@ -79,6 +87,10 @@ mcp-foxxy-bridge --port 8080 \
   --named-server fetch 'uvx mcp-server-fetch' \
   --named-server github 'npx -y @modelcontextprotocol/server-github' \
   --named-server filesystem 'npx -y @modelcontextprotocol/server-filesystem'
+
+# With security features
+mcp-foxxy-bridge --bridge-config config.json \
+  --allow-command-substitution  # Enable secure command substitution
 ```
 
 See [Configuration Guide](docs/configuration.md) for config file examples.
@@ -102,6 +114,8 @@ See [API Reference](docs/api.md) for integration details.
 - [Overview & Features](docs/README.md)
 - [Installation Guide](docs/installation.md)
 - [Configuration Guide](docs/configuration.md)
+- [Security Guide](docs/security.md) 🔒
+- [OAuth Authentication](docs/oauth.md) 🔐
 - [Deployment Guide](docs/deployment.md)
 - [API Reference](docs/api.md)
 - [Architecture Overview](docs/architecture.md)
@@ -127,23 +141,38 @@ See [API Reference](docs/api.md) for integration details.
 
 ## 🔒 Security
 
-MCP Foxxy Bridge follows security best practices:
+MCP Foxxy Bridge implements comprehensive security measures:
 
 ### Network Security
 - **Default binding**: Bridge binds to `127.0.0.1:8080` (localhost-only) by default
 - **MCP server isolation**: Individual MCP servers communicate via local stdio pipes, never network ports
+- **OAuth port separation**: Dedicated OAuth callback port (8090) independent of main bridge port
 - **Configurable access**: Host and port settings can be configured via config file or CLI arguments
 
+### Command Substitution Security
+- **Allow-list approach**: Only pre-approved commands can be executed via `$(command)` syntax
+- **Shell injection protection**: Blocks dangerous shell operators (`|`, `&`, `;`, etc.)
+- **Argument validation**: Validates arguments for sensitive commands (git, vault, op, gh)
+- **Read-only enforcement**: Prevents write/delete operations in command substitution
+
+### Authentication Security
+- **OAuth 2.0 + PKCE**: Secure authentication with Proof Key for Code Exchange
+- **Automatic discovery**: OAuth endpoints discovered from server metadata
+- **Secure token storage**: Tokens stored with restricted file permissions
+- **Token refresh**: Automatic token renewal when possible
+
 ### Configuration Priority
-1. Command-line arguments (`--host`, `--port`) - highest priority
-2. Configuration file bridge settings (`bridge.host`, `bridge.port`)
-3. Secure defaults (`127.0.0.1:8080`) - lowest priority
+1. Command-line arguments (`--host`, `--port`, `--allow-command-substitution`) - highest priority
+2. Configuration file bridge settings (`bridge.host`, `bridge.port`, `bridge.allow_command_substitution`)
+3. Environment variables (`MCP_ALLOW_COMMAND_SUBSTITUTION`, `MCP_ALLOWED_COMMANDS`)
+4. Secure defaults (`127.0.0.1:8080`, command substitution disabled) - lowest priority
 
 ### Security Recommendations
 - Keep the default `127.0.0.1` binding unless external access is required
-- If external access is needed, use proper firewall rules and authentication
-- Regularly update MCP server dependencies
-- Monitor server logs for unusual activity
+- Only enable command substitution when needed, with minimal command allow-lists
+- Use OAuth authentication for production deployments with sensitive data
+- Regularly update MCP server dependencies and review access logs
+- See [Security Guide](docs/security.md) for comprehensive security practices
 
 ---
 

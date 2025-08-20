@@ -85,6 +85,33 @@ Environment variable syntax:
 }
 ```
 
+### OAuth Configuration (SSE/HTTP Only)
+
+OAuth is only used for remote network-based MCP servers (SSE or HTTP streaming), not for local command-based servers.
+
+```json
+{
+  "url": "https://mcp.example.com/sse",      // Remote MCP server URL (required for OAuth)
+  "transport": "sse",                        // Must be "sse" or "streamablehttp"
+  "oauth": {
+    "enabled": true,                         // Enable OAuth 2.0 authentication
+    "issuer": "https://auth.example.com",    // OAuth issuer URL (optional if server supports discovery)
+    "client_name": "MCP Bridge Client",      // OAuth client name
+    "client_uri": "https://your-app.com"     // OAuth client URI
+  }
+}
+```
+
+**Important**: OAuth configuration requires:
+- `"url"` field instead of `"command"`/`"args"`
+- `"transport"` field set to `"sse"` or `"streamablehttp"`
+
+OAuth authentication features:
+- **Auto-discovery**: Bridge attempts to discover OAuth issuer from server endpoints
+- **PKCE support**: Uses Proof Key for Code Exchange for enhanced security
+- **Token management**: Automatic token storage and refresh
+- **Browser-based flow**: Opens browser for user authentication
+
 ## Bridge Configuration
 
 The `bridge` section controls bridge-wide behavior:
@@ -94,8 +121,14 @@ The `bridge` section controls bridge-wide behavior:
   "bridge": {
     "host": "127.0.0.1",               // Host to bind to (default: localhost)
     "port": 8080,                      // Port to bind to (default: 8080)
+    "oauth_port": 8090,                // OAuth callback port (independent of bridge port)
     "conflictResolution": "namespace",  // How to handle tool name conflicts
     "defaultNamespace": true,           // Use server name as default namespace
+    "allow_command_substitution": false, // Enable command substitution like $(op read ...)
+    "allowed_commands": [               // Whitelist of allowed commands (optional)
+      "op", "vault", "git", "echo"
+    ],
+    "allow_dangerous_commands": false,  // UNSAFE: Allow ANY command without validation
     "aggregation": {
       "tools": true,                    // Aggregate tools from all servers
       "resources": true,                // Aggregate resources
@@ -119,6 +152,42 @@ The `bridge` section controls bridge-wide behavior:
 
 **Security Note**: The default configuration binds only to localhost (`127.0.0.1`) for security. Only change this if you need external access and have proper security measures in place.
 
+### Security Configuration
+
+The bridge includes comprehensive security features to protect against command injection and unauthorized access:
+
+#### Command Substitution Security
+
+- `"allow_command_substitution"`: Enable command substitution like `$(op read secret)` in config files
+- `"allowed_commands"`: Whitelist of commands allowed for substitution (if not specified, uses safe defaults)
+- `"allow_dangerous_commands"`: **⚠️ UNSAFE** - Bypasses all security validation (testing only!)
+
+**Default allowed commands** (when `allowed_commands` is not specified):
+```json
+[
+  "echo", "printf", "env", "printenv", "pwd", "uname", "date", "whoami",
+  "op", "vault", "base64", "jq", "git", "gh", "grep", "cat", "head", "tail", "curl", "wget"
+]
+```
+
+**Command validation includes:**
+- Allow-list enforcement for command names
+- Shell injection protection (blocks operators like `|`, `&`, `;`, etc.)
+- Argument validation for sensitive commands (`git`, `vault`, `op`, `gh`)
+- Read-only operation enforcement (prevents write/delete operations)
+
+**Environment variables for security control:**
+- `MCP_ALLOW_COMMAND_SUBSTITUTION=true` - Enable command substitution
+- `MCP_ALLOWED_COMMANDS=git,op,vault` - Additional allowed commands (comma-separated)
+- `MCP_ALLOW_DANGEROUS_COMMANDS=true` - **⚠️ UNSAFE** - Disable all validation
+
+#### OAuth Security
+
+- OAuth 2.0 with PKCE (Proof Key for Code Exchange) for enhanced security
+- Automatic issuer discovery from server endpoints
+- Secure token storage in local filesystem
+- Browser-based authentication flow with automatic callback handling
+
 ### Conflict Resolution Options
 
 - `"namespace"` - Use namespaces to avoid conflicts (recommended)
@@ -140,6 +209,59 @@ The `bridge` section controls bridge-wide behavior:
     }
   },
   "bridge": {
+    "conflictResolution": "namespace"
+  }
+}
+```
+
+### OAuth-Enabled Configuration (Remote MCP Server)
+
+```json
+{
+  "mcpServers": {
+    "remote-mcp": {
+      "enabled": true,
+      "timeout": 60,
+      "url": "https://mcp.company.com/sse",
+      "transport": "sse",
+      "oauth": {
+        "enabled": true,
+        "issuer": "https://auth.company.com"
+      },
+      "toolNamespace": "remote",
+      "priority": 100,
+      "tags": ["remote", "oauth", "enterprise"]
+    }
+  },
+  "bridge": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "oauth_port": 8090,
+    "conflictResolution": "namespace"
+  }
+}
+```
+
+### Command Substitution Configuration
+
+```json
+{
+  "mcpServers": {
+    "secrets": {
+      "enabled": true,
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/app/data"],
+      "env": {
+        "API_KEY": "$(op read op://vault/item/credential)",
+        "DATABASE_URL": "$(vault kv get -field=url secret/db)",
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "toolNamespace": "secrets"
+    }
+  },
+  "bridge": {
+    "allow_command_substitution": true,
+    "allowed_commands": ["op", "vault", "git"],
     "conflictResolution": "namespace"
   }
 }
@@ -235,6 +357,12 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081 --host 0.0.0.0
 
 # Debug mode
 mcp-foxxy-bridge --bridge-config config.json --debug
+
+# Enable command substitution (security feature)
+mcp-foxxy-bridge --bridge-config config.json --allow-command-substitution
+
+# UNSAFE: Allow dangerous commands (testing only!)
+mcp-foxxy-bridge --bridge-config config.json --allow-dangerous-commands
 
 # Pass environment variables
 GITHUB_TOKEN=abc123 mcp-foxxy-bridge --bridge-config config.json

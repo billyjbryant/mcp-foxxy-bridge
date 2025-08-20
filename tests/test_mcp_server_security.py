@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from mcp_foxxy_bridge.mcp_server import _find_available_port
+from mcp_foxxy_bridge.oauth.utils import find_available_port
 
 
 def test_find_available_port_uses_specified_host() -> None:
@@ -21,7 +21,7 @@ def test_find_available_port_uses_specified_host() -> None:
         # When the requested port is immediately available
         mock_socket.bind.return_value = None  # Successful bind
 
-        result_port = _find_available_port(test_host, requested_port)
+        result_port = find_available_port(requested_port, host=test_host)
 
         # Verify the socket was bound to the specified host, not empty string
         mock_socket.bind.assert_called_with((test_host, requested_port))
@@ -35,31 +35,31 @@ def test_find_available_port_fallback_uses_specified_host() -> None:
     """
     test_host = "127.0.0.1"
     requested_port = 8080
-    fallback_port = 12345
 
     with patch("socket.socket") as mock_socket_class:
-        # Mock the first 100 socket attempts that fail
+        # Mock the first 99 socket attempts that fail (for ports 8080-8178)
         failing_sockets = []
-        for _ in range(100):
+        for _ in range(99):
             failing_socket = MagicMock()
             failing_socket.bind.side_effect = OSError("Port in use")
             failing_sockets.append(failing_socket)
 
-        # Mock the final fallback socket that succeeds
-        fallback_socket = MagicMock()
-        fallback_socket.bind.return_value = None
-        fallback_socket.getsockname.return_value = (test_host, fallback_port)
+        # Mock the final socket that succeeds (for port 8179)
+        success_socket = MagicMock()
+        success_socket.bind.return_value = None
+        success_socket.getsockname.return_value = (test_host, 8179)
 
         # Setup the socket class to return context managers
-        socket_instances = [*failing_sockets, fallback_socket]
+        socket_instances = [*failing_sockets, success_socket]
         mock_socket_class.return_value.__enter__.side_effect = socket_instances
 
-        result_port = _find_available_port(test_host, requested_port)
+        result_port = find_available_port(requested_port, host=test_host)
 
-        # Verify the fallback socket was bound to the specified host, not empty string
-        # This is the critical security fix - should be (host, 0) not ("", 0)
-        fallback_socket.bind.assert_called_with((test_host, 0))
-        assert result_port == fallback_port
+        # Verify the success socket was bound to the specified host, not empty string
+        # The last successful socket should be bound to (test_host, requested_port + 99)
+        expected_final_port = requested_port + 99
+        success_socket.bind.assert_called_with((test_host, expected_final_port))
+        assert result_port == expected_final_port
 
 
 def test_find_available_port_never_binds_to_all_interfaces() -> None:
@@ -77,7 +77,7 @@ def test_find_available_port_never_binds_to_all_interfaces() -> None:
             mock_socket.getsockname.return_value = (test_host, 8080)
             mock_socket.bind.return_value = None
 
-            _find_available_port(test_host, 8080)
+            find_available_port(8080, host=test_host)
 
             # Verify that all bind calls use the specified host
             for call in mock_socket.bind.call_args_list:

@@ -120,7 +120,7 @@ async def create_proxy_server(remote_app: ClientSession) -> server.Server[object
                     (req.params.arguments or {}),
                 )
                 return types.ServerResult(result)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 return types.ServerResult(
                     types.CallToolResult(
                         content=[types.TextContent(type="text", text=str(e))],
