@@ -1,23 +1,37 @@
 # Configuration Guide
 
-This guide covers how to configure MCP Foxxy Bridge for your use case.
+This guide covers how to configure MCP Foxxy Bridge for your use case, from basic setups to advanced production deployments.
 
-## Configuration File Format
+## Quick Start
 
-The bridge uses JSON configuration files with two main sections:
+**👀 Want to jump straight to examples?** Check out our [Example Configurations](examples/README.md) for ready-to-use config files.
+
+**🔐 Setting up authentication?** See the [OAuth Guide](oauth.md) for SSE/HTTP servers.
+
+**🛡️ Security concerns?** Review the [Security Guide](security.md) for best practices.
+
+## Configuration Overview
+
+MCP Foxxy Bridge uses JSON configuration files with two main sections:
 
 ```json
 {
-  "mcpServers": {
-    "server_name": {
-      // Server configuration
-    }
+  "mcpServers": {           // 🔌 Define your MCP servers here
+    "github": { /* ... */ },
+    "filesystem": { /* ... */ }
   },
-  "bridge": {
-    // Bridge-wide settings
+  "bridge": {               // ⚙️ Bridge-wide settings
+    "host": "127.0.0.1",
+    "port": 8080
   }
 }
 ```
+
+### Configuration Methods
+
+1. **📄 Config File** (recommended): `--bridge-config config.json`
+2. **⚡ CLI Arguments**: `--named-server name 'command'`
+3. **🔗 Combined**: Use both for flexibility
 
 ## Server Configuration
 

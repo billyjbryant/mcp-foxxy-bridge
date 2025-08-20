@@ -1,22 +1,46 @@
 # MCP Foxxy Bridge Documentation
 
-Welcome to the MCP Foxxy Bridge documentation! This directory contains
-comprehensive guides and documentation for using and contributing to the MCP
-Foxxy Bridge project.
+Welcome to the comprehensive documentation for MCP Foxxy Bridge! Whether you're just getting started or diving deep into advanced configurations, you'll find everything you need here.
 
-<!-- Note: All CI/CD workflows now passing successfully -->
+## 🎯 Choose Your Path
 
-## Documentation Structure
+### 🆕 New to MCP Foxxy Bridge?
+Start with our **[Installation Guide](installation.md)** and follow the beginner-friendly setup process.
 
-- [Installation Guide](installation.md) - How to install and set up the bridge
-- [Configuration Guide](configuration.md) - Detailed configuration options and examples
-- [Deployment Guide](deployment.md) - Docker, local, and UV deployment options
-- [API Reference](api.md) - Endpoints and programmatic usage
-- [Architecture Overview](architecture.md) - Technical architecture and design
-- [Contributing Guide](../CONTRIBUTING.md) - Development setup and guidelines
-- [Troubleshooting Guide](troubleshooting.md) - Common issues and solutions
-- [Release Process](releasing.md) - How releases are created and published to PyPI
-- [Repository Maintenance](maintenance.md) - Automated maintenance and configuration management
+### ⚡ Quick Setup
+Jump to **[Example Configurations](examples/README.md)** for ready-to-use config files.
+
+### 🏢 Production Deployment
+Review **[Security Guide](security.md)** → **[OAuth Guide](oauth.md)** → **[Deployment Guide](deployment.md)**
+
+### 🔧 Developer/Contributor
+Check **[Architecture Overview](architecture.md)** → **[Contributing Guide](../CONTRIBUTING.md)**
+
+---
+
+## 📚 Complete Documentation Index
+
+### 🚀 Getting Started
+- **[Installation Guide](installation.md)** - Multiple installation methods (uv, pip, Docker)
+- **[Configuration Guide](configuration.md)** - Complete configuration reference
+- **[Example Configurations](examples/README.md)** - Ready-to-use setups for common scenarios
+
+### 🏗️ Advanced Setup
+- **[Deployment Guide](deployment.md)** - Production deployments with Docker and orchestration
+- **[Architecture Overview](architecture.md)** - Technical deep dive into system design
+- **[API Reference](api.md)** - REST endpoints and programmatic integration
+
+### 🛡️ Security & Production
+- **[Security Guide](security.md)** - Comprehensive security best practices
+- **[OAuth Authentication](oauth.md)** - Enterprise authentication setup
+
+### 🔧 Operations & Maintenance
+- **[Troubleshooting Guide](troubleshooting.md)** - Common issues and solutions
+- **[Maintenance Guide](maintenance.md)** - Automated maintenance and updates
+- **[Release Process](releasing.md)** - How releases are created and published
+
+### 👥 Contributing
+- **[Contributing Guide](../CONTRIBUTING.md)** - Development setup and contribution guidelines
 
 ## Quick Start
 

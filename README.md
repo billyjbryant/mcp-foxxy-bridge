@@ -29,20 +29,22 @@
 
 ## Overview
 
-**MCP Foxxy Bridge** is a secure, feature-rich one-to-many proxy for the Model Context Protocol (MCP). It lets you aggregate and route requests to multiple MCP servers through a single endpoint, with enterprise-grade security features:
+**MCP Foxxy Bridge** is a secure one-to-many proxy for the Model Context Protocol (MCP). Connect multiple MCP servers through a single endpoint with enterprise-grade security.
 
-## 🔒 Security Features
-- **Command substitution security** with allow-lists and validation
-- **OAuth 2.0 + PKCE authentication** for secure server connections
-- **Shell injection protection** with comprehensive input validation
-- **Localhost-only binding** by default for maximum security
+### ✨ Key Benefits
 
-## 🚀 Core Capabilities
-- Centralize configuration for all your MCP servers
-- Expose all tools, resources, and prompts from connected servers
-- Route requests transparently to the right backend
-- Use a single MCP endpoint in your AI tools (Claude Desktop, VS Code, etc.)
-- Support for command substitution with secure credential retrieval
+- **🔌 Single Endpoint**: Access all your MCP servers through one connection point
+- **🛡️ Enterprise Security**: OAuth 2.0 + PKCE authentication and command validation
+- **⚡ Easy Setup**: Simple configuration with environment variable support
+- **🔀 Smart Routing**: Automatic request routing to the right backend server
+- **🏠 Secure by Default**: Localhost-only binding and comprehensive input validation
+
+### 🎯 Perfect For
+
+- Connecting multiple MCP servers to Claude Desktop, VS Code, or other AI tools
+- Centralizing credential management with secure command substitution
+- Production deployments requiring OAuth authentication
+- Development environments with multiple data sources
 
 ---
 
@@ -111,16 +113,24 @@ See [API Reference](docs/api.md) for integration details.
 
 ## 📚 Documentation
 
-- [Overview & Features](docs/README.md)
-- [Installation Guide](docs/installation.md)
-- [Configuration Guide](docs/configuration.md)
-- [Security Guide](docs/security.md) 🔒
-- [OAuth Authentication](docs/oauth.md) 🔐
-- [Deployment Guide](docs/deployment.md)
-- [API Reference](docs/api.md)
-- [Architecture Overview](docs/architecture.md)
-- [Troubleshooting Guide](docs/troubleshooting.md)
-- [Example Configurations](docs/examples/README.md)
+### 🚀 Getting Started
+- [📖 Documentation Overview](docs/README.md) - Start here for a complete guide
+- [⬇️ Installation Guide](docs/installation.md) - Multiple installation methods
+- [⚙️ Configuration Guide](docs/configuration.md) - Configure your setup
+- [🎯 Example Configurations](docs/examples/README.md) - Ready-to-use config files
+
+### 🔧 Advanced Usage
+- [🚀 Deployment Guide](docs/deployment.md) - Docker, production deployments
+- [🔌 API Reference](docs/api.md) - Programmatic integration
+- [🏗️ Architecture Overview](docs/architecture.md) - Technical deep dive
+
+### 🛡️ Security & Production
+- [🔒 Security Guide](docs/security.md) - Comprehensive security practices
+- [🔐 OAuth Authentication](docs/oauth.md) - Enterprise authentication setup
+
+### 🆘 Support
+- [🔧 Troubleshooting Guide](docs/troubleshooting.md) - Common issues and solutions
+- [🤝 Contributing Guide](CONTRIBUTING.md) - Development setup and guidelines
 
 ---
 
@@ -141,38 +151,34 @@ See [API Reference](docs/api.md) for integration details.
 
 ## 🔒 Security
 
-MCP Foxxy Bridge implements comprehensive security measures:
+MCP Foxxy Bridge is built with security-first principles:
 
-### Network Security
-- **Default binding**: Bridge binds to `127.0.0.1:8080` (localhost-only) by default
-- **MCP server isolation**: Individual MCP servers communicate via local stdio pipes, never network ports
-- **OAuth port separation**: Dedicated OAuth callback port (8090) independent of main bridge port
-- **Configurable access**: Host and port settings can be configured via config file or CLI arguments
+### 🛡️ Defense in Depth
+- **🏠 Secure by Default**: Localhost-only binding (`127.0.0.1:8080`)
+- **🔐 OAuth 2.0 + PKCE**: Enterprise authentication for production use
+- **⚡ Command Validation**: Allow-list based command substitution with shell injection protection
+- **🔍 Input Validation**: Comprehensive validation of all parameters and arguments
 
-### Command Substitution Security
-- **Allow-list approach**: Only pre-approved commands can be executed via `$(command)` syntax
-- **Shell injection protection**: Blocks dangerous shell operators (`|`, `&`, `;`, etc.)
-- **Argument validation**: Validates arguments for sensitive commands (git, vault, op, gh)
-- **Read-only enforcement**: Prevents write/delete operations in command substitution
+### 🚨 Quick Security Setup
+```bash
+# Secure defaults (recommended)
+mcp-foxxy-bridge --bridge-config config.json
 
-### Authentication Security
-- **OAuth 2.0 + PKCE**: Secure authentication with Proof Key for Code Exchange
-- **Automatic discovery**: OAuth endpoints discovered from server metadata
-- **Secure token storage**: Tokens stored with restricted file permissions
-- **Token refresh**: Automatic token renewal when possible
+# With command substitution (be careful!)
+mcp-foxxy-bridge --bridge-config config.json --allow-command-substitution
 
-### Configuration Priority
-1. Command-line arguments (`--host`, `--port`, `--allow-command-substitution`) - highest priority
-2. Configuration file bridge settings (`bridge.host`, `bridge.port`, `bridge.allow_command_substitution`)
-3. Environment variables (`MCP_ALLOW_COMMAND_SUBSTITUTION`, `MCP_ALLOWED_COMMANDS`)
-4. Secure defaults (`127.0.0.1:8080`, command substitution disabled) - lowest priority
+# Production with OAuth
+mcp-foxxy-bridge --bridge-config production-config.json
+```
 
-### Security Recommendations
-- Keep the default `127.0.0.1` binding unless external access is required
-- Only enable command substitution when needed, with minimal command allow-lists
-- Use OAuth authentication for production deployments with sensitive data
-- Regularly update MCP server dependencies and review access logs
-- See [Security Guide](docs/security.md) for comprehensive security practices
+### 📋 Security Checklist
+- ✅ Keep localhost binding for local development
+- ✅ Use OAuth for production deployments
+- ✅ Enable command substitution only when needed
+- ✅ Review and audit your server configurations
+- ✅ Monitor access logs regularly
+
+**📖 For complete security guidance, see our [Security Guide](docs/security.md) and [OAuth Documentation](docs/oauth.md).**
 
 ---
 
