@@ -1,0 +1,55 @@
+name: "MCP Foxxy Bridge Security Analysis"
+
+# Query packs to run for this analysis
+query-packs:
+  # Run security-focused queries
+  - codeql/python-queries:codeql-suites/python-security.qls
+  - codeql/javascript-queries:codeql-suites/javascript-security.qls
+
+# Additional queries to run
+queries:
+  # Python security queries
+  - name: "Python: Command injection"
+    uses: security-extended
+    languages: [python]
+  - name: "Python: Hardcoded credentials"
+    uses: security-extended
+    languages: [python]
+  - name: "Python: Path injection"
+    uses: security-extended
+    languages: [python]
+  - name: "Python: SQL injection"
+    uses: security-extended
+    languages: [python]
+  - name: "Python: Weak cryptographic algorithm"
+    uses: security-extended
+    languages: [python]
+
+# Paths to include in analysis
+paths-ignore:
+  - "**/.venv/**"
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/__pycache__/**"
+  - "**/.pytest_cache/**"
+  - "**/coverage.xml"
+  - "**/htmlcov/**"
+  - "**/.mypy_cache/**"
+  - "**/.ruff_cache/**"
+  - "**/uv.lock"
+  - "**/poetry.lock"
+  - "**/.git/**"
+
+# Only analyze source code
+paths:
+  - "src/"
+  - ".github/"
+  - "docs/"
+  - "tests/"
+  - "*.py"
+  - "*.js"
+  - "*.ts"
+  - "*.json"
+  - "*.yml"
+  - "*.yaml"

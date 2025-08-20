@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from rich.console import Console
 
-from mcp_foxxy_bridge.logging_config import (
+from mcp_foxxy_bridge.utils.logging_config import (
     MCPRichHandler,
     get_logger,
     setup_rich_logging,
@@ -27,7 +27,7 @@ class TestMCPRichHandler:
         assert handler.console is not None
         assert isinstance(handler.console, Console)
         assert handler.console.stderr  # Should use stderr
-        assert handler.console._force_terminal  # noqa: SLF001
+        assert handler.console._force_terminal
         assert handler.console.options.max_width == DEFAULT_CONSOLE_WIDTH
 
     def test_init_custom_console(self) -> None:
@@ -98,7 +98,7 @@ class TestMCPRichHandler:
 
         # Create record that looks like it's from a server
         record = logging.LogRecord(
-            name="mcp_foxxy_bridge.servers.filesystem.test",
+            name="mcp.server.filesystem.test",
             level=logging.INFO,
             pathname="test.py",
             lineno=1,
@@ -111,7 +111,7 @@ class TestMCPRichHandler:
 
         # Should include server name highlighting
         assert "filesystem" in message_text.markup
-        assert "[bold cyan]" in message_text.markup
+        assert "[bold green]" in message_text.markup
 
     def test_render_message_non_server(self) -> None:
         """Test message rendering for non-server logs."""
@@ -185,7 +185,7 @@ class TestSetupRichLogging:
 
         # Check asyncio logger
         asyncio_logger = logging.getLogger("asyncio")
-        assert asyncio_logger.level == logging.WARNING
+        assert asyncio_logger.level == logging.ERROR
 
         # Check uvicorn loggers
         uvicorn_logger = logging.getLogger("uvicorn")
@@ -199,7 +199,7 @@ class TestSetupRichLogging:
         assert not uvicorn_access_logger.propagate
 
         uvicorn_error_logger = logging.getLogger("uvicorn.error")
-        assert uvicorn_error_logger.level == logging.INFO
+        assert uvicorn_error_logger.level == logging.WARNING
         assert not uvicorn_error_logger.propagate
 
     def test_setup_mcp_loggers_debug_mode(self) -> None:
@@ -208,7 +208,7 @@ class TestSetupRichLogging:
 
         # Check MCP loggers
         mcp_logger = logging.getLogger("mcp")
-        assert mcp_logger.level == logging.INFO
+        assert mcp_logger.level == logging.WARNING
         assert not mcp_logger.propagate
 
         mcp_server_logger = logging.getLogger("mcp.server")
@@ -221,7 +221,7 @@ class TestSetupRichLogging:
 
         # Check MCP server logger in normal mode
         mcp_server_logger = logging.getLogger("mcp.server")
-        assert mcp_server_logger.level == logging.WARNING  # Normal mode
+        assert mcp_server_logger.level == logging.ERROR  # Normal mode
         assert not mcp_server_logger.propagate
 
     def test_handler_replacement(self) -> None:
@@ -256,6 +256,7 @@ class TestSetupRichLogging:
         uvicorn_access_logger = logging.getLogger("uvicorn.access")
         handler = uvicorn_access_logger.handlers[0]
         formatter = handler.formatter
+        assert formatter is not None, "Formatter should not be None"
 
         # Create a mock record like uvicorn creates
         record = logging.LogRecord(
@@ -280,6 +281,7 @@ class TestSetupRichLogging:
         uvicorn_access_logger = logging.getLogger("uvicorn.access")
         handler = uvicorn_access_logger.handlers[0]
         formatter = handler.formatter
+        assert formatter is not None, "Formatter should not be None"
 
         # Create a record with insufficient args
         record = logging.LogRecord(
@@ -304,6 +306,7 @@ class TestSetupRichLogging:
         uvicorn_access_logger = logging.getLogger("uvicorn.access")
         handler = uvicorn_access_logger.handlers[0]
         formatter = handler.formatter
+        assert formatter is not None, "Formatter should not be None"
 
         # Create a record with no args
         record = logging.LogRecord(
@@ -387,7 +390,7 @@ class TestLoggingIntegration:
         # where we can capture the actual Rich output
         assert server_logger.name == "mcp_foxxy_bridge.servers.test_server"
 
-    @patch("mcp_foxxy_bridge.logging_config.Console")
+    @patch("mcp_foxxy_bridge.utils.logging_config.Console")
     def test_rich_console_configuration(self, mock_console_class: MagicMock) -> None:
         """Test Rich console configuration."""
         mock_console = MagicMock()

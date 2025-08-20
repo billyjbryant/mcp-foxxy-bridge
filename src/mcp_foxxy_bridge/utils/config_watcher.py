@@ -59,7 +59,7 @@ class ConfigFileHandler(FileSystemEventHandler):
         self._last_reload_time = 0.0
         self._reload_lock = threading.Lock()
 
-        logger.info("Watching config file: %s", self.config_path)
+        logger.debug("Watching config file: %s", self.config_path)
 
     def on_modified(self, event: FileSystemEvent) -> None:
         """Handle file modification events."""
@@ -172,7 +172,7 @@ class ConfigWatcher:
 
             # Start the observer
             self._observer.start()
-            logger.info("Started watching config file: %s", self.config_path)
+            logger.debug("Started watching config file: %s", self.config_path)
 
         except Exception:
             logger.exception("Failed to start config file watcher")

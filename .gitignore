@@ -180,3 +180,7 @@ CLAUDE.md
 # Cursor folder and files
 .cursor/
 CURSOR.md
+
+# Foxxy cache files
+.channels_cache_v2.json
+.users_cache.json
