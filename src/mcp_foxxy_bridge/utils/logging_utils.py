@@ -690,3 +690,32 @@ def safe_log_headers(headers: Any) -> dict[str, str]:
             safe_headers[name] = str(value) if value is not None else ""
 
     return safe_headers
+
+
+def safe_log_server_name(server_name: Any, show_partial: bool = False) -> str:
+    """Create a safe version of server name for logging.
+
+    Args:
+        server_name: Server name that might contain sensitive data
+        show_partial: Whether to show partial server name for debugging
+
+    Returns:
+        Safe server name for logging
+
+    Example:
+        >>> safe_log_server_name("oauth-server-production")
+        '[SERVER_NAME]'
+        >>> safe_log_server_name("oauth-server-production", show_partial=True)
+        'oau...-ion'
+    """
+    if not isinstance(server_name, str):
+        return "[INVALID_SERVER_NAME]"
+
+    if not server_name.strip():
+        return "[EMPTY_SERVER_NAME]"
+
+    if show_partial and len(server_name) > 8:
+        # Show first 3 and last 3 characters for debugging
+        return f"{server_name[:3]}...{server_name[-3:]}"
+
+    return "[SERVER_NAME]"

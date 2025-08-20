@@ -7,6 +7,7 @@ from mcp_foxxy_bridge.utils.logging_utils import (
     mask_query_parameters,
     redact_url_credentials,
     safe_log_headers,
+    safe_log_server_name,
 )
 
 
@@ -142,3 +143,22 @@ class TestSecureLogging:
         assert mask_authentication_config([])["error"] == "[INVALID_AUTH_CONFIG]"
         assert redact_url_credentials(123) == "[INVALID_URL]"
         assert safe_log_headers("invalid")["error"] == "[INVALID_HEADERS]"
+
+    def test_safe_log_server_name(self):
+        """Test safe_log_server_name function."""
+        # Test normal server names
+        assert safe_log_server_name("filesystem") == "[SERVER_NAME]"
+        assert safe_log_server_name("oauth-server-production") == "[SERVER_NAME]"
+
+        # Test with show_partial flag
+        assert safe_log_server_name("filesystem", show_partial=True) == "fil...tem"
+        assert safe_log_server_name("oauth-server-production", show_partial=True) == "oau...ion"
+
+        # Test short names with show_partial
+        assert safe_log_server_name("test", show_partial=True) == "[SERVER_NAME]"
+
+        # Test edge cases
+        assert safe_log_server_name("") == "[EMPTY_SERVER_NAME]"
+        assert safe_log_server_name("   ") == "[EMPTY_SERVER_NAME]"
+        assert safe_log_server_name(None) == "[INVALID_SERVER_NAME]"
+        assert safe_log_server_name(123) == "[INVALID_SERVER_NAME]"

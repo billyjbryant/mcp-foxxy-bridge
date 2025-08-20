@@ -264,7 +264,7 @@ class SSEClientWrapper:
         self.verify_ssl = verify_ssl
         self.max_oauth_wait_time = max_oauth_wait_time
 
-        logger.debug("Initialized SSEClientWrapper for server: %s", server_name)
+        logger.debug("Initialized SSEClientWrapper for server: [SERVER_NAME]")
         logger.debug("Server URL: %s", server_url)
         logger.debug("OAuth enabled: %s", oauth_enabled)
         if authentication:
@@ -378,7 +378,7 @@ async def sse_client_with_logging(
         ... ) as streams:
         ...     # Connection uses API key authentication
     """
-    logger.debug("Starting SSE client for server: %s", server_name)
+    logger.debug("Starting SSE client for server: [SERVER_NAME]")
     logger.debug("Connecting to SSE endpoint: %s", url)
 
     try:
@@ -390,10 +390,10 @@ async def sse_client_with_logging(
 
         # Handle OAuth-enabled servers
         if oauth_enabled:
-            logger.debug("OAuth enabled for server '%s', loading tokens...", server_name)
+            logger.debug("OAuth enabled for server, loading tokens...")
             await _handle_oauth_authentication(url, connection_headers, server_name, oauth_config)
         else:
-            logger.debug("OAuth not enabled for server '%s'", server_name)
+            logger.debug("OAuth not enabled for server")
 
         # Attempt SSE connection with automatic OAuth handling
         safe_headers = safe_log_headers(connection_headers)
@@ -414,7 +414,7 @@ async def sse_client_with_logging(
         # Try initial connection
         try:
             async with sse_client(url=url, headers=connection_headers) as streams:
-                logger.debug("SSE client established for server: %s", server_name)
+                logger.debug("SSE client established for server: [SERVER_NAME]")
                 yield streams
                 return
         except Exception as sse_error:
@@ -464,7 +464,7 @@ async def sse_client_with_logging(
         logger.exception("SSE client failed for server '%s': %s", server_name, e)
         raise
     finally:
-        logger.debug("SSE client cleanup completed for server: %s", server_name)
+        logger.debug("SSE client cleanup completed for server: [SERVER_NAME]")
 
 
 # Authentication helper functions
@@ -710,13 +710,9 @@ async def _handle_oauth_authentication(
             if oauth_headers:
                 headers.update(oauth_headers)
                 logger.info("Using existing OAuth tokens for authentication")
-                logger.debug("OAuth authorization header added: %s", list(oauth_headers.keys()))
-                # Log the token type safely for debugging
-                auth_header = oauth_headers.get("Authorization", "")
-                if auth_header:
-                    # Only log the scheme/type, not any part of the credential
-                    scheme = auth_header.split(" ", 1)[0] if " " in auth_header else "[UNKNOWN]"
-                    logger.debug("Authorization header scheme: %s", scheme)
+                logger.debug("OAuth authorization header added successfully")
+                # Log safely without exposing any credential information
+                logger.debug("Authorization header configured with token type")
             else:
                 logger.warning("Failed to create OAuth headers from tokens")
         else:
