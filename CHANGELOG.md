@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.3.1...v1.4.0) (2025-08-20)
+
+
+### 🚀 Features
+
+* v1.4.0 - SSE Support with Comprehensive Security Hardening ([#17](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/17)) ([4894171](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/48941714ba6ce057d87e53bba0c0f4e0dd286a0a)), closes [#15](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/15) [#21](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/21) [#19](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/19) [#18](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/18) [#16](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/16)
+
 ## [1.3.1](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.3.0...v1.3.1) (2025-07-30)
 
 
