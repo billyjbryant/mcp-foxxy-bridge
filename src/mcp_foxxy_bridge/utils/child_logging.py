@@ -253,18 +253,17 @@ async def capture_process_output(
                     message = line.decode("utf-8", errors="replace").rstrip("\n\r")
                     handler.log_message(message, is_stderr)
                 except (UnicodeDecodeError, AttributeError) as e:
-                    logger.debug("Log line processing error from %s: %s", server_name, e)
+                    logger.debug("Log line processing error: %s", type(e).__name__)
                 except Exception as e:
-                    logger.warning("Unexpected log processing error from %s: %s", server_name, str(e))
+                    logger.warning("Unexpected log processing error: %s", type(e).__name__)
 
         except (OSError, asyncio.CancelledError) as e:
-            logger.debug("Stream read error from %s for %s: %s", "stderr" if is_stderr else "stdout", server_name, e)
+            logger.debug("Stream read error from %s: %s", "stderr" if is_stderr else "stdout", type(e).__name__)
         except Exception as e:
             logger.warning(
-                "Unexpected stream error from %s for %s: %s",
+                "Unexpected stream error from %s: %s",
                 "stderr" if is_stderr else "stdout",
-                server_name,
-                e,
+                type(e).__name__,
             )
 
     # Start tasks to read both stdout and stderr
@@ -283,9 +282,9 @@ async def capture_process_output(
             await asyncio.gather(*tasks, return_exceptions=True)
 
     except (OSError, asyncio.CancelledError) as e:
-        logger.debug("Process output capture error for %s: %s", server_name, e)
+        logger.debug("Process output capture error: %s", type(e).__name__)
     except Exception as e:
-        logger.warning("Unexpected process capture error for %s: %s", server_name, str(e))
+        logger.warning("Unexpected process capture error: %s", type(e).__name__)
     finally:
         # Cancel any remaining tasks
         for task in [stdout_task, stderr_task]:

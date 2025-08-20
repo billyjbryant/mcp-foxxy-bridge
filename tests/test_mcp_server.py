@@ -617,13 +617,13 @@ async def test_run_mcp_server_sse_url_logging(
         # Run the function
         await run_mcp_server(mock_settings, mock_stdio_params, named_servers)
 
-        # Verify SSE URLs were logged
-        expected_default_url = f"http://{mock_settings.bind_host}:{mock_settings.port}/sse"
-        expected_named_url = f"http://{mock_settings.bind_host}:{mock_settings.port}/servers/test_server/sse"
-
+        # Verify SSE URLs were logged (security: no sensitive URLs logged)
         mock_logger.info.assert_any_call("Serving MCP Servers via SSE:")
-        mock_logger.info.assert_any_call("  - %s", expected_default_url)
-        mock_logger.info.assert_any_call("  - %s", expected_named_url)
+        # Security hardening: URLs are no longer logged, only generic endpoint indicators
+        mock_logger.info.assert_any_call("  - [ENDPOINT]")
+        # Check we have at least 2 endpoint log calls (default + named)
+        endpoint_calls = [call for call in mock_logger.info.call_args_list if call[0] == ("  - [ENDPOINT]",)]
+        assert len(endpoint_calls) >= 2, "Should have logged at least 2 endpoints"
 
 
 async def test_run_mcp_server_exception_handling(

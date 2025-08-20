@@ -59,7 +59,6 @@ from mcp_foxxy_bridge.config.config_loader import (
 )
 from mcp_foxxy_bridge.oauth import OAuthFlow, OAuthProviderOptions
 from mcp_foxxy_bridge.utils.config_watcher import ConfigWatcher
-from mcp_foxxy_bridge.utils.logging_utils import mask_query_parameters
 
 from .bridge_server import (
     _server_manager_registry,
@@ -153,13 +152,8 @@ async def create_oauth_callback_server(callback_port: int, bridge_port: int) -> 
             # Forward the callback to the main bridge server with correct path
             bridge_url = f"http://localhost:{bridge_port}/oauth/{server_id}/callback"
 
-            logger.info(
-                "Forwarding OAuth callback from port %d to bridge port %d",
-                callback_port,
-                bridge_port,
-            )
-            safe_params = mask_query_parameters(query_params)
-            logger.info("Forwarding to URL: %s with params: %s", bridge_url, safe_params)
+            # Security: NO logging of URLs or parameters
+            logger.info("Forwarding OAuth callback")
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(bridge_url, params=query_params, timeout=30.0)
@@ -383,12 +377,12 @@ def create_individual_server_routes(
 
     for server_name, server_config in bridge_config.servers.items():
         if not server_config.enabled:
-            logger.debug("Skipping disabled server '%s' for individual routes", server_name)
+            logger.debug("Skipping disabled server for individual routes")
             continue
 
         # Normalize server name for URL
         normalized_name = normalize_server_name(server_name)
-        logger.debug("Creating lazy route for '%s' -> /sse/mcp/%s", server_name, normalized_name)
+        logger.debug("Creating lazy route for server endpoint")
 
         # Create a factory function with proper closure isolation
         def create_lazy_routes_factory(
@@ -636,7 +630,7 @@ def create_tag_based_routes(
                 tag_path = ""
 
             if not tag_path:
-                logger.warning("No tag path found in URL: %s", full_path)
+                logger.warning("No tag path found in URL")
                 await send(
                     {
                         "type": "http.response.start",
@@ -838,7 +832,7 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
 
         # Normalize server name for URL
         normalized_name = normalize_server_name(server_name)
-        logger.debug("Creating OAuth routes for '%s' -> /oauth/%s", server_name, normalized_name)
+        logger.debug("Creating OAuth routes for server")
 
         async def handle_oauth_start(request: Request) -> Response:
             """Handle OAuth flow initiation using new OAuth implementation."""
@@ -870,7 +864,7 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                         status_code=400,
                     )
 
-                logger.info(f"Starting OAuth flow for server: {server_id}")
+                logger.info("Starting OAuth flow")
 
                 # Use the new OAuthFlow implementation
                 # Extract bridge port from the request
@@ -939,7 +933,7 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                     # Open browser immediately
                     try:
                         webbrowser.open(auth_url)
-                        logger.info(f"Opened browser for OAuth authorization: {auth_url}")
+                        logger.info("Opened browser for OAuth authorization")
                     except OSError as e:
                         logger.warning("Could not open browser automatically: %s", e)
                     except Exception as e:
@@ -984,7 +978,7 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                 error = request.query_params.get("error")
 
                 if error:
-                    logger.error("OAuth error for server '%s': %s", server_id, error)
+                    logger.error("OAuth error: %s", error)
                     return HTMLResponse(
                         f"""
                     <html>
@@ -1037,7 +1031,7 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                         status_code=400,
                     )
 
-                logger.info(f"Received OAuth callback for server: {server_id}")
+                logger.info("Received OAuth callback")
                 logger.debug("OAuth authorization code received (length: %d)", len(code) if code else 0)
 
                 # For now, we'll show success - the actual token exchange will be handled
@@ -1257,7 +1251,7 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                     client_info = oauth_flow.provider.client_information()
                     logger.info(f"Client info available: {client_info is not None}")
                     if client_info:
-                        logger.info(f"Client ID: {client_info.client_id}")
+                        logger.info("Client information retrieved")
 
                     if client_info and endpoints.get("token_endpoint"):
                         # Exchange code for tokens
@@ -1486,8 +1480,8 @@ async def run_mcp_server(
         if sse_urls:
             # Using print directly for user visibility, with noqa to ignore linter warnings
             logger.info("Serving MCP Servers via SSE:")
-            for url in sse_urls:
-                logger.info("  - %s", url)
+            for _ in sse_urls:
+                logger.info("  - [ENDPOINT]")
 
         logger.debug(
             "Serving incoming MCP requests on %s:%s",
@@ -1506,7 +1500,7 @@ async def _handle_config_reload() -> bool:
     global _current_bridge_config, _current_config_path, _server_manager_reference  # noqa: PLW0602
 
     if not _current_config_path:
-        logger.error("No config path available for reload")
+        logger.error("No configuration available for reload")
         return False
 
     try:
@@ -1520,7 +1514,7 @@ async def _handle_config_reload() -> bool:
 
         # Validate configuration before applying
         if not _server_manager_reference or _server_manager_reference not in _server_manager_registry:
-            logger.error("No active server manager found for config reload")
+            logger.error("No active server manager found for reload")
             return False
 
         server_manager = _server_manager_registry[_server_manager_reference]
@@ -1880,7 +1874,7 @@ async def _exchange_atlassian_oauth_code(
         if "code_verifier" in oauth_config:
             token_data["code_verifier"] = oauth_config["code_verifier"]
 
-        logger.debug("Exchanging OAuth code for tokens at: %s", token_url)
+        logger.debug("Exchanging OAuth code for tokens")
 
         async with httpx.AsyncClient() as client:
             response = await client.post(

@@ -75,11 +75,6 @@ from mcp.types import JSONRPCMessage
 from mcp_foxxy_bridge.oauth import OAuthFlow, OAuthProviderOptions, OAuthTokens
 from mcp_foxxy_bridge.oauth.utils import get_server_url_hash, load_tokens
 from mcp_foxxy_bridge.utils.bridge_config import get_bridge_server_host, get_oauth_port
-from mcp_foxxy_bridge.utils.logging_utils import (
-    mask_authentication_config,
-    mask_authorization_header,
-    safe_log_headers,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -143,19 +138,19 @@ async def _discover_oauth_issuer(server_url: str) -> str | None:
             if not endpoint:  # Skip None endpoints
                 continue
             try:
-                logger.debug(f"Trying OAuth discovery endpoint: {endpoint}")
+                logger.debug("Trying OAuth discovery endpoint")
                 response = await client.get(endpoint)
                 if response.status_code == 200:
                     config = response.json()
                     issuer = config.get("issuer")
                     if issuer and isinstance(issuer, str):
-                        logger.info(f"Discovered OAuth issuer via {endpoint}: {issuer}")
+                        logger.info("Discovered OAuth issuer")
                         return str(issuer)  # Explicit cast to satisfy mypy
             except Exception as e:
-                logger.debug(f"OAuth discovery failed for {endpoint}: {e}")
+                logger.debug("OAuth discovery failed: %s", type(e).__name__)
                 continue
 
-    logger.debug(f"OAuth issuer discovery failed for {server_url}")
+    logger.debug("OAuth issuer discovery failed")
     return None
 
 
@@ -180,7 +175,7 @@ def get_oauth_tokens(server_url: str, server_name: str | None = None) -> OAuthTo
             issued_at = tokens_data["issued_at"]
             current_time = int(time.time())
             if (current_time - issued_at) >= tokens_data["expires_in"]:
-                logger.debug("OAuth tokens expired for server URL: %s", server_url)
+                logger.debug("OAuth tokens expired")
                 return None
 
         # Remove 'issued_at' field before creating OAuthTokens object
@@ -264,12 +259,8 @@ class SSEClientWrapper:
         self.verify_ssl = verify_ssl
         self.max_oauth_wait_time = max_oauth_wait_time
 
-        logger.debug("Initialized SSEClientWrapper for server: [SERVER_NAME]")
-        logger.debug("Server URL: %s", server_url)
-        logger.debug("OAuth enabled: %s", oauth_enabled)
-        if authentication:
-            safe_auth_config = mask_authentication_config(authentication)
-            logger.debug("Authentication config: %s", safe_auth_config)
+        # Security: NO logging of any server details, URLs, or authentication info
+        logger.debug("SSEClientWrapper initialized")
 
     @contextlib.asynccontextmanager
     async def connect(
@@ -378,8 +369,7 @@ async def sse_client_with_logging(
         ... ) as streams:
         ...     # Connection uses API key authentication
     """
-    logger.debug("Starting SSE client for server: [SERVER_NAME]")
-    logger.debug("Connecting to SSE endpoint: %s", url)
+    logger.debug("Starting SSE client")
 
     try:
         # Initialize headers with defaults
@@ -390,17 +380,13 @@ async def sse_client_with_logging(
 
         # Handle OAuth-enabled servers
         if oauth_enabled:
-            logger.debug("OAuth enabled for server, loading tokens...")
+            logger.debug("OAuth enabled, loading tokens...")
             await _handle_oauth_authentication(url, connection_headers, server_name, oauth_config)
         else:
-            logger.debug("OAuth not enabled for server")
+            logger.debug("OAuth not enabled")
 
-        # Attempt SSE connection with automatic OAuth handling
-        safe_headers = safe_log_headers(connection_headers)
-        logger.debug("Attempting SSE connection with headers: %s", list(safe_headers.keys()))
-        if "Authorization" in connection_headers:
-            masked_auth = mask_authorization_header(connection_headers["Authorization"])
-            logger.debug("Using Authorization header: %s", masked_auth)
+        # Security: NO logging of connection details or headers
+        logger.debug("Attempting SSE connection")
         # Try initial connection
         oauth_retry_attempted = False
 
@@ -414,11 +400,11 @@ async def sse_client_with_logging(
         # Try initial connection
         try:
             async with sse_client(url=url, headers=connection_headers) as streams:
-                logger.debug("SSE client established for server: [SERVER_NAME]")
+                logger.debug("SSE client established")
                 yield streams
                 return
         except Exception as sse_error:
-            logger.debug("SSE error for server '%s': %s: %s", server_name, type(sse_error).__name__, sse_error)
+            logger.debug("SSE error: %s", type(sse_error).__name__)
 
             # Handle authentication errors with automatic OAuth flow (only try once)
             if oauth_enabled and not oauth_retry_attempted and _is_authentication_error(sse_error):
@@ -428,7 +414,7 @@ async def sse_client_with_logging(
                 )
 
                 # Attempt automatic OAuth flow and retry
-                logger.info("Attempting OAuth token refresh for server '%s' due to authentication failure", server_name)
+                logger.info("Attempting OAuth token refresh due to authentication failure")
 
                 oauth_retry_attempted = True
                 try:
@@ -464,7 +450,7 @@ async def sse_client_with_logging(
         logger.exception("SSE client failed for server '%s': %s", server_name, e)
         raise
     finally:
-        logger.debug("SSE client cleanup completed for server: [SERVER_NAME]")
+        logger.debug("SSE client cleanup completed")
 
 
 # Authentication helper functions
@@ -486,26 +472,26 @@ async def _check_and_refresh_tokens_if_needed(
     # Check if token is close to expiring (within 5 minutes)
     if hasattr(tokens, "expires_in") and tokens.expires_in:
         if tokens.expires_in < 300:  # Less than 5 minutes
-            logger.info(f"Token for '{server_name}' expires in {tokens.expires_in} seconds, attempting refresh...")
+            logger.info("Token expiring soon, attempting refresh...")
 
             if tokens.refresh_token:
                 try:
                     refreshed_tokens = oauth_flow.refresh_tokens(tokens.refresh_token)
-                    logger.info(f"✅ Successfully refreshed tokens for '{server_name}'")
+                    logger.info("✅ Successfully refreshed tokens")
                     return refreshed_tokens
                 except Exception as e:
-                    logger.warning(f"Failed to refresh tokens for '{server_name}': {e}")
-                    logger.info(f"Will attempt to use existing token anyway for '{server_name}'")
+                    logger.warning("Failed to refresh tokens: %s", type(e).__name__)
+                    logger.info("Will attempt to use existing token anyway")
                     return tokens
             else:
-                logger.warning(f"No refresh token available for '{server_name}', cannot auto-refresh")
+                logger.warning("No refresh token available, cannot auto-refresh")
                 return tokens
         else:
-            logger.debug(f"Token for '{server_name}' expires in {tokens.expires_in} seconds, no refresh needed")
+            logger.debug("Token still valid, no refresh needed")
             return tokens
     else:
         # No expiration info, assume token is valid
-        logger.debug(f"No expiration info for '{server_name}' tokens, assuming valid")
+        logger.debug("No expiration info for tokens, assuming valid")
         return tokens
 
 
@@ -541,10 +527,10 @@ async def _attempt_token_refresh_and_retry(
         tokens = oauth_flow.provider.tokens()
 
         if not tokens or not tokens.refresh_token:
-            logger.debug(f"No refresh token available for '{server_name}', cannot auto-refresh")
+            logger.debug("No refresh token available, cannot auto-refresh")
             return False
 
-        logger.info(f"Attempting automatic token refresh for '{server_name}'...")
+        logger.info("Attempting automatic token refresh...")
         try:
             refreshed_tokens = oauth_flow.refresh_tokens(tokens.refresh_token)
 
@@ -555,17 +541,17 @@ async def _attempt_token_refresh_and_retry(
                 headers.pop("Authorization", None)
                 # Add new authorization header
                 headers.update(oauth_headers)
-                logger.info(f"✅ Successfully refreshed and updated tokens for '{server_name}'")
+                logger.info("✅ Successfully refreshed and updated tokens")
                 return True
-            logger.warning(f"Failed to create headers from refreshed tokens for '{server_name}'")
+            logger.warning("Failed to create headers from refreshed tokens")
             return False
 
         except Exception as e:
-            logger.warning(f"Token refresh failed for '{server_name}': {e}")
+            logger.warning("Token refresh failed: %s", type(e).__name__)
             return False
 
     except Exception as e:
-        logger.warning(f"Error during token refresh attempt for '{server_name}': {e}")
+        logger.warning("Error during token refresh attempt: %s", type(e).__name__)
         return False
 
 
@@ -615,7 +601,7 @@ async def _apply_authentication(
     elif auth_type == "basic":
         await _apply_basic_authentication(headers, authentication, server_name)
     else:
-        logger.warning("Unknown authentication type '%s' for server: %s", auth_type, server_name)
+        logger.warning("Unknown authentication type: %s", auth_type)
 
 
 async def _apply_bearer_authentication(headers: dict[str, str], auth_config: dict[str, Any], server_name: str) -> None:
@@ -623,7 +609,7 @@ async def _apply_bearer_authentication(headers: dict[str, str], auth_config: dic
     token = auth_config.get("token")
     if token:
         headers["Authorization"] = f"Bearer {token}"
-        logger.debug("Applied bearer token authentication for server: %s", server_name)
+        logger.debug("Applied bearer token authentication")
     else:
         logger.warning("Bearer authentication configured but no token provided")
 
@@ -635,7 +621,7 @@ async def _apply_api_key_authentication(headers: dict[str, str], auth_config: di
 
     if key:
         headers[header_name] = key
-        logger.debug("Applied API key authentication (%s) for server: %s", header_name, server_name)
+        logger.debug("Applied API key authentication")
     else:
         logger.warning("API key authentication configured but no key provided")
 
@@ -648,7 +634,7 @@ async def _apply_basic_authentication(headers: dict[str, str], auth_config: dict
     if username:
         credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
         headers["Authorization"] = f"Basic {credentials}"
-        logger.debug("Applied basic authentication for server: %s", server_name)
+        logger.debug("Applied basic authentication")
     else:
         logger.warning("Basic authentication configured but missing username")
 
@@ -742,7 +728,7 @@ async def _initiate_automatic_oauth_flow(
     Raises:
         Exception: If OAuth flow initiation fails
     """
-    logger.info(f"Attempting to automatically initiate OAuth flow for '{server_name}'")
+    logger.info("Attempting to automatically initiate OAuth flow")
 
     try:
         oauth_port = get_oauth_port()  # Use dedicated OAuth port
@@ -768,10 +754,10 @@ async def _initiate_automatic_oauth_flow(
         access_token = tokens.access_token if tokens else None
 
         if access_token:
-            logger.info(f"OAuth flow completed successfully for '{server_name}'")
+            logger.info("OAuth flow completed successfully")
             logger.info("User should be able to retry connection now")
         else:
-            logger.error(f"OAuth flow failed for '{server_name}'")
+            logger.error("OAuth flow failed")
             raise RuntimeError("OAuth flow did not produce valid tokens")
 
     except Exception as e:
@@ -799,7 +785,7 @@ async def _wait_for_oauth_completion_and_retry(
     start_time = time.time()
     check_interval = 5  # Check every 5 seconds
 
-    logger.debug(f"Waiting for OAuth completion for server '{server_name}' (max {max_wait_time} seconds)")
+    logger.debug("Waiting for OAuth completion (max %d seconds)", max_wait_time)
 
     while (time.time() - start_time) < max_wait_time:
         await asyncio.sleep(check_interval)
@@ -821,7 +807,7 @@ async def _wait_for_oauth_completion_and_retry(
 
             if access_token:
                 headers["Authorization"] = f"Bearer {access_token}"
-                logger.info(f"✅ New OAuth tokens detected for server '{server_name}'")
+                logger.info("✅ New OAuth tokens detected")
                 return True
 
         except (ValueError, KeyError, TypeError) as e:
@@ -832,11 +818,10 @@ async def _wait_for_oauth_completion_and_retry(
             logger.warning("Unexpected error checking OAuth tokens: %s", str(e))
 
         elapsed = int(time.time() - start_time)
-        remaining = max_wait_time - elapsed
         if elapsed % 30 == 0:  # Log progress every 30 seconds
-            logger.info(f"⏳ Still waiting for OAuth completion... ({remaining} seconds remaining)")
+            logger.info("⏳ Still waiting for OAuth completion...")
 
-    logger.warning(f"⏰ OAuth completion timeout after {max_wait_time} seconds")
+    logger.warning("⏰ OAuth completion timeout")
     return False
 
 
@@ -868,9 +853,9 @@ async def _handle_oauth_flow_and_retry(
         success = await _wait_for_oauth_completion_and_retry(server_url, server_name, headers, max_wait_time=300)
 
         if success:
-            logger.info(f"✅ OAuth completed successfully! Retrying connection to '{server_name}'")
+            logger.info("✅ OAuth completed successfully! Retrying connection")
         else:
-            logger.warning(f"⏰ OAuth completion timed out or failed for server '{server_name}'")
+            logger.warning("⏰ OAuth completion timed out or failed")
 
         return success
 
@@ -887,7 +872,7 @@ def _log_oauth_failure_guidance(server_name: str) -> None:
     Args:
         server_name: The server name for URL generation
     """
-    logger.error(f"❌ Authentication failed for server '{server_name}'")
+    logger.error("❌ Authentication failed")
     logger.info("💡 OAuth tokens should now be stored for automatic use")
     logger.info("📋 If authentication continues to fail, check your OAuth server configuration")
 
@@ -990,8 +975,7 @@ async def http_client_with_logging(
         ... ) as (read_stream, write_stream):
         ...     # Connection uses streamablehttp transport
     """
-    logger.debug(f"Starting HTTP client for server: {server_name}")
-    logger.debug(f"Connecting to HTTP endpoint: {url}")
+    logger.debug("Starting HTTP client")
 
     try:
         # Initialize headers with defaults
@@ -1008,7 +992,7 @@ async def http_client_with_logging(
         try:
             async with streamablehttp_client(url=url, headers=connection_headers) as connection_result:
                 read_stream, write_stream = connection_result[:2]  # Extract first two elements safely
-                logger.debug(f"HTTP client established for server: {server_name}")
+                logger.debug("HTTP client established")
                 yield (read_stream, write_stream)  # type: ignore[misc]
                 return
 
@@ -1025,7 +1009,7 @@ async def http_client_with_logging(
                     # Retry connection with updated OAuth tokens
                     async with streamablehttp_client(url=url, headers=connection_headers) as connection_result:
                         read_stream, write_stream = connection_result[:2]  # Extract first two elements safely
-                        logger.debug(f"HTTP client established after OAuth for server: {server_name}")
+                        logger.debug("HTTP client established after OAuth")
                         yield (read_stream, write_stream)  # type: ignore[misc]
                         return
 
@@ -1039,9 +1023,9 @@ async def http_client_with_logging(
         # Handle shutdown-related errors gracefully
         error_msg = str(e).lower()
         if any(phrase in error_msg for phrase in ["cancel scope", "shutdown", "cancelled", "closed"]):
-            logger.debug(f"HTTP client shutdown for server '{server_name}': {e}")
+            logger.debug("HTTP client shutdown: %s", type(e).__name__)
         else:
             logger.exception(f"HTTP client failed for server '{server_name}': {e}")
         raise
     finally:
-        logger.debug(f"HTTP client cleanup completed for server: {server_name}")
+        logger.debug("HTTP client cleanup completed")

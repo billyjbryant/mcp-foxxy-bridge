@@ -333,7 +333,7 @@ class ServerManager:
                 oauth_env = _get_oauth_env_vars(server.name)
                 server_env.update(oauth_env)
                 if oauth_env:
-                    logger.debug("Added OAuth environment variables for server '%s'", server.name)
+                    logger.debug("Added OAuth environment variables")
 
             # Connect with timeout and manage lifetime with context stack
             async with asyncio.timeout(server.config.timeout):
@@ -460,7 +460,7 @@ class ServerManager:
                 # Load capabilities
                 await self._load_server_capabilities(server)
 
-                logger.info("Successfully connected to server '%s'", server.name)
+                logger.info("Successfully connected to server")
 
                 # Log connection success to server's file
                 log_to_server_file(
@@ -491,27 +491,27 @@ class ServerManager:
             try:
                 await context_stack.aclose()
             except (RuntimeError, OSError) as e:
-                logger.debug("Context cleanup error for server '%s': %s", server.name, e)
+                logger.debug("Context cleanup error: %s", type(e).__name__)
             except Exception as e:
-                logger.warning("Unexpected context cleanup error for server '%s': %s", server.name, str(e))
+                logger.warning("Unexpected context cleanup error: %s", type(e).__name__)
 
             # Remove from tracking
             self._server_contexts.pop(server.name, None)
 
     async def _disconnect_server(self, server: ManagedServer) -> None:
         """Disconnect from a single MCP server."""
-        logger.info("Disconnecting from server '%s'", server.name)
+        logger.info("Disconnecting from server")
 
         # Clean up the server's context stack
         context_stack = self._server_contexts.pop(server.name, None)
         if context_stack:
             try:
                 await context_stack.aclose()
-                logger.debug("Cleaned up context stack for server '%s'", server.name)
+                logger.debug("Cleaned up context stack")
             except (RuntimeError, OSError) as e:
-                logger.debug("Context cleanup error for server '%s': %s", server.name, e)
+                logger.debug("Context cleanup error: %s", type(e).__name__)
             except Exception as e:
-                logger.warning("Unexpected context cleanup error for server '%s': %s", server.name, str(e))
+                logger.warning("Unexpected context cleanup error: %s", type(e).__name__)
 
         server.session = None
         server.health.status = ServerStatus.DISCONNECTED
@@ -535,7 +535,7 @@ class ServerManager:
             if server.health.capabilities.tools:
                 tools_result = await server.session.list_tools()
                 server.tools = tools_result.tools
-                logger.debug("Loaded %d tools from server '%s'", len(server.tools), server.name)
+                logger.debug("Loaded %d tools from server", len(server.tools))
 
             # Load resources
             if server.health.capabilities.resources:
@@ -674,7 +674,7 @@ class ServerManager:
                         # OAuth recovery was attempted, continue to next server
                         continue
 
-                    logger.warning("Health check failed for server '%s': %s", server.name, str(e))
+                    logger.warning("Health check failed: %s", type(e).__name__)
                     server.health.failure_count += 1
                     server.health.consecutive_failures += 1
                     server.health.last_error = str(e)
@@ -1264,7 +1264,7 @@ class ServerManager:
             if server.session:
                 try:
                     await server.session.set_logging_level(level)
-                    logger.debug("Set logging level to %s on server '%s'", level, server.name)
+                    logger.debug("Set logging level to %s on server", level)
                     forwarded_count += 1
                 except Exception:
                     logger.exception(
@@ -1364,7 +1364,7 @@ class ServerManager:
             # Update keep-alive tracking
             server.health.last_keep_alive = time.time()
             server.health.keep_alive_failures = 0
-            logger.debug("Keep-alive successful for server '%s'", server.name)
+            logger.debug("Keep-alive successful")
 
         except Exception as e:
             server.health.keep_alive_failures += 1
@@ -1440,9 +1440,9 @@ class ServerManager:
                 # Check if restart was successful
                 # Note: _connect_server will set status to CONNECTED or FAILED
                 if server.health.status is ServerStatus.CONNECTED:  # type: ignore[comparison-overlap]
-                    logger.info("Successfully restarted server '%s'", server.name)  # type: ignore[unreachable]
+                    logger.info("Successfully restarted server")  # type: ignore[unreachable]
                 else:
-                    logger.error("Failed to restart server '%s'", server.name)
+                    logger.error("Failed to restart server")
 
             except Exception as e:
                 logger.exception("Error during server restart for '%s'", server.name)
@@ -1778,7 +1778,7 @@ class ServerManager:
         3. Attempts to reconnect with OAuth token refresh
         """
         try:
-            logger.debug("Attempting OAuth SSE reconnection for server '%s'", server.name)
+            logger.debug("Attempting OAuth SSE reconnection")
 
             # Disconnect current failed connection
             await self._disconnect_server(server)
@@ -1803,6 +1803,6 @@ class ServerManager:
                 )
 
         except (ConnectionError, TimeoutError, OSError) as e:
-            logger.warning("OAuth SSE reconnection network error for server '%s': %s", server.name, e)
+            logger.warning("OAuth SSE reconnection network error: %s", type(e).__name__)
         except Exception:
             logger.exception("Unexpected OAuth SSE reconnection error for server '%s'", server.name)

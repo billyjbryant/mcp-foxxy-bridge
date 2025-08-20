@@ -490,7 +490,7 @@ def main() -> None:
 
     config_path_str = str(config_path)
 
-    logger.info("Starting in bridge mode with config: %s", config_path_str)
+    logger.info("Starting in bridge mode")
 
     # Load bridge configuration
     bridge_base_env: dict[str, str] = {}

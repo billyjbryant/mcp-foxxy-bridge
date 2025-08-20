@@ -584,7 +584,7 @@ async def create_server_filtered_bridge(
     filtered_servers = {name: config for name, config in servers.items() if name == server_name and config.enabled}
 
     if not filtered_servers:
-        logger.warning(f"No enabled server found with name '{server_name}' for filtered bridge")
+        logger.warning("No enabled server found for filtered bridge")
         # Create empty bridge to avoid errors
         filtered_servers = {}
 
@@ -795,7 +795,7 @@ async def create_server_filtered_bridge_view(
             _configure_logging_capability(app, filtered_manager)
             _configure_notifications_and_completion(app, filtered_manager)
 
-            logger.debug("Created server-filtered bridge view for server: %s", server_name)
+            logger.debug("Created server-filtered bridge view")
             return app
 
     # Fallback to creating a separate instance
@@ -868,7 +868,7 @@ async def create_single_server_bridge(server_name: str, server_config: BridgeSer
     Returns:
         A configured MCP server that bridges to a single backend server
     """
-    logger.info("Creating single-server bridge for '%s'", server_name)
+    logger.info("Creating single-server bridge")
 
     # Create a minimal bridge configuration with just this one server
     single_server_config = BridgeConfiguration(
@@ -908,6 +908,6 @@ async def create_single_server_bridge(server_name: str, server_config: BridgeSer
             len(active_servers[0].prompts),
         )
     else:
-        logger.warning("Single-server bridge created but server '%s' is not active", server_name)
+        logger.warning("Single-server bridge created but server is not active")
 
     return app

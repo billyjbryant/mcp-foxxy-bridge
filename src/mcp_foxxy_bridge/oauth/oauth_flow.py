@@ -69,7 +69,7 @@ class OAuthFlow:
                 response = requests.get(discovery_url, timeout=10, verify=True)  # type: ignore[attr-defined, no-untyped-call]
                 if response.status_code == 200:
                     config = response.json()
-                    logger.info(f"Discovered OAuth endpoints via {discovery_url}")
+                    logger.info("Discovered OAuth endpoints via well-known URL")
                     return {
                         "authorization_endpoint": config.get("authorization_endpoint"),
                         "token_endpoint": config.get("token_endpoint"),
@@ -80,7 +80,7 @@ class OAuthFlow:
                 continue
 
         # Fallback to common paths (original behavior)
-        logger.debug(f"Using fallback OAuth endpoints for {base_url}")
+        logger.debug("Using fallback OAuth endpoints")
         return {
             "authorization_endpoint": f"{base_url}/oauth/authorize",
             "token_endpoint": f"{base_url}/oauth/token",

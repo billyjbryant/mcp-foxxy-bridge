@@ -376,7 +376,7 @@ async def _validate_stdio_configuration(
             logger.debug(f"Command '{command}' for server '{server_name}' will be resolved via PATH")
 
     except (OSError, PermissionError) as e:
-        logger.debug("Command access error for server '%s' command '%s': %s", server_name, command, e)
+        logger.debug("Command access error: %s", type(e).__name__)
     except Exception as e:
         logger.warning(
             "Unexpected command validation error for server '%s' command '%s': %s", server_name, command, str(e)
