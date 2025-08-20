@@ -59,6 +59,7 @@ from mcp_foxxy_bridge.config.config_loader import (
 )
 from mcp_foxxy_bridge.oauth import OAuthFlow, OAuthProviderOptions
 from mcp_foxxy_bridge.utils.config_watcher import ConfigWatcher
+from mcp_foxxy_bridge.utils.logging_utils import mask_query_parameters
 
 from .bridge_server import (
     _server_manager_registry,
@@ -157,7 +158,8 @@ async def create_oauth_callback_server(callback_port: int, bridge_port: int) -> 
                 callback_port,
                 bridge_port,
             )
-            logger.info("Forwarding to URL: %s with params: %s", bridge_url, query_params)
+            safe_params = mask_query_parameters(query_params)
+            logger.info("Forwarding to URL: %s with params: %s", bridge_url, safe_params)
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(bridge_url, params=query_params, timeout=30.0)
@@ -1036,7 +1038,7 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                     )
 
                 logger.info(f"Received OAuth callback for server: {server_id}")
-                logger.debug(f"OAuth code: {code[:10]}...")
+                logger.debug("OAuth authorization code received (length: %d)", len(code) if code else 0)
 
                 # For now, we'll show success - the actual token exchange will be handled
                 # by the OAuth flow components when they detect the completed authorization
@@ -1210,7 +1212,7 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                 )
 
             logger.info("Received generic OAuth callback with authorization code")
-            logger.debug(f"OAuth code: {code[:10]}...")
+            logger.debug("OAuth authorization code received (length: %d)", len(code) if code else 0)
 
             # Perform token exchange using the authorization code
             try:

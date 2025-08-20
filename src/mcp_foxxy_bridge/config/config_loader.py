@@ -822,12 +822,15 @@ def execute_command_substitution(
         validate_command_security(cmd_parts, allowed_commands)
 
         # Execute command with security considerations
+        # S603: subprocess call with shell=False is safe with validated commands
+        # S602: shell=False prevents shell injection, cmd_parts are validated above
         result = subprocess.run(  # noqa: S603
             cmd_parts,
             capture_output=True,
             text=True,
             timeout=30,  # 30 second timeout
             check=True,
+            shell=False,  # Explicitly disable shell for security
             env=os.environ.copy(),  # Inherit current environment
         )
 

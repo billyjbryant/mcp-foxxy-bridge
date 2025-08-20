@@ -65,7 +65,8 @@ class OAuthFlow:
 
         for discovery_url in discovery_urls:
             try:
-                response = requests.get(discovery_url, timeout=10)  # type: ignore[attr-defined, no-untyped-call]
+                # Secure HTTP request with proper SSL verification
+                response = requests.get(discovery_url, timeout=10, verify=True)  # type: ignore[attr-defined, no-untyped-call]
                 if response.status_code == 200:
                     config = response.json()
                     logger.info(f"Discovered OAuth endpoints via {discovery_url}")
@@ -111,6 +112,7 @@ class OAuthFlow:
                 },
                 headers={"Content-Type": "application/json"},
                 timeout=10,
+                verify=True,  # Ensure SSL verification
             )
 
             if response.status_code == 201:
@@ -160,6 +162,7 @@ class OAuthFlow:
                 auth=auth,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 timeout=10,
+                verify=True,  # Ensure SSL verification
             )
 
             if response.status_code == 200:
@@ -286,6 +289,7 @@ class OAuthFlow:
                 auth=auth,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 timeout=10,
+                verify=True,  # Ensure SSL verification
             )
 
             if response.status_code == 200:

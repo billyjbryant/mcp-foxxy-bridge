@@ -47,10 +47,12 @@ Example:
 import json
 import logging
 import logging.handlers
+import re
 import sys
 from collections.abc import MutableMapping
 from datetime import UTC, datetime
 from pathlib import Path
+from re import Match
 from typing import Any
 
 
@@ -470,3 +472,221 @@ def set_verbose_logging(enabled: bool = True) -> None:
         # Restore default levels
         logging.getLogger("mcp_foxxy_bridge").setLevel(logging.INFO)
         logging.getLogger("mcp").setLevel(logging.INFO)
+
+
+# Secure Logging Utilities for Sensitive Data Protection
+
+
+def mask_authorization_header(header_value: str, prefix_chars: int = 12, suffix_chars: int = 4) -> str:
+    """Mask an Authorization header value for safe logging.
+
+    Shows the token type and first/last few characters while masking the sensitive middle portion.
+
+    Args:
+        header_value: The authorization header value (e.g., "Bearer abc123...")
+        prefix_chars: Number of characters to show at the beginning of the token
+        suffix_chars: Number of characters to show at the end of the token
+
+    Returns:
+        Masked header value safe for logging
+
+    Example:
+        >>> mask_authorization_header("Bearer abc123def456ghi789")
+        'Bearer abc123...i789'
+        >>> mask_authorization_header("Basic dXNlcjpwYXNz")
+        'Basic dXNlcjpwY...YXNz'
+    """
+    if not header_value or not isinstance(header_value, str):
+        return "[EMPTY_AUTH_HEADER]"
+
+    # Split into scheme and credentials
+    parts = header_value.split(" ", 1)
+    if len(parts) != 2:
+        # Not a standard authorization header format
+        return "[REDACTED_AUTH_HEADER]"
+
+    scheme, credentials = parts
+
+    # If credentials are too short, just show scheme and indicate redacted
+    if len(credentials) <= (prefix_chars + suffix_chars):
+        return f"{scheme} [REDACTED]"
+
+    # Create masked version
+    prefix = credentials[:prefix_chars] if prefix_chars > 0 else ""
+    suffix = credentials[-suffix_chars:] if suffix_chars > 0 else ""
+    return f"{scheme} {prefix}...{suffix}" if prefix or suffix else f"{scheme} [REDACTED]"
+
+
+def mask_oauth_tokens(tokens_info: Any) -> dict[str, Any]:
+    """Mask sensitive OAuth token information for safe logging.
+
+    Args:
+        tokens_info: Dictionary containing OAuth token information
+
+    Returns:
+        Dictionary with sensitive values masked
+
+    Example:
+        >>> tokens = {"access_token": "abc123", "refresh_token": "def456", "scope": "read write"}
+        >>> mask_oauth_tokens(tokens)
+        {'access_token': 'abc...123', 'refresh_token': '[REDACTED]', 'scope': 'read write'}
+    """
+    if not isinstance(tokens_info, dict):
+        return {"error": "[INVALID_TOKEN_FORMAT]"}
+
+    masked = {}
+    sensitive_fields = {
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "client_secret",
+        "code",
+        "authorization_code",
+        "password",
+        "client_assertion",
+    }
+
+    for key, value in tokens_info.items():
+        if key.lower() in sensitive_fields:
+            if isinstance(value, str) and len(value) > 8:
+                # Show first 3 and last 3 characters for access tokens, fully redact others
+                if key.lower() == "access_token":
+                    masked[key] = f"{value[:3]}...{value[-3:]}"
+                else:
+                    masked[key] = "[REDACTED]"
+            else:
+                masked[key] = "[REDACTED]"
+        else:
+            # Non-sensitive fields like expires_in, token_type, scope
+            masked[key] = value
+
+    return masked
+
+
+def mask_query_parameters(params: Any) -> dict[str, Any]:
+    """Mask sensitive query parameters for safe logging.
+
+    Args:
+        params: Dictionary of query parameters
+
+    Returns:
+        Dictionary with sensitive parameters masked
+
+    Example:
+        >>> params = {"code": "auth123", "state": "state456", "error": "access_denied"}
+        >>> mask_query_parameters(params)
+        {'code': '[REDACTED]', 'state': 'sta...456', 'error': 'access_denied'}
+    """
+    if not isinstance(params, dict):
+        return {"error": "[INVALID_PARAMS_FORMAT]"}
+
+    masked = {}
+    highly_sensitive = {"code", "client_secret", "password", "access_token", "refresh_token"}
+    moderately_sensitive = {"state", "code_verifier", "nonce"}
+
+    for key, value in params.items():
+        key_lower = key.lower()
+        if key_lower in highly_sensitive:
+            masked[key] = "[REDACTED]"
+        elif key_lower in moderately_sensitive and isinstance(value, str) and len(value) > 6:
+            # Show partial for moderately sensitive (useful for debugging state/nonce)
+            masked[key] = f"{value[:3]}...{value[-3:]}"
+        else:
+            # Non-sensitive parameters like error, error_description, scope
+            masked[key] = value
+
+    return masked
+
+
+def mask_authentication_config(auth_config: Any) -> dict[str, Any]:
+    """Mask sensitive authentication configuration for safe logging.
+
+    Args:
+        auth_config: Authentication configuration dictionary
+
+    Returns:
+        Dictionary with sensitive values masked
+
+    Example:
+        >>> config = {"type": "basic", "username": "user", "password": "secret123"}
+        >>> mask_authentication_config(config)
+        {'type': 'basic', 'username': 'user', 'password': '[REDACTED]'}
+    """
+    if not isinstance(auth_config, dict):
+        return {"error": "[INVALID_AUTH_CONFIG]"}
+
+    masked = {}
+    sensitive_fields = {"password", "token", "key", "secret", "client_secret", "api_key"}
+
+    for field, value in auth_config.items():
+        if field.lower() in sensitive_fields or "password" in field.lower() or "secret" in field.lower():
+            masked[field] = "[REDACTED]"
+        else:
+            masked[field] = value
+
+    return masked
+
+
+def redact_url_credentials(url: Any) -> str:
+    """Redact credentials from URLs for safe logging.
+
+    Args:
+        url: URL that may contain embedded credentials
+
+    Returns:
+        URL with credentials redacted
+
+    Example:
+        >>> redact_url_credentials("https://user:pass@example.com/path")
+        'https://[REDACTED]@example.com/path'
+    """
+    if not isinstance(url, str):
+        return "[INVALID_URL]"
+
+    # Pattern to match URLs with embedded credentials
+    pattern = r"(https?://)([^:]+):([^@]+)@"
+
+    def replace_creds(match: Match[str]) -> str:
+        return f"{match.group(1)}[REDACTED]@"
+
+    return re.sub(pattern, replace_creds, url)
+
+
+def safe_log_headers(headers: Any) -> dict[str, str]:
+    """Create a safe version of HTTP headers for logging.
+
+    Args:
+        headers: Dictionary of HTTP headers
+
+    Returns:
+        Dictionary with sensitive headers masked
+
+    Example:
+        >>> headers = {"Authorization": "Bearer abc123", "User-Agent": "MyApp", "X-API-Key": "secret"}
+        >>> safe_log_headers(headers)
+        {'Authorization': '[REDACTED]', 'User-Agent': 'MyApp', 'X-API-Key': '[REDACTED]'}
+    """
+    if not isinstance(headers, dict):
+        return {"error": "[INVALID_HEADERS]"}
+
+    safe_headers = {}
+    sensitive_header_patterns = [
+        r"authorization",
+        r".*-key",
+        r".*-token",
+        r".*-secret",
+        r"cookie",
+        r"set-cookie",
+        r"proxy-authorization",
+    ]
+
+    for name, value in headers.items():
+        name_lower = name.lower()
+        is_sensitive = any(re.match(pattern, name_lower) for pattern in sensitive_header_patterns)
+
+        if is_sensitive:
+            safe_headers[name] = "[REDACTED]"
+        else:
+            safe_headers[name] = str(value) if value is not None else ""
+
+    return safe_headers

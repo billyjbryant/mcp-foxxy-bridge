@@ -75,6 +75,11 @@ from mcp.types import JSONRPCMessage
 from mcp_foxxy_bridge.oauth import OAuthFlow, OAuthProviderOptions, OAuthTokens
 from mcp_foxxy_bridge.oauth.utils import get_server_url_hash, load_tokens
 from mcp_foxxy_bridge.utils.bridge_config import get_bridge_server_host, get_oauth_port
+from mcp_foxxy_bridge.utils.logging_utils import (
+    mask_authentication_config,
+    mask_authorization_header,
+    safe_log_headers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -262,6 +267,9 @@ class SSEClientWrapper:
         logger.debug("Initialized SSEClientWrapper for server: %s", server_name)
         logger.debug("Server URL: %s", server_url)
         logger.debug("OAuth enabled: %s", oauth_enabled)
+        if authentication:
+            safe_auth_config = mask_authentication_config(authentication)
+            logger.debug("Authentication config: %s", safe_auth_config)
 
     @contextlib.asynccontextmanager
     async def connect(
@@ -388,14 +396,11 @@ async def sse_client_with_logging(
             logger.debug("OAuth not enabled for server '%s'", server_name)
 
         # Attempt SSE connection with automatic OAuth handling
-        logger.debug("Attempting SSE connection with headers: %s", list(connection_headers.keys()))
+        safe_headers = safe_log_headers(connection_headers)
+        logger.debug("Attempting SSE connection with headers: %s", list(safe_headers.keys()))
         if "Authorization" in connection_headers:
-            auth_preview = (
-                connection_headers["Authorization"][:20] + "..."
-                if len(connection_headers["Authorization"]) > 20
-                else connection_headers["Authorization"]
-            )
-            logger.debug("Using Authorization header: %s", auth_preview)
+            masked_auth = mask_authorization_header(connection_headers["Authorization"])
+            logger.debug("Using Authorization header: %s", masked_auth)
         # Try initial connection
         oauth_retry_attempted = False
 
@@ -706,11 +711,11 @@ async def _handle_oauth_authentication(
                 headers.update(oauth_headers)
                 logger.info("Using existing OAuth tokens for authentication")
                 logger.debug("OAuth authorization header added: %s", list(oauth_headers.keys()))
-                # Log the token type and first few characters for debugging
+                # Log the token type safely for debugging
                 auth_header = oauth_headers.get("Authorization", "")
                 if auth_header:
-                    token_preview = auth_header[:20] + "..." if len(auth_header) > 20 else auth_header
-                    logger.debug(f"Authorization header: {token_preview}")
+                    masked_auth = mask_authorization_header(auth_header)
+                    logger.debug("Authorization header: %s", masked_auth)
             else:
                 logger.warning("Failed to create OAuth headers from tokens")
         else:
@@ -750,7 +755,7 @@ async def _initiate_automatic_oauth_flow(
         if oauth_config:
             oauth_issuer = oauth_config.get("issuer")
             if oauth_issuer:
-                logger.debug(f"Found configured OAuth issuer for automatic flow: {oauth_issuer}")
+                logger.debug("Found configured OAuth issuer for automatic flow: [ISSUER_CONFIGURED]")
 
         oauth_options = OAuthProviderOptions(
             server_url=server_url,  # MCP server URL for primary discovery
