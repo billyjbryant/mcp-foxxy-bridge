@@ -680,7 +680,7 @@ async def _handle_oauth_authentication(
         if oauth_config:
             oauth_issuer = oauth_config.get("issuer")
             if oauth_issuer:
-                logger.debug(f"Found configured OAuth issuer: {oauth_issuer}")
+                logger.debug("Found configured OAuth issuer.")
 
         oauth_options = OAuthProviderOptions(
             server_url=url,  # MCP server URL for primary discovery
