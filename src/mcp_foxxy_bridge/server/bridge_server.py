@@ -24,6 +24,7 @@ a unified interface for AI tools to interact with all of them.
 
 import asyncio
 import logging
+import time
 from typing import Any, Protocol
 
 from mcp import server, types
@@ -252,7 +253,27 @@ def _configure_tools_capability(
 
     async def _list_tools(_: types.ListToolsRequest) -> types.ServerResult:
         try:
+            logger.debug("Listing tools from server manager")
+
+            # Get active servers first to diagnose
+            active_servers = server_manager.get_active_servers()
+            logger.debug("Active servers for tool listing: %d", len(active_servers))
+            for server in active_servers:
+                logger.debug("Active server: '%s' with %d tools", server.name, len(server.tools))
+
             tools = server_manager.get_aggregated_tools()
+            logger.info("Found %d aggregated tools total", len(tools))
+
+            if len(tools) == 0:
+                logger.warning("No tools available from any servers")
+                if len(active_servers) == 0:
+                    logger.error("No active servers available")
+                else:
+                    logger.warning("Active servers exist but no tools aggregated")
+            else:
+                for tool in tools:
+                    logger.debug("Aggregated tool: %s", tool.name)
+
             result = types.ListToolsResult(tools=tools)
             return types.ServerResult(result)
         except Exception:
@@ -262,18 +283,29 @@ def _configure_tools_capability(
     app.request_handlers[types.ListToolsRequest] = _list_tools
 
     async def _call_tool(req: types.CallToolRequest) -> types.ServerResult:
+        tool_start_time = time.time()
         try:
+            logger.debug("Calling tool '%s'", req.params.name)
             result = await server_manager.call_tool(
                 req.params.name,
                 req.params.arguments or {},
             )
+            elapsed = time.time() - tool_start_time
+            logger.debug("Tool '%s' completed in %.3f seconds", req.params.name, elapsed)
             return types.ServerResult(result)
+        except TimeoutError:
+            elapsed = time.time() - tool_start_time
+            logger.exception("Tool '%s' timed out after %.3f seconds", req.params.name, elapsed)
+            raise
         except McpError as e:
-            # Re-raise MCP errors so they're properly returned to the client
-            logger.warning("MCP error calling tool '%s': %s", req.params.name, e.error.message)
+            elapsed = time.time() - tool_start_time
+            logger.warning(
+                "MCP error calling tool '%s' after %.3f seconds: %s", req.params.name, elapsed, e.error.message
+            )
             raise
         except Exception:
-            logger.exception("Error calling tool '%s'", req.params.name)
+            elapsed = time.time() - tool_start_time
+            logger.exception("Error calling tool '%s' after %.3f seconds", req.params.name, elapsed)
             return types.ServerResult(
                 types.CallToolResult(
                     content=[

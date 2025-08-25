@@ -86,6 +86,27 @@ Demonstrates all available configuration options.
 - Advanced bridge features
 - Complete feature showcase
 
+### [oauth-ssl-config.json](oauth-ssl-config.json)
+OAuth authentication with SSL verification settings.
+
+**What it includes:**
+- Production OAuth servers with SSL verification enabled
+- Development OAuth server with self-signed certificates
+- Mixed local and remote MCP servers
+- Per-server SSL verification control
+- HTTP/2 support for improved performance
+
+**Usage:**
+```bash
+export GITHUB_TOKEN=your_token_here
+mcp-foxxy-bridge --bridge-config docs/examples/oauth-ssl-config.json
+```
+
+**Security Notes:**
+- SSL verification is enabled by default (`"verify_ssl": true`)
+- Only disable SSL verification for development environments with self-signed certificates
+- The bridge will log warnings when SSL verification is disabled
+
 ## Configuration Tips
 
 ### Environment Variables

@@ -49,7 +49,7 @@ from mcp_foxxy_bridge.config.config_loader import (
     BridgeServerConfig,
     normalize_server_name,
 )
-from mcp_foxxy_bridge.utils.mcp_file_logger import log_to_server_file
+from mcp_foxxy_bridge.utils.logging import log_to_file
 
 
 def _create_resource_uri(uri_string: str) -> AnyUrl | str:
@@ -444,8 +444,32 @@ class ServerManager:
                 )
                 server.session = session
 
-                # Initialize the session
-                result = await session.initialize()
+                # Initialize the session with timeout
+                logger.debug(
+                    "Initializing session for server '%s' with timeout of %.1f seconds",
+                    server.name,
+                    server.config.timeout * 0.8,
+                )
+                init_start_time = time.time()
+
+                try:
+                    # Use server's configured timeout for initialization
+                    init_timeout = server.config.timeout * 0.8  # Use 80% of server timeout for init
+                    async with asyncio.timeout(init_timeout):
+                        result = await session.initialize()
+
+                    init_duration = time.time() - init_start_time
+                    logger.debug("Session initialized for server '%s' in %.3f seconds", server.name, init_duration)
+
+                except TimeoutError:
+                    init_duration = time.time() - init_start_time
+                    logger.exception(
+                        "Session initialization timed out for server '%s' after %.3f seconds (timeout: %.1f)",
+                        server.name,
+                        init_duration,
+                        init_timeout,
+                    )
+                    raise
 
                 # Update server state
                 server.health.status = ServerStatus.CONNECTED
@@ -463,11 +487,10 @@ class ServerManager:
                 logger.info("Successfully connected to server")
 
                 # Log connection success to server's file
-                log_to_server_file(
+                log_to_file(
                     server.name,
                     f"Successfully connected to MCP server (transport: {server.config.transport_type})",
                     logging.INFO,
-                    effective_log_level,
                 )
 
         except Exception as e:
@@ -479,12 +502,10 @@ class ServerManager:
             server.session = None
 
             # Log connection failure to server's file
-            effective_log_level = self._get_effective_log_level(server.config)
-            log_to_server_file(
+            log_to_file(
                 server.name,
                 f"Failed to connect to MCP server: {e}",
                 logging.ERROR,
-                effective_log_level,
             )
 
             # Clean up the context stack on failure
@@ -523,8 +544,21 @@ class ServerManager:
 
     async def _load_server_capabilities(self, server: ManagedServer) -> None:
         """Load capabilities from a connected server."""
-        if not server.session or not server.health.capabilities:
+        if not server.session:
+            logger.warning("Cannot load capabilities: no session for server '%s'", server.name)
             return
+
+        if not server.health.capabilities:
+            logger.warning("Cannot load capabilities: no capabilities reported for server '%s'", server.name)
+            return
+
+        logger.debug("Loading capabilities for server '%s'", server.name)
+        logger.debug(
+            "Server capabilities: tools=%s, resources=%s, prompts=%s",
+            server.health.capabilities.tools is not None,
+            server.health.capabilities.resources is not None,
+            server.health.capabilities.prompts is not None,
+        )
 
         try:
             # Validate health check configuration against server capabilities
@@ -533,29 +567,45 @@ class ServerManager:
 
             # Load tools
             if server.health.capabilities.tools:
-                tools_result = await server.session.list_tools()
-                server.tools = tools_result.tools
-                logger.debug("Loaded %d tools from server", len(server.tools))
+                logger.debug("Requesting tools from server '%s'", server.name)
+                try:
+                    tools_result = await server.session.list_tools()
+                    server.tools = tools_result.tools
+                    logger.info("Loaded %d tools from server '%s'", len(server.tools), server.name)
+                    for tool in server.tools:
+                        logger.debug("Tool available: %s", tool.name)
+                except Exception as e:
+                    logger.exception("Failed to load tools from server '%s': %s", server.name, e)
+            else:
+                logger.debug("Server '%s' does not support tools", server.name)
 
             # Load resources
             if server.health.capabilities.resources:
-                resources_result = await server.session.list_resources()
-                server.resources = resources_result.resources
-                logger.debug(
-                    "Loaded %d resources from server '%s'",
-                    len(server.resources),
-                    server.name,
-                )
+                logger.debug("Requesting resources from server '%s'", server.name)
+                try:
+                    resources_result = await server.session.list_resources()
+                    server.resources = resources_result.resources
+                    logger.info("Loaded %d resources from server '%s'", len(server.resources), server.name)
+                    for resource in server.resources:
+                        logger.debug("Resource available: %s", resource.uri)
+                except Exception as e:
+                    logger.exception("Failed to load resources from server '%s': %s", server.name, e)
+            else:
+                logger.debug("Server '%s' does not support resources", server.name)
 
             # Load prompts
             if server.health.capabilities.prompts:
-                prompts_result = await server.session.list_prompts()
-                server.prompts = prompts_result.prompts
-                logger.debug(
-                    "Loaded %d prompts from server '%s'",
-                    len(server.prompts),
-                    server.name,
-                )
+                logger.debug("Requesting prompts from server '%s'", server.name)
+                try:
+                    prompts_result = await server.session.list_prompts()
+                    server.prompts = prompts_result.prompts
+                    logger.info("Loaded %d prompts from server '%s'", len(server.prompts), server.name)
+                    for prompt in server.prompts:
+                        logger.debug("Prompt available: %s", prompt.name)
+                except Exception as e:
+                    logger.exception("Failed to load prompts from server '%s': %s", server.name, e)
+            else:
+                logger.debug("Server '%s' does not support prompts", server.name)
 
         except Exception:
             logger.exception(
@@ -661,20 +711,30 @@ class ServerManager:
                     if server.config.health_check:
                         health_timeout = server.config.health_check.timeout / 1000.0
 
+                    health_start_time = time.time()
                     await asyncio.wait_for(
                         self._execute_health_check_operation(server),
                         timeout=health_timeout,
                     )
+                    health_elapsed = time.time() - health_start_time
+                    logger.debug("Health check for server '%s' completed in %.3f seconds", server.name, health_elapsed)
                     server.health.last_seen = time.time()
                     server.health.consecutive_failures = 0  # Reset on successful check
 
                 except Exception as e:
+                    health_elapsed = time.time() - health_start_time
+
                     # Handle OAuth SSE endpoints with special logic
                     if await self._handle_oauth_health_check_failure(server, e):
                         # OAuth recovery was attempted, continue to next server
                         continue
 
-                    logger.warning("Health check failed: %s", type(e).__name__)
+                    logger.warning(
+                        "Health check failed for server '%s' after %.3f seconds: %s",
+                        server.name,
+                        health_elapsed,
+                        type(e).__name__,
+                    )
                     server.health.failure_count += 1
                     server.health.consecutive_failures += 1
                     server.health.last_error = str(e)
@@ -719,7 +779,12 @@ class ServerManager:
 
     def get_active_servers(self) -> list[ManagedServer]:
         """Get list of active (connected) servers."""
-        return [server for server in self.servers.values() if server.health.status == ServerStatus.CONNECTED]
+        active = [server for server in self.servers.values() if server.health.status == ServerStatus.CONNECTED]
+        total_servers = len(self.servers)
+        logger.info("Active servers: %d/%d", len(active), total_servers)
+        for server in self.servers.values():
+            logger.debug("Server '%s' status: %s", server.name, server.health.status)
+        return active
 
     def _get_current_capability_names(self) -> dict[str, list[str]]:
         """Get current capability names for change detection."""
@@ -810,13 +875,25 @@ class ServerManager:
 
     def get_aggregated_tools(self) -> list[types.Tool]:
         """Get aggregated tools from all active servers."""
-        tools = []
+        tools: list[types.Tool] = []
         seen_names = set()
 
         # Sort servers by priority (lower number = higher priority)
         active_servers = sorted(self.get_active_servers(), key=lambda s: s.config.priority)
+        logger.debug("Aggregating tools from %d active servers", len(active_servers))
+
+        if not active_servers:
+            logger.warning("No active servers available for tool aggregation")
+            return tools
 
         for server in active_servers:
+            logger.debug(
+                "Server '%s' status: %s, has %d tools", server.name, server.health.status.value, len(server.tools)
+            )
+            if server.tools:
+                for tool in server.tools:
+                    logger.debug("Server '%s' tool: %s", server.name, tool.name)
+
             namespace = server.get_effective_namespace("tools", self.bridge_config.bridge)
 
             for tool in server.tools:
@@ -1447,6 +1524,15 @@ class ServerManager:
             except Exception as e:
                 logger.exception("Error during server restart for '%s'", server.name)
                 server.health.last_error = f"Restart failed: {e!s}"
+
+    async def reconnect_server(self, server: ManagedServer) -> None:
+        """Force reconnection of a specific server.
+
+        Args:
+            server: The server to reconnect
+        """
+        logger.info("Forcing reconnection for server '%s'", server.name)
+        await self._connect_server(server)
 
     async def update_servers(self, new_server_configs: dict[str, BridgeServerConfig]) -> None:
         """Update server configurations dynamically.

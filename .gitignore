@@ -175,7 +175,6 @@ cython_debug/
 
 # Claude folder and files
 .claude/
-CLAUDE.md
 
 # Cursor folder and files
 .cursor/

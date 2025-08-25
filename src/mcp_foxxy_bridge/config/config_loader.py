@@ -82,6 +82,20 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_command_for_logging(command: str) -> str:
+    """Sanitize command string for safe logging by removing/escaping potentially dangerous characters."""
+    # Remove or escape characters that could be interpreted by shells or log viewers
+    # Replace backticks, dollar signs, semicolons, pipes, and other shell metacharacters
+    sanitized = re.sub(r"[`$;|&<>(){}[\]*?~]", "?", command)
+
+    # Limit length to prevent log spam
+    if len(sanitized) > 100:
+        sanitized = sanitized[:97] + "..."
+
+    # Escape any remaining quotes to prevent log injection
+    return sanitized.replace('"', '\\"').replace("'", "\\'")
+
+
 class ConfigLoader:
     """Comprehensive configuration loader with validation and expansion.
 
@@ -572,9 +586,7 @@ def validate_command_security(
         allow_dangerous = os.getenv("MCP_ALLOW_DANGEROUS_COMMANDS", "false").lower() in ("true", "1", "yes", "on")
 
     if allow_dangerous:
-        logger.warning(
-            f"⚠️ UNSAFE MODE: Allowing potentially dangerous command without validation: {' '.join(cmd_parts)}"
-        )
+        logger.warning(f"UNSAFE MODE: Allowing potentially dangerous command without validation: {' '.join(cmd_parts)}")
         return  # Skip all validation!
 
     command = cmd_parts[0].lower()
@@ -595,7 +607,7 @@ def validate_command_security(
 
     if command not in allowed_commands:
         error_msg = (
-            f"🚨 SECURITY: Command '{command}' is not allowed for security reasons. "
+            f"SECURITY: Command '{command}' is not allowed for security reasons. "
             f"Only pre-approved read-only commands are permitted in command substitution. "
             "To allow additional commands, configure 'allowed_commands' in your bridge config "
             "or set MCP_ALLOWED_COMMANDS env var. "
@@ -618,7 +630,7 @@ def validate_command_security(
     for pattern in dangerous_patterns:
         if pattern in full_command_string:
             error_msg = (
-                f"🚨 SECURITY: Command contains shell operator '{pattern}' which could enable command chaining, "
+                f"SECURITY: Command contains shell operator '{pattern}' which could enable command chaining, "
                 f"piping, or injection attacks. Each command substitution must run exactly one safe command. "
                 f"Use separate $(command) blocks instead."
             )
@@ -683,7 +695,7 @@ def _validate_command_args(command: str, cmd_parts: list[str]) -> None:
             git_subcommand = args[0]
             if git_subcommand not in allowed_git_ops:
                 raise ValueError(
-                    f"🚨 SECURITY: Git operation '{git_subcommand}' blocked - only read-only git "
+                    f"SECURITY: Git operation '{git_subcommand}' blocked - only read-only git "
                     f"operations allowed to prevent repository modification. "
                     f"Allowed: {', '.join(sorted(allowed_git_ops))}"
                 )
@@ -712,7 +724,7 @@ def _validate_command_args(command: str, cmd_parts: list[str]) -> None:
         # 1Password CLI - only allow read operations
         if not args or args[0] not in ["read", "get", "list", "whoami", "signin", "signout"]:
             raise ValueError(
-                "🚨 SECURITY: 1Password operation blocked - only read-only operations "
+                "SECURITY: 1Password operation blocked - only read-only operations "
                 "allowed to prevent credential modification. Allowed: read, get, list, whoami, signin, signout"
             )
 
@@ -720,7 +732,7 @@ def _validate_command_args(command: str, cmd_parts: list[str]) -> None:
         write_flags = ["create", "edit", "delete", "archive", "restore"]
         if any(flag in args for flag in write_flags):
             raise ValueError(
-                "🚨 SECURITY: 1Password write operation blocked - command substitution only allows "
+                "SECURITY: 1Password write operation blocked - command substitution only allows "
                 "credential reading, not modification"
             )
 
@@ -748,7 +760,7 @@ def _validate_command_args(command: str, cmd_parts: list[str]) -> None:
         gh_subcommand = args[0]
         if gh_subcommand not in read_only_gh_ops:
             raise ValueError(
-                f"🚨 SECURITY: GitHub CLI operation '{gh_subcommand}' blocked - only read-only "
+                f"SECURITY: GitHub CLI operation '{gh_subcommand}' blocked - only read-only "
                 f"operations allowed to prevent repository/issue modification. "
                 f"Allowed: {', '.join(sorted(read_only_gh_ops))}"
             )
@@ -758,7 +770,7 @@ def _validate_command_args(command: str, cmd_parts: list[str]) -> None:
             write_flags = ["create", "edit", "delete", "close", "merge", "reopen"]
             if any(flag in args[1:] for flag in write_flags):
                 raise ValueError(
-                    "🚨 SECURITY: GitHub CLI write operation blocked - command substitution only allows "
+                    "SECURITY: GitHub CLI write operation blocked - command substitution only allows "
                     "reading repository/issue data, not modification"
                 )
 
@@ -766,7 +778,7 @@ def _validate_command_args(command: str, cmd_parts: list[str]) -> None:
         # Network tools - check for upload/POST operations
         if any(flag in args for flag in ["-X", "--request", "--data", "--upload-file", "-T", "--form", "-F"]):
             raise ValueError(
-                f"🚨 SECURITY: {command.title()} upload/POST operation blocked - command substitution "
+                f"SECURITY: {command.title()} upload/POST operation blocked - command substitution "
                 "only allows safe data retrieval, not data transmission"
             )
 
@@ -836,22 +848,26 @@ def execute_command_substitution(
 
         # Return output with trailing whitespace stripped
         output = result.stdout.rstrip()
-        logger.debug(f"Command substitution '{command}' returned: {output[:100]}")
+        logger.debug(
+            "Command substitution '%s' completed successfully (%d chars)",
+            _sanitize_command_for_logging(command),
+            len(output),
+        )
         return output
 
     except subprocess.TimeoutExpired as e:
-        error_msg = f"Command substitution timed out: {command}"
-        logger.exception(f"Command substitution timed out: {command}")
+        error_msg = f"Command substitution timed out: {_sanitize_command_for_logging(command)}"
+        logger.exception("Command substitution timed out: %s", _sanitize_command_for_logging(command))
         raise ValueError(error_msg) from e
     except subprocess.CalledProcessError as e:
-        error_msg = f"Command substitution failed: {command} (exit code {e.returncode})"
+        error_msg = f"Command substitution failed: {_sanitize_command_for_logging(command)} (exit code {e.returncode})"
         if e.stderr:
-            error_msg += f" - {e.stderr.strip()}"
-        logger.exception(f"Command substitution failed: {command}")
+            logger.debug("Command substitution stderr available (%d chars)", len(e.stderr.strip()))
+        logger.exception("Command substitution failed: %s", _sanitize_command_for_logging(command))
         raise ValueError(error_msg) from e
     except (OSError, ValueError) as e:
-        error_msg = f"Invalid command substitution: {command} - {e}"
-        logger.exception(f"Invalid command substitution: {command}")
+        error_msg = f"Invalid command substitution: {_sanitize_command_for_logging(command)} - {e}"
+        logger.exception("Invalid command substitution: %s", _sanitize_command_for_logging(command))
         raise ValueError(error_msg) from e
 
 
@@ -1191,13 +1207,11 @@ def load_bridge_config_from_file(
 
     # Step 6: Show warning if dangerous commands are enabled via config
     if bridge_config.allow_dangerous_commands:
-        logger.warning("⚠️" * 10)
-        logger.warning("🚨 DANGER: UNSAFE MODE ENABLED via configuration!")
-        logger.warning("🚨 'allow_dangerous_commands: true' found in bridge config")
-        logger.warning("🚨 Command substitution validation is DISABLED!")
-        logger.warning("🚨 Any command can execute including rm, curl uploads, etc.")
-        logger.warning("🚨 Only use this for testing/development environments!")
-        logger.warning("⚠️" * 10)
+        logger.warning("DANGER: UNSAFE MODE ENABLED via configuration!")
+        logger.warning("'allow_dangerous_commands: true' found in bridge config")
+        logger.warning("Command substitution validation is DISABLED!")
+        logger.warning("Any command can execute including rm, curl uploads, etc.")
+        logger.warning("Only use this for testing/development environments!")
 
     return BridgeConfiguration(servers=servers, bridge=bridge_config)
 

@@ -34,10 +34,11 @@
 ### ✨ Key Benefits
 
 - **🔌 Single Endpoint**: Access all your MCP servers through one connection point
-- **🛡️ Enterprise Security**: OAuth 2.0 + PKCE authentication and command validation
+- **🛡️ Enterprise Security**: OAuth 2.0 + PKCE authentication with configurable SSL verification
 - **⚡ Easy Setup**: Simple configuration with environment variable support
 - **🔀 Smart Routing**: Automatic request routing to the right backend server
-- **🏠 Secure by Default**: Localhost-only binding and comprehensive input validation
+- **🏠 Secure by Default**: Localhost-only binding, SSL verification enabled, and comprehensive input validation
+- **🚀 HTTP/2 Support**: Automatic protocol upgrade for improved performance
 
 ### 🎯 Perfect For
 
@@ -123,6 +124,56 @@ See [API Reference](docs/api.md) for integration details.
 - [🚀 Deployment Guide](docs/deployment.md) - Docker, production deployments
 - [🔌 API Reference](docs/api.md) - Programmatic integration
 - [🏗️ Architecture Overview](docs/architecture.md) - Technical deep dive
+
+### 📡 REST API Endpoints
+
+The bridge provides REST endpoints for operational management, monitoring, and tool discovery:
+
+**Server Discovery & Status:**
+```bash
+# Global bridge health and status
+curl http://localhost:9000/status
+
+# List all configured servers and their endpoints
+curl http://localhost:9000/sse/servers
+
+# List all available tags and their associated servers
+curl http://localhost:9000/sse/tags
+
+# Individual server status and health metrics
+curl http://localhost:9000/sse/mcp/filesystem/status
+```
+
+**Tool Discovery:**
+```bash
+# List all available tools from all servers
+curl http://localhost:9000/sse/list_tools
+
+# List tools for a specific server
+curl http://localhost:9000/sse/mcp/filesystem/list_tools
+
+# List tools filtered by tags (supports union and intersection)
+curl http://localhost:9000/sse/tag/development/list_tools      # Single tag
+curl http://localhost:9000/sse/tag/dev+local/list_tools        # Intersection (AND)
+curl http://localhost:9000/sse/tag/web,api/list_tools          # Union (OR)
+```
+
+**Server Management:**
+```bash
+# Force reconnection of a specific server
+curl -X POST http://localhost:9000/sse/mcp/filesystem/reconnect
+
+# Refresh tool capabilities across all servers
+curl -X POST http://localhost:9000/sse/tools/rescan
+```
+
+**OAuth Status (for OAuth-enabled servers):**
+```bash
+# Check OAuth authentication status
+curl http://localhost:9000/oauth/filesystem/status
+```
+
+These endpoints are ideal for monitoring, debugging, and operational management of your MCP bridge deployment.
 
 ### 🛡️ Security & Production
 - [🔒 Security Guide](docs/security.md) - Comprehensive security practices

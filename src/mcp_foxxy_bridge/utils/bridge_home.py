@@ -18,7 +18,7 @@
 #
 """Bridge Home Directory Management.
 
-This module manages the bridge's home directory structure (~/.foxxy-bridge)
+This module manages the bridge's home directory structure (~/.config/foxxy-bridge)
 which includes:
 - Configuration files
 - Log files for individual MCP servers
@@ -33,6 +33,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .config_migration import get_config_dir
+
 
 class BridgeHome:
     """Manages the bridge's home directory structure.
@@ -45,12 +47,13 @@ class BridgeHome:
         """Initialize bridge home directory manager.
 
         Args:
-            home_dir: Custom home directory path (defaults to ~/.foxxy-bridge)
+            home_dir: Custom home directory path (defaults to ~/.config/foxxy-bridge)
         """
         if home_dir:
             self.home_dir = Path(home_dir).expanduser()
         else:
-            self.home_dir = Path.home() / ".foxxy-bridge"
+            # Use centralized config directory utility
+            self.home_dir = get_config_dir()
 
         # Define standard subdirectories
         self.config_dir = self.home_dir / "config"

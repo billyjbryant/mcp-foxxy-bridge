@@ -72,7 +72,7 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import JSONRPCMessage
 
 # Import OAuth functionality
-from mcp_foxxy_bridge.oauth import OAuthFlow, OAuthProviderOptions, OAuthTokens
+from mcp_foxxy_bridge.oauth import OAuthFlow, OAuthProviderOptions, OAuthTokens, get_oauth_client_config
 from mcp_foxxy_bridge.oauth.utils import get_server_url_hash, load_tokens
 from mcp_foxxy_bridge.utils.bridge_config import get_bridge_server_host, get_oauth_port
 
@@ -133,7 +133,14 @@ async def _discover_oauth_issuer(server_url: str) -> str | None:
     # Filter out None values
     discovery_endpoints = [ep for ep in discovery_endpoints if ep is not None]
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    # Use security-hardened HTTP client for OAuth discovery
+    async with httpx.AsyncClient(
+        timeout=10.0,
+        verify=True,  # Always verify SSL for discovery
+        trust_env=False,
+        follow_redirects=False,
+        http2=True,  # Enable HTTP/2 support
+    ) as client:
         for endpoint in discovery_endpoints:
             if not endpoint:  # Skip None endpoints
                 continue
@@ -398,13 +405,29 @@ async def sse_client_with_logging(
                 yield streams
 
         # Try initial connection
+        connection_start_time = time.time()
         try:
+            logger.debug("Attempting SSE connection to server '%s'", server_name)
             async with sse_client(url=url, headers=connection_headers) as streams:
-                logger.debug("SSE client established")
-                yield streams
+                connection_elapsed = time.time() - connection_start_time
+                logger.debug(
+                    "SSE connection established for server '%s' in %.3f seconds", server_name, connection_elapsed
+                )
+                try:
+                    yield streams
+                except (GeneratorExit, asyncio.CancelledError):
+                    # Handle cleanup exceptions gracefully
+                    logger.debug("SSE connection closed during cleanup for server '%s'", server_name)
+                    raise
                 return
         except Exception as sse_error:
-            logger.debug("SSE error: %s", type(sse_error).__name__)
+            connection_elapsed = time.time() - connection_start_time
+            logger.debug(
+                "SSE connection failed for server '%s' after %.3f seconds: %s",
+                server_name,
+                connection_elapsed,
+                type(sse_error).__name__,
+            )
 
             # Handle authentication errors with automatic OAuth flow (only try once)
             if oauth_enabled and not oauth_retry_attempted and _is_authentication_error(sse_error):
@@ -423,7 +446,7 @@ async def sse_client_with_logging(
                         try:
                             async with sse_client(url=url, headers=connection_headers) as streams:
                                 logger.info(
-                                    "✅ SSE client established after OAuth token refresh for server: %s", server_name
+                                    "SSE client established after OAuth token refresh for server: %s", server_name
                                 )
                                 yield streams
                                 return
@@ -447,8 +470,37 @@ async def sse_client_with_logging(
                 raise
 
     except Exception as e:
-        logger.exception("SSE client failed for server '%s': %s", server_name, e)
-        raise
+        # Handle shutdown-related errors gracefully
+        error_msg = str(e).lower()
+        is_shutdown_error = any(
+            phrase in error_msg
+            for phrase in [
+                "cancel scope",
+                "shutdown",
+                "cancelled",
+                "closed",
+                "generator",
+                "task",
+                "asyncgen",
+                "already running",
+                "exit cancel scope",
+                "different task",
+            ]
+        )
+        exception_type = type(e).__name__
+        is_cleanup_exception = exception_type in [
+            "GeneratorExit",
+            "RuntimeError",
+            "BaseExceptionGroup",
+            "CancelledError",
+        ]
+
+        if is_shutdown_error or is_cleanup_exception:
+            logger.debug("SSE client shutdown: %s", exception_type)
+            # Suppress cleanup exceptions during shutdown
+        else:
+            logger.exception("SSE client failed for server '%s': %s", server_name, e)
+            raise
     finally:
         logger.debug("SSE client cleanup completed")
 
@@ -477,7 +529,7 @@ async def _check_and_refresh_tokens_if_needed(
             if tokens.refresh_token:
                 try:
                     refreshed_tokens = oauth_flow.refresh_tokens(tokens.refresh_token)
-                    logger.info("✅ Successfully refreshed tokens")
+                    logger.info("Successfully refreshed tokens")
                     return refreshed_tokens
                 except Exception as e:
                     logger.warning("Failed to refresh tokens: %s", type(e).__name__)
@@ -496,7 +548,7 @@ async def _check_and_refresh_tokens_if_needed(
 
 
 async def _attempt_token_refresh_and_retry(
-    url: str, server_name: str, headers: dict[str, str], oauth_enabled: bool
+    url: str, server_name: str, headers: dict[str, str], oauth_enabled: bool, oauth_config: dict[str, Any] | None = None
 ) -> bool:
     """Attempt to refresh OAuth tokens and update headers.
 
@@ -505,6 +557,7 @@ async def _attempt_token_refresh_and_retry(
         server_name: Server name for logging
         headers: Headers dictionary to update
         oauth_enabled: Whether OAuth is enabled for this server
+        oauth_config: OAuth configuration dictionary with provider-specific settings
 
     Returns:
         True if tokens were successfully refreshed, False otherwise
@@ -515,16 +568,52 @@ async def _attempt_token_refresh_and_retry(
     try:
         oauth_port = get_oauth_port()  # Use dedicated OAuth port
         bridge_host = get_bridge_server_host()
-        oauth_options = OAuthProviderOptions(
+
+        # First, check if we have a stored OAuth issuer from previous auth
+        client_config = get_oauth_client_config()
+
+        # Extract SSL verification setting from OAuth config
+        verify_ssl = oauth_config.get("verify_ssl", True) if oauth_config else True
+
+        oauth_options_temp = OAuthProviderOptions(
             server_url=url,
+            oauth_issuer=None,
             callback_port=oauth_port,
             host=bridge_host,
-            client_name="MCP Foxxy Bridge",
-            client_uri="https://github.com/billybryant/mcp-foxxy-bridge",
+            client_name=client_config["client_name"],
+            client_uri=client_config["client_uri"],
+            software_id=client_config["software_id"],
+            software_version=client_config["software_version"],
             server_name=server_name,
+            verify_ssl=verify_ssl,
+        )
+        temp_flow = OAuthFlow(oauth_options_temp)
+        stored_oauth_issuer = temp_flow.provider.stored_oauth_issuer()
+
+        # Use stored OAuth issuer if available, otherwise fall back to auto-detection
+        oauth_issuer = stored_oauth_issuer
+        if oauth_issuer:
+            logger.debug("Using stored OAuth issuer for token refresh")
+        else:
+            oauth_issuer = _auto_detect_oauth_issuer(url)
+            if oauth_issuer:
+                logger.debug("Using auto-detected OAuth issuer for token refresh")
+
+        oauth_options = OAuthProviderOptions(
+            server_url=url,
+            oauth_issuer=oauth_issuer,
+            callback_port=oauth_port,
+            host=bridge_host,
+            client_name=client_config["client_name"],
+            client_uri=client_config["client_uri"],
+            software_id=client_config["software_id"],
+            software_version=client_config["software_version"],
+            server_name=server_name,
+            verify_ssl=verify_ssl,
         )
         oauth_flow = OAuthFlow(oauth_options)
-        tokens = oauth_flow.provider.tokens()
+        # Get tokens even if expired, since we need the refresh token
+        tokens = oauth_flow.provider.tokens_including_expired()
 
         if not tokens or not tokens.refresh_token:
             logger.debug("No refresh token available, cannot auto-refresh")
@@ -541,7 +630,7 @@ async def _attempt_token_refresh_and_retry(
                 headers.pop("Authorization", None)
                 # Add new authorization header
                 headers.update(oauth_headers)
-                logger.info("✅ Successfully refreshed and updated tokens")
+                logger.info("Successfully refreshed and updated tokens")
                 return True
             logger.warning("Failed to create headers from refreshed tokens")
             return False
@@ -666,21 +755,28 @@ async def _handle_oauth_authentication(
             # For now, use default bridge port since OAuth is integrated
             # TODO: Pass actual bridge port from server startup
 
-        # Extract OAuth issuer from config if available
+        # Extract OAuth issuer from config if explicitly configured
+        # Do NOT auto-detect for initial auth as it breaks the working flow
         oauth_issuer = None
-        if oauth_config:
-            oauth_issuer = oauth_config.get("issuer")
-            if oauth_issuer:
-                logger.debug("Found configured OAuth issuer.")
+        if oauth_config and oauth_config.get("issuer"):
+            oauth_issuer = oauth_config["issuer"]
+            logger.debug("Found configured OAuth issuer.")
 
+        # Extract SSL verification setting (default: True for security)
+        verify_ssl = oauth_config.get("verify_ssl", True) if oauth_config else True
+
+        client_config = get_oauth_client_config()
         oauth_options = OAuthProviderOptions(
-            server_url=url,  # MCP server URL for primary discovery
-            oauth_issuer=oauth_issuer,  # OAuth issuer for fallback discovery
-            callback_port=bridge_port,  # Use bridge server port
+            server_url=url,
+            oauth_issuer=oauth_issuer,
+            callback_port=bridge_port,
             host=bridge_host,
-            client_name="MCP Foxxy Bridge",
-            client_uri="https://github.com/billybryant/mcp-foxxy-bridge",
-            server_name=server_name,  # Pass server name for proper storage organization
+            client_name=client_config["client_name"],
+            client_uri=client_config["client_uri"],
+            software_id=client_config["software_id"],
+            software_version=client_config["software_version"],
+            server_name=server_name,
+            verify_ssl=verify_ssl,
         )
         oauth_flow = OAuthFlow(oauth_options)
         tokens = oauth_flow.provider.tokens()
@@ -733,24 +829,37 @@ async def _initiate_automatic_oauth_flow(
     try:
         oauth_port = get_oauth_port()  # Use dedicated OAuth port
         bridge_host = get_bridge_server_host()
-        # Extract OAuth issuer from config if available
+        # Extract OAuth issuer from config if explicitly configured
+        # Only use auto-detection for token refresh operations, not initial auth
         oauth_issuer = None
-        if oauth_config:
-            oauth_issuer = oauth_config.get("issuer")
+        if oauth_config and oauth_config.get("issuer"):
+            oauth_issuer = oauth_config["issuer"]
+            logger.debug("Found configured OAuth issuer for automatic flow")
+        else:
+            # For token refresh scenarios, we can auto-detect the OAuth issuer
+            oauth_issuer = _auto_detect_oauth_issuer(server_url)
             if oauth_issuer:
-                logger.debug("Found configured OAuth issuer for automatic flow: [ISSUER_CONFIGURED]")
+                logger.debug("Auto-detected OAuth issuer for token refresh")
+
+        client_config = get_oauth_client_config()
+
+        # Extract SSL verification setting from OAuth config
+        verify_ssl = oauth_config.get("verify_ssl", True) if oauth_config else True
 
         oauth_options = OAuthProviderOptions(
-            server_url=server_url,  # MCP server URL for primary discovery
-            oauth_issuer=oauth_issuer,  # OAuth issuer for fallback discovery
+            server_url=server_url,
+            oauth_issuer=oauth_issuer,
             callback_port=oauth_port,
             host=bridge_host,
-            client_name="MCP Foxxy Bridge",
-            client_uri="https://github.com/billybryant/mcp-foxxy-bridge",
-            server_name=server_name,  # Pass server name for proper storage organization
+            client_name=client_config["client_name"],
+            client_uri=client_config["client_uri"],
+            software_id=client_config["software_id"],
+            software_version=client_config["software_version"],
+            server_name=server_name,
+            verify_ssl=verify_ssl,
         )
         oauth_flow = OAuthFlow(oauth_options)
-        tokens = oauth_flow.authenticate(skip_browser=False)
+        tokens = await oauth_flow.authenticate(skip_browser=False)
         access_token = tokens.access_token if tokens else None
 
         if access_token:
@@ -793,13 +902,22 @@ async def _wait_for_oauth_completion_and_retry(
         try:
             bridge_host = get_bridge_server_host()
             oauth_port = get_oauth_port()  # Use dedicated OAuth port
+            client_config = get_oauth_client_config()
+
+            # Default to secure SSL verification
+            verify_ssl = True
+
             oauth_options = OAuthProviderOptions(
                 server_url=server_url,
+                oauth_issuer=None,
                 callback_port=oauth_port,
                 host=bridge_host,
-                client_name="MCP Foxxy Bridge",
-                client_uri="https://github.com/billybryant/mcp-foxxy-bridge",
-                server_name=server_name,  # Pass server name for proper storage organization
+                client_name=client_config["client_name"],
+                client_uri=client_config["client_uri"],
+                software_id=client_config["software_id"],
+                software_version=client_config["software_version"],
+                server_name=server_name,
+                verify_ssl=verify_ssl,
             )
             oauth_flow = OAuthFlow(oauth_options)
             tokens = oauth_flow.provider.tokens()
@@ -807,7 +925,7 @@ async def _wait_for_oauth_completion_and_retry(
 
             if access_token:
                 headers["Authorization"] = f"Bearer {access_token}"
-                logger.info("✅ New OAuth tokens detected")
+                logger.info("New OAuth tokens detected")
                 return True
 
         except (ValueError, KeyError, TypeError) as e:
@@ -819,18 +937,18 @@ async def _wait_for_oauth_completion_and_retry(
 
         elapsed = int(time.time() - start_time)
         if elapsed % 30 == 0:  # Log progress every 30 seconds
-            logger.info("⏳ Still waiting for OAuth completion...")
+            logger.info("Still waiting for OAuth completion...")
 
-    logger.warning("⏰ OAuth completion timeout")
+    logger.warning("OAuth completion timeout")
     return False
 
 
 async def _handle_oauth_flow_and_retry(
     server_url: str, server_name: str, headers: dict[str, str], oauth_config: dict[str, Any] | None = None
 ) -> bool:
-    """Handle OAuth flow and retry connection.
+    """Handle OAuth token refresh or full flow and retry connection.
 
-    Initiates OAuth flow and waits for completion.
+    First attempts to refresh existing tokens if available, then falls back to full OAuth flow.
 
     Args:
         server_url: The server URL
@@ -839,23 +957,35 @@ async def _handle_oauth_flow_and_retry(
         oauth_config: OAuth configuration dictionary with provider-specific settings
 
     Returns:
-        True if OAuth completed successfully, False otherwise
+        True if token refresh or OAuth completed successfully, False otherwise
     """
     try:
-        # Initiate OAuth flow
+        # First, try to refresh existing tokens if we have a refresh token
+        logger.info("Attempting to refresh expired OAuth tokens...")
+        refresh_success = await _attempt_token_refresh_and_retry(
+            server_url, server_name, headers, oauth_enabled=True, oauth_config=oauth_config
+        )
+
+        if refresh_success:
+            logger.info("OAuth tokens refreshed successfully!")
+            return True
+
+        logger.warning("Token refresh failed, falling back to full OAuth flow")
+
+        # If refresh failed, initiate full OAuth flow
         await _initiate_automatic_oauth_flow(server_url, server_name, oauth_config)
 
         logger.info(
-            f"🌐 OAuth flow initiated for server '{server_name}'. Please check your browser to complete authorization."
+            f"OAuth flow initiated for server '{server_name}'. Please check your browser to complete authorization."
         )
 
-        logger.info("⏳ Waiting for OAuth completion...")
+        logger.info("Waiting for OAuth completion...")
         success = await _wait_for_oauth_completion_and_retry(server_url, server_name, headers, max_wait_time=300)
 
         if success:
-            logger.info("✅ OAuth completed successfully! Retrying connection")
+            logger.info("OAuth completed successfully! Retrying connection")
         else:
-            logger.warning("⏰ OAuth completion timed out or failed")
+            logger.warning("OAuth completion timed out or failed")
 
         return success
 
@@ -872,9 +1002,9 @@ def _log_oauth_failure_guidance(server_name: str) -> None:
     Args:
         server_name: The server name for URL generation
     """
-    logger.error("❌ Authentication failed")
-    logger.info("💡 OAuth tokens should now be stored for automatic use")
-    logger.info("📋 If authentication continues to fail, check your OAuth server configuration")
+    logger.error("Authentication failed")
+    logger.info("OAuth tokens should now be stored for automatic use")
+    logger.info("If authentication continues to fail, check your OAuth server configuration")
 
 
 def _is_authentication_error(exception: Exception) -> bool:
@@ -993,7 +1123,12 @@ async def http_client_with_logging(
             async with streamablehttp_client(url=url, headers=connection_headers) as connection_result:
                 read_stream, write_stream = connection_result[:2]  # Extract first two elements safely
                 logger.debug("HTTP client established")
-                yield (read_stream, write_stream)  # type: ignore[misc]
+                try:
+                    yield (read_stream, write_stream)  # type: ignore[misc]
+                except (GeneratorExit, asyncio.CancelledError):
+                    # Handle cleanup exceptions gracefully
+                    logger.debug("HTTP client connection closed during cleanup")
+                    raise
                 return
 
         except Exception as http_error:
@@ -1022,10 +1157,36 @@ async def http_client_with_logging(
     except Exception as e:
         # Handle shutdown-related errors gracefully
         error_msg = str(e).lower()
-        if any(phrase in error_msg for phrase in ["cancel scope", "shutdown", "cancelled", "closed"]):
-            logger.debug("HTTP client shutdown: %s", type(e).__name__)
+        is_shutdown_error = any(
+            phrase in error_msg
+            for phrase in [
+                "cancel scope",
+                "shutdown",
+                "cancelled",
+                "closed",
+                "generator",
+                "task",
+                "asyncgen",
+                "already running",
+                "exit cancel scope",
+                "different task",
+            ]
+        )
+        exception_type = type(e).__name__
+        is_cleanup_exception = exception_type in [
+            "GeneratorExit",
+            "RuntimeError",
+            "BaseExceptionGroup",
+            "CancelledError",
+        ]
+
+        if is_shutdown_error or is_cleanup_exception:
+            logger.debug("HTTP client shutdown: %s", exception_type)
+            # Don't re-raise cleanup exceptions during shutdown
+            with contextlib.suppress(Exception):
+                pass  # Allow cleanup to proceed without propagating exception
         else:
-            logger.exception(f"HTTP client failed for server '{server_name}': {e}")
-        raise
+            logger.exception("HTTP client failed for server '%s': %s", server_name, e)
+            raise
     finally:
         logger.debug("HTTP client cleanup completed")

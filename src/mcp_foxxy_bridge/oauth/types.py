@@ -24,6 +24,7 @@ class OAuthProviderOptions:
     authorize_resource: str | None = None
     server_name: str | None = None  # Added server name for proper storage organization
     oauth_issuer: str | None = None  # OAuth issuer URL for discovery fallback
+    verify_ssl: bool = True  # SSL certificate verification (default: secure)
 
 
 @dataclass

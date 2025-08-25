@@ -184,10 +184,13 @@ jobs:
 
     - name: Comment validation results
       uses: actions/github-script@v7
+      env:
+        LABEL_VALIDATION: ${{ steps.validate-labels.outputs.validation_message }}
+        COMMIT_VALIDATION: ${{ steps.validate-commits.outputs.commit_validation }}
       with:
         script: |
-          const labelValidation = JSON.parse('${{ steps.validate-labels.outputs.validation_message }}');
-          const commitValidation = JSON.parse('${{ steps.validate-commits.outputs.commit_validation }}');
+          const labelValidation = JSON.parse(process.env.LABEL_VALIDATION);
+          const commitValidation = JSON.parse(process.env.COMMIT_VALIDATION);
 
           const hasLabelIssues = labelValidation.missingLabels.length > 0;
           const hasLabelWarnings = labelValidation.warnings.length > 0;

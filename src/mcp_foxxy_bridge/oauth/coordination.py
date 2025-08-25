@@ -8,16 +8,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-import requests
+import httpx
 
+from .config import OAUTH_USER_AGENT
 from .events import EventEmitter
 from .utils import FileLock, get_lockfile_path, is_pid_running
 
 logger = logging.getLogger(__name__)
-
-
-# OAuth callback handling is now integrated with the bridge server
-# No need for separate callback server classes
 
 
 class LockfileData:
@@ -66,14 +63,21 @@ def wait_for_authentication(port: int, timeout: float = 300.0) -> bool:
 
     while time.time() - start_time < timeout:
         try:
-            response = requests.get(check_url, timeout=1.0)  # type: ignore[attr-defined, no-untyped-call]
+            # Disable SSL verification for localhost HTTP URLs
+            is_localhost = check_url.startswith(("http://localhost", "http://127.0.0.1"))
+            response = httpx.get(
+                check_url,
+                timeout=1.0,
+                verify=not is_localhost,  # Only disable SSL verification for localhost HTTP
+                headers={"User-Agent": OAUTH_USER_AGENT},
+            )
             if response.status_code == 200:
                 data = response.json()
                 if data.get("status") == "completed":
                     return True
                 if data.get("status") == "error":
                     return False
-        except (requests.RequestException, json.JSONDecodeError):  # type: ignore[attr-defined]
+        except (httpx.HTTPError, json.JSONDecodeError):
             pass
 
         time.sleep(1.0)

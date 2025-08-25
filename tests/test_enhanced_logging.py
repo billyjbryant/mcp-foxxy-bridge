@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from rich.console import Console
 
-from mcp_foxxy_bridge.utils.logging_config import (
+from mcp_foxxy_bridge.utils.logging import (
     MCPRichHandler,
-    setup_rich_logging,
+    setup_logging,
 )
 
 
@@ -31,27 +31,31 @@ class TestEnhancedLogging:
 
     def test_setup_rich_logging_debug_mode(self) -> None:
         """Test setup_rich_logging in debug mode."""
-        setup_rich_logging(debug=True)
+        setup_logging(debug=True)
 
         # Check root logger configuration
         root_logger = logging.getLogger()
         assert root_logger.level == logging.DEBUG
-        assert len(root_logger.handlers) == 1
-        assert isinstance(root_logger.handlers[0], MCPRichHandler)
+        assert len(root_logger.handlers) == 2  # Console + file handler
+        handler_types = [type(h).__name__ for h in root_logger.handlers]
+        assert "MCPRichHandler" in handler_types
+        assert "RotatingFileHandler" in handler_types
 
     def test_setup_rich_logging_normal_mode(self) -> None:
         """Test setup_rich_logging in normal mode."""
-        setup_rich_logging(debug=False)
+        setup_logging(debug=False)
 
         # Check root logger configuration
         root_logger = logging.getLogger()
         assert root_logger.level == logging.INFO
-        assert len(root_logger.handlers) == 1
-        assert isinstance(root_logger.handlers[0], MCPRichHandler)
+        assert len(root_logger.handlers) == 2  # Console + file handler
+        handler_types = [type(h).__name__ for h in root_logger.handlers]
+        assert "MCPRichHandler" in handler_types
+        assert "RotatingFileHandler" in handler_types
 
     def test_uvicorn_logger_configuration(self) -> None:
         """Test that uvicorn loggers are properly configured."""
-        setup_rich_logging(debug=True)
+        setup_logging(debug=True)
 
         # Check uvicorn loggers
         uvicorn_logger = logging.getLogger("uvicorn")
@@ -62,7 +66,7 @@ class TestEnhancedLogging:
 
     def test_mcp_logger_configuration(self) -> None:
         """Test that MCP loggers are properly configured."""
-        setup_rich_logging(debug=True)
+        setup_logging(debug=True)
 
         # Check MCP loggers
         mcp_logger = logging.getLogger("mcp")
@@ -73,7 +77,7 @@ class TestEnhancedLogging:
         assert mcp_server_logger.level == logging.INFO  # Debug mode
         assert not mcp_server_logger.propagate
 
-    @patch("mcp_foxxy_bridge.utils.logging_config.Console")
+    @patch("mcp_foxxy_bridge.utils.logging.Console")
     def test_rich_console_configuration(self, mock_console_class: MagicMock) -> None:
         """Test Rich console configuration."""
         mock_console = MagicMock()
