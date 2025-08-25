@@ -393,6 +393,124 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081
    }
    ```
 
+### OAuth and SSL Issues
+
+#### SSL Certificate Verification Errors
+
+**Error:** `SSL: CERTIFICATE_VERIFY_FAILED` or similar SSL errors
+
+**Solutions:**
+
+1. **For production environments** (keep SSL verification enabled):
+
+   ```json
+   {
+     "oauth": {
+       "enabled": true,
+       "issuer": "https://auth.example.com",
+       "verify_ssl": true  // Default: always verify certificates
+     }
+   }
+   ```
+
+   - Ensure valid SSL certificates are installed
+   - Check certificate chain is complete
+   - Verify system CA certificates are up to date
+
+2. **For development environments** (self-signed certificates):
+
+   ```json
+   {
+     "oauth": {
+       "enabled": true,
+       "issuer": "https://dev.local:8443",
+       "verify_ssl": false  // ONLY for development
+     }
+   }
+   ```
+
+   **⚠️ Warning**: Only disable SSL verification in development. The bridge will log warnings when SSL is disabled.
+
+3. **Check certificate details**:
+
+   ```bash
+   # Check certificate validity
+   openssl s_client -connect auth.example.com:443 -servername auth.example.com < /dev/null
+
+   # View certificate details
+   openssl s_client -connect auth.example.com:443 -showcerts < /dev/null | openssl x509 -text
+   ```
+
+#### OAuth Authentication Failures
+
+**Error:** `OAuth flow failed` or `Token exchange error`
+
+**Solutions:**
+
+1. **Check OAuth configuration**:
+
+   ```json
+   {
+     "oauth": {
+       "enabled": true,
+       "issuer": "https://auth.example.com",
+       "client_name": "MCP Foxxy Bridge",
+       "verify_ssl": true
+     }
+   }
+   ```
+
+2. **Verify OAuth issuer discovery**:
+
+   ```bash
+   # Test OAuth discovery endpoints
+   curl https://auth.example.com/.well-known/openid-configuration
+   curl https://auth.example.com/.well-known/oauth-authorization-server
+   ```
+
+3. **Check OAuth callback port**:
+
+   ```json
+   {
+     "bridge": {
+       "oauth_port": 8090  // Ensure port is available
+     }
+   }
+   ```
+
+   ```bash
+   # Check if port is in use
+   lsof -i :8090
+   netstat -tlnp | grep 8090
+   ```
+
+4. **Clear stored tokens** (force re-authentication):
+
+   ```bash
+   rm ~/.foxxy-bridge/auth/server-hash-*.json
+   ```
+
+#### HTTP/2 Connection Issues
+
+**Error:** `HTTP/2 protocol error` or connection drops
+
+**Solutions:**
+
+1. **Server doesn't support HTTP/2**:
+   - The bridge automatically falls back to HTTP/1.1
+   - No configuration needed
+
+2. **Proxy interference**:
+   - Some proxies don't support HTTP/2
+   - Check proxy configuration if using one
+
+3. **Debug HTTP/2 issues**:
+
+   ```bash
+   # Test HTTP/2 support
+   curl -I --http2 https://api.example.com
+   ```
+
 ## Debugging Techniques
 
 ### Enable Debug Logging

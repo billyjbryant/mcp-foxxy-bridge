@@ -40,7 +40,8 @@ For connecting to a remote MCP server via SSE with OAuth:
         "enabled": true,
         "issuer": "https://auth.example.com",
         "client_name": "MCP Foxxy Bridge",
-        "client_uri": "https://github.com/billyjbryant/mcp-foxxy-bridge"
+        "client_uri": "https://github.com/billyjbryant/mcp-foxxy-bridge",
+        "verify_ssl": true  // Default: true for security
       },
       "toolNamespace": "remote"
     }
@@ -64,8 +65,11 @@ For connecting to a remote MCP server via SSE with OAuth:
 | `issuer` | OAuth issuer URL | No* | Auto-discovered |
 | `client_name` | OAuth client name | No | `"MCP Foxxy Bridge"` |
 | `client_uri` | OAuth client URI | No | Bridge GitHub URL |
+| `verify_ssl` | Verify SSL/TLS certificates | No | `true` |
 
 *The `issuer` field is optional if the OAuth server supports dynamic registration and discovery.
+
+**Security Note**: The `verify_ssl` option controls SSL certificate verification. It is enabled by default for security. Only disable this for development environments with self-signed certificates.
 
 ### Bridge-Level OAuth Settings
 
@@ -103,7 +107,17 @@ If auto-discovery fails or is not supported by the OAuth server, you can specify
       "transport": "sse",
       "oauth": {
         "enabled": true,
-        "issuer": "https://auth.example.com"
+        "issuer": "https://auth.example.com",
+        "verify_ssl": true  // Keep enabled for production
+      }
+    },
+    "dev-server": {
+      "url": "https://dev.example.com/sse",
+      "transport": "sse",
+      "oauth": {
+        "enabled": true,
+        "issuer": "https://dev-auth.example.com",
+        "verify_ssl": false  // Only for development with self-signed certs
       }
     }
   }
@@ -172,7 +186,8 @@ Tokens are stored in the user's home directory:
       "transport": "sse",
       "oauth": {
         "enabled": true,
-        "issuer": "https://auth.company.com"
+        "issuer": "https://auth.company.com",
+        "verify_ssl": true  // Default: secure SSL verification
       },
       "toolNamespace": "enterprise"
     }
@@ -196,7 +211,8 @@ Tokens are stored in the user's home directory:
       "oauth": {
         "enabled": true,
         "issuer": "https://oauth.example.com",
-        "client_name": "My MCP Bridge"
+        "client_name": "My MCP Bridge",
+        "verify_ssl": true  // Always verify SSL in production
       },
       "toolNamespace": "cloud"
     }
@@ -349,6 +365,16 @@ ERROR: OAuth callback failed: Token exchange error
 
 ## Security Considerations
 
+### SSL/TLS Verification
+
+The bridge provides configurable SSL certificate verification:
+- **Default Behavior**: SSL verification is **enabled by default** for security
+- **Development Mode**: Can be disabled with `"verify_ssl": false` for self-signed certificates
+- **HTTP/2 Support**: Automatically uses HTTP/2 when available for improved performance
+- **Security Headers**: Includes security headers in all HTTP requests
+
+**⚠️ Warning**: Only disable SSL verification in development environments. Never disable it in production.
+
 ### PKCE Security
 
 The bridge uses PKCE for enhanced security:
@@ -368,6 +394,9 @@ The bridge uses PKCE for enhanced security:
 - **Localhost Callback**: OAuth callbacks only accepted on localhost
 - **Port Restrictions**: OAuth port separate from main bridge port
 - **HTTPS Validation**: OAuth endpoints must use HTTPS
+- **SSL Verification**: Enabled by default with configurable override for development
+- **HTTP/2 Support**: Automatic protocol upgrade for better performance
+- **Connection Limits**: Built-in connection pooling and rate limiting
 
 ## Integration with MCP Servers
 
@@ -420,6 +449,7 @@ When building MCP servers that support OAuth:
     "issuer": "https://oauth.mycompany.com",
     "client_name": "My Custom MCP Bridge",
     "client_uri": "https://mycompany.com/tools/mcp-bridge",
+    "verify_ssl": true,  // Keep enabled for production
     "additional_params": {
       "audience": "https://api.mycompany.com",
       "resource": "myapp"
@@ -427,6 +457,22 @@ When building MCP servers that support OAuth:
   }
 }
 ```
+
+### Development with Self-Signed Certificates
+
+For development environments using self-signed certificates:
+
+```json
+{
+  "oauth": {
+    "enabled": true,
+    "issuer": "https://dev.local:8443",
+    "verify_ssl": false  // ONLY for development
+  }
+}
+```
+
+**Note**: A warning will be logged when SSL verification is disabled to remind you this is insecure.
 
 ### Environment-Specific Configuration
 
@@ -457,6 +503,9 @@ When building MCP servers that support OAuth:
 3. **Rotate Tokens**: Regularly refresh OAuth tokens for security
 4. **Secure Configuration**: Store OAuth configuration securely
 5. **Audit Access**: Regularly audit OAuth token usage and access patterns
+6. **Keep SSL Verification Enabled**: Only disable for development with self-signed certificates
+7. **Use HTTP/2**: Leverage automatic HTTP/2 support for better performance
+8. **Monitor SSL Warnings**: Pay attention to SSL verification warnings in logs
 
 ## Next Steps
 

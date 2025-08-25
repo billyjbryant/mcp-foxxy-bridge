@@ -1,5 +1,6 @@
 """Complete OAuth flow implementation for MCP Remote Python."""
 
+import asyncio
 import json
 import logging
 import threading
@@ -7,8 +8,9 @@ import time
 from typing import Any
 from urllib.parse import urlparse
 
-import requests
+import httpx
 
+from .config import OAUTH_USER_AGENT
 from .coordination import cleanup_lockfile, coordinate_auth
 from .events import EventEmitter
 from .oauth_client_provider import OAuthClientProvider
@@ -65,8 +67,11 @@ class OAuthFlow:
 
         for discovery_url in discovery_urls:
             try:
-                # Secure HTTP request with proper SSL verification
-                response = requests.get(discovery_url, timeout=10, verify=True)  # type: ignore[attr-defined, no-untyped-call]
+                # Secure HTTP request with configurable SSL verification
+                verify_ssl = getattr(self.options, "verify_ssl", True)
+                response = httpx.get(
+                    discovery_url, timeout=10, verify=verify_ssl, headers={"User-Agent": OAUTH_USER_AGENT}
+                )
                 if response.status_code == 200:
                     config = response.json()
                     logger.info("Discovered OAuth endpoints via well-known URL")
@@ -76,7 +81,7 @@ class OAuthFlow:
                         "registration_endpoint": config.get("registration_endpoint"),
                         "userinfo_endpoint": config.get("userinfo_endpoint"),
                     }
-            except (requests.RequestException, json.JSONDecodeError):  # type: ignore[attr-defined]
+            except (httpx.HTTPError, json.JSONDecodeError):
                 continue
 
         # Fallback to common paths (original behavior)
@@ -97,7 +102,8 @@ class OAuthFlow:
         metadata = self.provider.client_metadata()
 
         try:
-            response = requests.post(  # type: ignore[attr-defined, no-untyped-call]  # type: ignore[no-untyped-call]
+            verify_ssl = getattr(self.options, "verify_ssl", True)
+            response = httpx.post(
                 registration_endpoint,
                 json={
                     "redirect_uris": metadata.redirect_uris,
@@ -110,9 +116,9 @@ class OAuthFlow:
                     "software_id": metadata.software_id,
                     "software_version": metadata.software_version,
                 },
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "User-Agent": OAUTH_USER_AGENT},
                 timeout=10,
-                verify=True,  # Ensure SSL verification
+                verify=verify_ssl,
             )
 
             if response.status_code == 201:
@@ -130,7 +136,7 @@ class OAuthFlow:
             msg = f"Client registration failed: {response.status_code} - {response.text}"
             raise RuntimeError(msg)
 
-        except requests.RequestException as e:  # type: ignore[attr-defined]
+        except httpx.HTTPError as e:
             msg = f"Failed to register OAuth client: {e}"
             raise RuntimeError(msg) from e
 
@@ -156,13 +162,14 @@ class OAuthFlow:
             auth = (client_info.client_id, client_info.client_secret)
 
         try:
-            response = requests.post(  # type: ignore[attr-defined, no-untyped-call]  # type: ignore[no-untyped-call]
+            verify_ssl = getattr(self.options, "verify_ssl", True)
+            response = httpx.post(
                 token_endpoint,
                 data=data,
                 auth=auth,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers={"Content-Type": "application/x-www-form-urlencoded", "User-Agent": OAUTH_USER_AGENT},
                 timeout=10,
-                verify=True,  # Ensure SSL verification
+                verify=verify_ssl,
             )
 
             if response.status_code == 200:
@@ -181,11 +188,11 @@ class OAuthFlow:
             msg = f"Token exchange failed: {response.status_code} - {response.text}"
             raise RuntimeError(msg)
 
-        except requests.RequestException as e:  # type: ignore[attr-defined]
+        except httpx.HTTPError as e:
             msg = f"Failed to exchange code for tokens: {e}"
             raise RuntimeError(msg) from e
 
-    def authenticate(self, skip_browser: bool = False) -> OAuthTokens:
+    async def authenticate(self, skip_browser: bool = False) -> OAuthTokens:
         """Perform complete OAuth authentication flow."""
         # Check for existing valid tokens
         existing_tokens = self.provider.tokens()
@@ -232,29 +239,32 @@ class OAuthFlow:
 
             # Wait for tokens to be saved by bridge server's OAuth callback
             logger.info("Waiting for authorization callback...")
-            logger.info("If you're redirected to an invalid URL instead of the bridge server,")
-            logger.info("this may be due to a bug in the OAuth provider's redirect handling.")
 
             timeout = 300  # 5 minutes
             start_time = time.time()
+            last_log_time = start_time
 
             while time.time() - start_time < timeout:
                 # Check if tokens were saved by the bridge server's callback handler
                 tokens = self.provider.tokens()
                 if tokens:
-                    logger.info("Authentication successful!")
+                    elapsed = time.time() - start_time
+                    logger.success("Authentication successful after %.1f seconds!", elapsed)
                     return tokens
 
-                # Brief pause before checking again
-                time.sleep(1.0)
+                current_time = time.time()
+                elapsed = current_time - start_time
+                remaining = timeout - elapsed
+                if current_time - last_log_time >= 10:
+                    logger.info("OAuth callback pending (%.1fs elapsed, %.1fs remaining)", elapsed, remaining)
+                    last_log_time = current_time
+
+                await asyncio.sleep(1.0)
 
             # Provide helpful error message for redirect issues
-            error_msg = (
-                "Authentication timed out. If you were redirected to an invalid URL "
-                "instead of the bridge server callback, this indicates a bug in the "
-                "OAuth provider's redirect URI handling. The provider should redirect "
-                f"to: {self.provider.redirect_url}"
-            )
+            elapsed = time.time() - start_time
+            error_msg = f"OAuth authentication timed out after {elapsed:.1f} seconds"
+            logger.error("OAuth timeout: %s", error_msg)
             raise RuntimeError(error_msg)
 
         finally:
@@ -262,8 +272,45 @@ class OAuthFlow:
 
     def refresh_tokens(self, refresh_token: str) -> OAuthTokens:
         """Refresh access tokens using refresh token."""
-        endpoints = self.discover_endpoints()
-        token_endpoint = endpoints.get("token_endpoint")
+        # For token refresh, try to use the OAuth issuer first if available
+        token_endpoint = None
+
+        # Check if we have a configured OAuth issuer for refresh operations
+        if hasattr(self.options, "oauth_issuer") and self.options.oauth_issuer:
+            logger.debug("Using configured OAuth issuer for token refresh")
+            oauth_issuer = self.options.oauth_issuer
+
+            # Try OAuth issuer endpoints for refresh
+            refresh_discovery_urls = [
+                f"{oauth_issuer}/.well-known/openid_configuration",
+                f"{oauth_issuer}/.well-known/oauth-authorization-server",
+            ]
+
+            for discovery_url in refresh_discovery_urls:
+                try:
+                    verify_ssl = getattr(self.options, "verify_ssl", True)
+                    response = httpx.get(
+                        discovery_url, timeout=10, verify=verify_ssl, headers={"User-Agent": OAUTH_USER_AGENT}
+                    )
+                    if response.status_code == 200:
+                        config = response.json()
+                        token_endpoint = config.get("token_endpoint")
+                        if token_endpoint:
+                            logger.debug("Found token endpoint via OAuth issuer discovery")
+                            break
+                except (httpx.HTTPError, json.JSONDecodeError):
+                    continue
+
+            # If discovery failed, try common OAuth issuer paths
+            if not token_endpoint:
+                token_endpoint = f"{oauth_issuer}/oauth/token"
+                logger.debug("Using fallback OAuth issuer token endpoint")
+
+        # If no OAuth issuer or it failed, fall back to server endpoints
+        if not token_endpoint:
+            logger.debug("Falling back to server endpoints for token refresh")
+            endpoints = self.discover_endpoints()
+            token_endpoint = endpoints.get("token_endpoint")
 
         if not token_endpoint:
             raise RuntimeError("Token endpoint not available")
@@ -283,13 +330,14 @@ class OAuthFlow:
             auth = (client_info.client_id, client_info.client_secret)
 
         try:
-            response = requests.post(  # type: ignore[attr-defined, no-untyped-call]  # type: ignore[no-untyped-call]
+            verify_ssl = getattr(self.options, "verify_ssl", True)
+            response = httpx.post(
                 token_endpoint,
                 data=data,
                 auth=auth,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers={"Content-Type": "application/x-www-form-urlencoded", "User-Agent": OAUTH_USER_AGENT},
                 timeout=10,
-                verify=True,  # Ensure SSL verification
+                verify=verify_ssl,
             )
 
             if response.status_code == 200:
@@ -308,7 +356,7 @@ class OAuthFlow:
             msg = f"Token refresh failed: {response.status_code} - {response.text}"
             raise RuntimeError(msg)
 
-        except requests.RequestException as e:  # type: ignore[attr-defined]
+        except httpx.HTTPError as e:
             msg = f"Failed to refresh tokens: {e}"
             raise RuntimeError(msg) from e
 

@@ -24,10 +24,13 @@
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import os
+import secrets
 import signal
 import socket
+import time
 import urllib.parse
 import webbrowser
 from collections.abc import AsyncIterator
@@ -35,7 +38,6 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-import httpx
 import uvicorn
 from mcp import server
 from mcp.client.session import ClientSession
@@ -57,7 +59,8 @@ from mcp_foxxy_bridge.config.config_loader import (
     load_bridge_config_from_file,
     normalize_server_name,
 )
-from mcp_foxxy_bridge.oauth import OAuthFlow, OAuthProviderOptions
+from mcp_foxxy_bridge.oauth import OAUTH_USER_AGENT, OAuthFlow, OAuthProviderOptions, get_oauth_client_config
+from mcp_foxxy_bridge.oauth.http_security import create_localhost_client, create_secure_async_client
 from mcp_foxxy_bridge.utils.config_watcher import ConfigWatcher
 
 from .bridge_server import (
@@ -69,8 +72,6 @@ from .bridge_server import (
     shutdown_bridge_server,
 )
 from .bridge_server_config import set_bridge_server_config
-
-# OAuth functionality now handled by mcp-auth library
 from .proxy_server import create_proxy_server
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,106 @@ _callback_servers: dict[int, Any] = {}  # port -> callback server instance
 _callback_tasks: dict[int, Any] = {}  # port -> callback server task
 
 
+# Ephemeral encrypted storage for bridge internal secret
+class _EphemeralSecretStore:
+    """Secure ephemeral storage for the bridge internal secret."""
+
+    def __init__(self) -> None:
+        """Initialize the ephemeral secret store."""
+        self._key_material: bytes | None = None
+        self._encrypted_secret: bytes | None = None
+        self._process_id = os.getpid()
+
+    def _derive_key(self) -> bytes:
+        """Derive an encryption key from process-specific entropy."""
+        # Use process ID, system random bytes, and current time as key material
+        entropy = f"{self._process_id}:{time.time()}:{secrets.token_bytes(32).hex()}".encode()
+        return hashlib.pbkdf2_hmac("sha256", entropy, b"mcp_bridge_internal", 100000)
+
+    def _simple_encrypt(self, data: bytes, key: bytes) -> bytes:
+        """Simple XOR encryption (sufficient for ephemeral process-local secrets)."""
+        # For a more secure implementation, we'd use AES, but for process-local
+        # ephemeral secrets, XOR with a strong key is sufficient
+        return bytes(a ^ b for a, b in zip(data, key * (len(data) // len(key) + 1), strict=False))
+
+    def _simple_decrypt(self, data: bytes, key: bytes) -> bytes:
+        """Simple XOR decryption."""
+        return self._simple_encrypt(data, key)  # XOR is its own inverse
+
+    def initialize_secret(self) -> str:
+        """Initialize and store the encrypted secret."""
+        if self._encrypted_secret is not None:
+            return self.get_secret()
+
+        # Generate a strong random secret
+        secret = secrets.token_urlsafe(32)
+
+        # Derive encryption key from process-specific entropy
+        self._key_material = self._derive_key()
+
+        # Encrypt the secret
+        secret_bytes = secret.encode("utf-8")
+        self._encrypted_secret = self._simple_encrypt(secret_bytes, self._key_material)
+
+        # Clear the plaintext secret from local variables (though Python may cache it)
+        del secret, secret_bytes
+
+        logger.debug("Bridge internal secret initialized")
+        return self.get_secret()
+
+    def get_secret(self) -> str:
+        """Retrieve and decrypt the secret."""
+        if self._encrypted_secret is None or self._key_material is None:
+            return self.initialize_secret()
+
+        # Decrypt the secret
+        decrypted_bytes = self._simple_decrypt(self._encrypted_secret, self._key_material)
+        return decrypted_bytes.decode("utf-8")
+
+    def clear_secret(self) -> None:
+        """Securely clear the secret from memory."""
+        if self._key_material:
+            # Overwrite key material with random bytes
+            self._key_material = secrets.token_bytes(len(self._key_material))
+        if self._encrypted_secret:
+            # Overwrite encrypted secret with random bytes
+            self._encrypted_secret = secrets.token_bytes(len(self._encrypted_secret))
+        self._key_material = None
+        self._encrypted_secret = None
+        logger.debug("Bridge internal secret cleared")
+
+
+# Global ephemeral secret store
+_secret_store = _EphemeralSecretStore()
+
+
+def _get_bridge_secret() -> str:
+    """Get the bridge internal secret from encrypted ephemeral storage."""
+    return _secret_store.get_secret()
+
+
+def _clear_bridge_secret() -> None:
+    """Clear the bridge internal secret from memory."""
+    _secret_store.clear_secret()
+
+
+def _verify_internal_request(request: Request) -> bool:
+    """Verify that a request is from an internal bridge component using the shared secret."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return False
+
+    # Expected format: "Bearer <secret>"
+    if not auth_header.startswith("Bearer "):
+        return False
+
+    provided_secret = auth_header[7:]  # Remove "Bearer " prefix
+    expected_secret = _get_bridge_secret()
+
+    # Use constant-time comparison to prevent timing attacks
+    return secrets.compare_digest(provided_secret, expected_secret)
+
+
 async def create_oauth_callback_server(callback_port: int, bridge_port: int) -> None:
     """Create a temporary OAuth callback server on the calculated port."""
     if callback_port in _callback_servers:
@@ -117,6 +218,8 @@ async def create_oauth_callback_server(callback_port: int, bridge_port: int) -> 
 
     async def oauth_callback_handler(request: Request) -> Response:
         """Handle OAuth callback and forward to main bridge server."""
+        logger.info("OAuth callback received on port %d", callback_port)
+        logger.debug("Callback URL: %s", str(request.url))
         try:
             # Extract callback parameters
             query_params = dict(request.query_params)
@@ -152,16 +255,34 @@ async def create_oauth_callback_server(callback_port: int, bridge_port: int) -> 
             # Forward the callback to the main bridge server with correct path
             bridge_url = f"http://localhost:{bridge_port}/oauth/{server_id}/callback"
 
-            # Security: NO logging of URLs or parameters
-            logger.info("Forwarding OAuth callback")
+            logger.info("Forwarding OAuth callback to bridge server for server '%s'", server_id)
+            logger.debug("Bridge URL: %s", bridge_url)
 
-            async with httpx.AsyncClient() as client:
-                response = await client.get(bridge_url, params=query_params, timeout=30.0)
-                logger.info("Bridge response status: %d", response.status_code)
+            # Use localhost client for internal OAuth callback forwarding
+            async with create_localhost_client() as client:
+                start_time = time.time()
+                logger.debug("Making HTTP request to bridge server")
+                try:
+                    # Include bridge internal secret for authentication
+                    headers = {"User-Agent": OAUTH_USER_AGENT, "Authorization": f"Bearer {_get_bridge_secret()}"}
+                    response = await client.get(
+                        bridge_url,
+                        params=query_params,
+                        headers=headers,
+                        timeout=30.0,  # Explicit 30-second timeout
+                    )
+                except Exception:
+                    elapsed = time.time() - start_time
+                    logger.exception("HTTP request to bridge server failed after %.2f seconds", elapsed)
+                    raise
+                elapsed = time.time() - start_time
+                logger.debug("Bridge response received after %.2f seconds", elapsed)
+                logger.debug("Bridge response status: %d", response.status_code)
                 if response.status_code != 200:
                     logger.error("Bridge response error: %s", response.text)
 
                 if response.status_code == 200:
+                    logger.info("OAuth callback processed successfully")
                     # Success - show a nice completion page
                     return HTMLResponse(
                         """
@@ -282,6 +403,9 @@ async def cleanup_callback_servers() -> None:
 
     _callback_servers.clear()
     _callback_tasks.clear()
+
+    # Clear internal secrets
+    _clear_bridge_secret()
 
 
 @dataclass
@@ -877,13 +1001,17 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                 except ValueError as e:
                     return JSONResponse({"error": str(e)}, status_code=400)
 
+                client_config = get_oauth_client_config()
                 oauth_options = OAuthProviderOptions(
                     server_url=server_url,
+                    oauth_issuer=None,
                     callback_port=bridge_port,
                     host=bridge_host,
-                    client_name="MCP Foxxy Bridge",
-                    client_uri="https://github.com/billybryant/mcp-foxxy-bridge",
-                    server_name=actual_server_name,  # Pass actual server name for proper storage organization
+                    client_name=client_config["client_name"],
+                    client_uri=client_config["client_uri"],
+                    software_id=client_config["software_id"],
+                    software_version=client_config["software_version"],
+                    server_name=actual_server_name,
                 )
 
                 oauth_flow = OAuthFlow(oauth_options)
@@ -964,6 +1092,13 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
 
         async def handle_oauth_callback(request: Request) -> Response:
             """Handle OAuth callback from provider using new OAuth implementation."""
+            import time
+
+            callback_start_time = time.time()
+
+            logger.info("OAuth callback received from provider")
+            logger.debug("Callback path: %s", request.url.path)
+            logger.debug("Callback received at: %.3f", callback_start_time)
             try:
                 # Extract server name from path
                 path_parts = request.url.path.split("/")
@@ -1031,36 +1166,82 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                         status_code=400,
                     )
 
-                logger.info("Received OAuth callback")
+                logger.info("Processing OAuth callback for server '%s'", server_id)
                 logger.debug("OAuth authorization code received (length: %d)", len(code) if code else 0)
 
-                # For now, we'll show success - the actual token exchange will be handled
-                # by the OAuth flow components when they detect the completed authorization
-                return HTMLResponse(
-                    f"""
-                <html>
-                <head>
-                    <title>OAuth Success</title>
-                    <style>
-                        body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
-                        .success {{ color: #28a745; font-size: 24px; margin-bottom: 20px; }}
-                        .info {{ color: #6c757d; margin-bottom: 10px; }}
-                    </style>
-                </head>
-                <body>
-                    <div class="success">✅ OAuth Authorization Successful!</div>
-                    <div class="info">Authorization completed for <strong>{server_id}</strong></div>
-                    <div class="info">You can now close this window and return to your application.</div>
-                    <script>
-                        // Try to close the window after a short delay
-                        setTimeout(() => {{
-                            window.close();
-                        }}, 2000);
-                    </script>
-                </body>
-                </html>
-                """
+                # Actually perform token exchange instead of just showing success
+                from mcp_foxxy_bridge.oauth.oauth_flow import OAuthFlow
+                from mcp_foxxy_bridge.oauth.types import OAuthProviderOptions
+
+                # Extract bridge port from the request
+                bridge_port = request.url.port or 8080
+                bridge_host = request.url.hostname or "127.0.0.1"
+
+                # Create OAuth flow instance for this server
+                oauth_options = OAuthProviderOptions(
+                    client_name=server_config.oauth.client_name if server_config.oauth else f"{server_id}-client",
+                    server_url=server_config.oauth.issuer if server_config.oauth and server_config.oauth.issuer else "",
+                    callback_port=bridge_port,
+                    host=bridge_host,
+                    scopes=server_config.oauth.scopes if server_config.oauth else ["openid", "profile", "email"],
                 )
+
+                oauth_flow = OAuthFlow(oauth_options)
+
+                try:
+                    # Perform token exchange with the authorization code
+                    logger.info("Exchanging authorization code for tokens...")
+                    exchange_start_time = time.time()
+                    oauth_flow.exchange_code_for_tokens(code)
+                    exchange_duration = time.time() - exchange_start_time
+                    total_duration = time.time() - callback_start_time
+                    logger.success(
+                        "Token exchange successful for server '%s' (exchange: %.2fs, total: %.2fs)",
+                        server_id,
+                        exchange_duration,
+                        total_duration,
+                    )
+
+                    # Success page
+                    return HTMLResponse(
+                        f"""
+                    <html>
+                    <head>
+                        <title>OAuth Success</title>
+                        <style>
+                            body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+                            .success {{ color: #28a745; font-size: 24px; margin-bottom: 20px; }}
+                            .info {{ color: #6c757d; margin-bottom: 10px; }}
+                        </style>
+                    </head>
+                    <body>
+                        <div class="success">✅ OAuth Authorization Complete!</div>
+                        <div class="info">Tokens saved for <strong>{server_id}</strong></div>
+                        <div class="info">You can now close this window and return to your application.</div>
+                        <script>
+                            setTimeout(() => {{ window.close(); }}, 2000);
+                        </script>
+                    </body>
+                    </html>
+                    """
+                    )
+
+                except Exception as e:
+                    logger.exception("Token exchange failed for server '%s': %s", server_id, e)
+                    return HTMLResponse(
+                        f"""
+                    <html>
+                    <head><title>OAuth Error</title></head>
+                    <body>
+                        <h1>❌ OAuth Token Exchange Failed</h1>
+                        <p>Error: {e}</p>
+                        <p>Server: {server_id}</p>
+                        <p>Please try the authorization process again.</p>
+                    </body>
+                    </html>
+                    """,
+                        status_code=500,
+                    )
 
             except Exception as e:
                 logger.exception("Error handling OAuth callback")
@@ -1109,12 +1290,16 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                 except ValueError as e:
                     return JSONResponse({"error": str(e)}, status_code=400)
 
+                client_config = get_oauth_client_config()
                 oauth_options = OAuthProviderOptions(
                     server_url=server_url,
+                    oauth_issuer=None,
                     callback_port=bridge_port,
                     host=bridge_host,
-                    client_name="MCP Foxxy Bridge",
-                    client_uri="https://github.com/billybryant/mcp-foxxy-bridge",
+                    client_name=client_config["client_name"],
+                    client_uri=client_config["client_uri"],
+                    software_id=client_config["software_id"],
+                    software_version=client_config["software_version"],
                 )
 
                 oauth_flow = OAuthFlow(oauth_options)
@@ -1233,13 +1418,17 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                     except ValueError as e:
                         return JSONResponse({"error": str(e)}, status_code=400)
 
+                    client_config = get_oauth_client_config()
                     oauth_options = OAuthProviderOptions(
                         server_url=server_url,
+                        oauth_issuer=None,
                         callback_port=request.url.port or 8080,
                         host=request.url.hostname or "127.0.0.1",
-                        client_name="MCP Foxxy Bridge",
-                        client_uri="https://github.com/billybryant/mcp-foxxy-bridge",
-                        server_name=actual_server_name,  # Pass actual server name for proper storage organization
+                        client_name=client_config["client_name"],
+                        client_uri=client_config["client_uri"],
+                        software_id=client_config["software_id"],
+                        software_version=client_config["software_version"],
+                        server_name=actual_server_name,
                     )
                     oauth_flow = OAuthFlow(oauth_options)
 
@@ -1449,7 +1638,7 @@ async def run_mcp_server(
             actual_port = mcp_settings.port  # Use the configured port
         except OSError as e:
             error_msg = (
-                f"❌ Port {mcp_settings.port} is not available: {e}. "
+                f"Port {mcp_settings.port} is not available: {e}. "
                 f"Cannot start server with conflicting port. "
                 f"Please change the port in config or free up port {mcp_settings.port}."
             )
@@ -1584,6 +1773,20 @@ async def run_bridge_server(
         Route("/status", endpoint=_handle_status),
     ]
 
+    # Check if bridge port is available BEFORE entering async contexts
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((mcp_settings.bind_host, mcp_settings.port))
+        actual_port = mcp_settings.port  # Use the configured port
+    except OSError as e:
+        error_msg = (
+            f"Bridge port {mcp_settings.port} is not available: {e}. "
+            f"Cannot start bridge with conflicting bridge port. "
+            f"Please change the port in config or free up port {mcp_settings.port}."
+        )
+        logger.exception(error_msg)
+        raise RuntimeError(error_msg) from e
+
     # Use AsyncExitStack to manage bridge server lifecycle
     async with contextlib.AsyncExitStack() as stack:
 
@@ -1599,6 +1802,10 @@ async def run_bridge_server(
                     await asyncio.sleep(0.1)
 
         # Create and configure the bridge server
+        # Initialize internal authentication secret
+        _get_bridge_secret()  # This will initialize the secret if not already done
+        logger.info("Internal authentication initialized")
+
         bridge_server = await create_bridge_server(bridge_config)
 
         # Store server manager reference for config reloading
@@ -1678,21 +1885,6 @@ async def run_bridge_server(
 
         debug_route = Route("/debug/routes", endpoint=handle_routes_debug)
         all_routes.extend([server_discovery_route, tag_discovery_route, debug_route])
-
-        # Check if bridge port is available - hard fail if configured port is unavailable
-
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.bind((mcp_settings.bind_host, mcp_settings.port))
-            actual_port = mcp_settings.port  # Use the configured port
-        except OSError as e:
-            error_msg = (
-                f"❌ Bridge port {mcp_settings.port} is not available: {e}. "
-                f"Cannot start bridge with conflicting bridge port. "
-                f"Please change the port in config or free up port {mcp_settings.port}."
-            )
-            logger.exception(error_msg)
-            raise RuntimeError(error_msg) from e
 
         # Set global bridge server configuration for OAuth flow and other components
         # OAuth is now integrated with bridge server, so use bridge port for OAuth
@@ -1876,13 +2068,14 @@ async def _exchange_atlassian_oauth_code(
 
         logger.debug("Exchanging OAuth code for tokens")
 
-        async with httpx.AsyncClient() as client:
+        async with create_secure_async_client() as client:
             response = await client.post(
                 token_url,
                 data=token_data,
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded",
                     "Accept": "application/json",
+                    "User-Agent": OAUTH_USER_AGENT,
                 },
                 timeout=30.0,
             )

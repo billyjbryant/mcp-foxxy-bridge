@@ -4,6 +4,14 @@ This package provides a complete OAuth 2.0 / OpenID Connect implementation
 for authenticating with MCP (Model Context Protocol) servers.
 """
 
+from .config import (
+    OAUTH_CLIENT_NAME,
+    OAUTH_CLIENT_URI,
+    OAUTH_SOFTWARE_ID,
+    OAUTH_SOFTWARE_VERSION,
+    OAUTH_USER_AGENT,
+    get_oauth_client_config,
+)
 from .coordination import (
     cleanup_lockfile,
     coordinate_auth,
@@ -21,13 +29,19 @@ from .types import (
     StaticOAuthClientInformationFull,
     StaticOAuthClientMetadata,
 )
-from .utils import cleanup_auth_files, find_available_port, get_config_dir, get_server_url_hash
+from .utils import cleanup_auth_files, find_available_port, get_oauth_config_dir, get_server_url_hash
 
 __version__ = "1.0.0"
 __author__ = "Assistant"
 __email__ = "assistant@anthropic.com"
 
 __all__ = [
+    # OAuth config constants
+    "OAUTH_CLIENT_NAME",
+    "OAUTH_CLIENT_URI",
+    "OAUTH_SOFTWARE_ID",
+    "OAUTH_SOFTWARE_VERSION",
+    "OAUTH_USER_AGENT",
     "EventEmitter",
     "OAuthCallbackServerOptions",
     "OAuthClientInformation",
@@ -47,5 +61,6 @@ __all__ = [
     "create_lazy_auth_coordinator",
     "find_available_port",
     "get_config_dir",
+    "get_oauth_client_config",
     "get_server_url_hash",
 ]

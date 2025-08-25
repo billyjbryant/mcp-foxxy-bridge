@@ -130,13 +130,29 @@ class OAuthClientProvider:
                     # Token is expired, return None
                     return None
 
-            # Remove 'issued_at' field before creating OAuthTokens object
-            oauth_token_data = {k: v for k, v in token_data.items() if k != "issued_at"}
+            # Remove 'issued_at' and 'oauth_issuer' fields before creating OAuthTokens object
+            oauth_token_data = {k: v for k, v in token_data.items() if k not in ["issued_at", "oauth_issuer"]}
             return OAuthTokens(**oauth_token_data)
         return None
 
+    def tokens_including_expired(self) -> OAuthTokens | None:
+        """Get saved OAuth tokens even if expired (for refresh token access)."""
+        token_data = load_tokens(self.server_url_hash, self.server_name)
+        if token_data:
+            # Remove 'issued_at' field before creating OAuthTokens object
+            oauth_token_data = {k: v for k, v in token_data.items() if k not in ["issued_at", "oauth_issuer"]}
+            return OAuthTokens(**oauth_token_data)
+        return None
+
+    def stored_oauth_issuer(self) -> str | None:
+        """Get stored OAuth issuer from token data."""
+        token_data = load_tokens(self.server_url_hash, self.server_name)
+        if token_data:
+            return token_data.get("oauth_issuer")
+        return None
+
     def save_tokens(self, tokens: OAuthTokens) -> None:
-        """Save OAuth tokens."""
+        """Save OAuth tokens with OAuth issuer info for future refresh operations."""
         token_data = {
             "access_token": tokens.access_token,
             "refresh_token": tokens.refresh_token,
@@ -144,6 +160,11 @@ class OAuthClientProvider:
             "expires_in": tokens.expires_in,
             "scope": tokens.scope,
         }
+
+        # Store OAuth issuer info if available for future refresh operations
+        if hasattr(self.options, "oauth_issuer") and self.options.oauth_issuer:
+            token_data["oauth_issuer"] = self.options.oauth_issuer
+
         save_tokens(self.server_url_hash, token_data, self.server_name)
 
     def save_code_verifier(self, code_verifier: str) -> None:

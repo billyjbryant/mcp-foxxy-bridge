@@ -34,10 +34,11 @@
 ### ✨ Key Benefits
 
 - **🔌 Single Endpoint**: Access all your MCP servers through one connection point
-- **🛡️ Enterprise Security**: OAuth 2.0 + PKCE authentication and command validation
+- **🛡️ Enterprise Security**: OAuth 2.0 + PKCE authentication with configurable SSL verification
 - **⚡ Easy Setup**: Simple configuration with environment variable support
 - **🔀 Smart Routing**: Automatic request routing to the right backend server
-- **🏠 Secure by Default**: Localhost-only binding and comprehensive input validation
+- **🏠 Secure by Default**: Localhost-only binding, SSL verification enabled, and comprehensive input validation
+- **🚀 HTTP/2 Support**: Automatic protocol upgrade for improved performance
 
 ### 🎯 Perfect For
 
@@ -155,7 +156,8 @@ MCP Foxxy Bridge is built with security-first principles:
 
 ### 🛡️ Defense in Depth
 - **🏠 Secure by Default**: Localhost-only binding (`127.0.0.1:8080`)
-- **🔐 OAuth 2.0 + PKCE**: Enterprise authentication for production use
+- **🔐 OAuth 2.0 + PKCE**: Enterprise authentication with configurable SSL verification
+- **🔒 SSL/TLS Security**: SSL verification enabled by default, HTTP/2 support
 - **⚡ Command Validation**: Allow-list based command substitution with shell injection protection
 - **🔍 Input Validation**: Comprehensive validation of all parameters and arguments
 

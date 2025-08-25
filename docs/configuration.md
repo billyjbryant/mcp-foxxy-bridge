@@ -111,7 +111,8 @@ OAuth is only used for remote network-based MCP servers (SSE or HTTP streaming),
     "enabled": true,                         // Enable OAuth 2.0 authentication
     "issuer": "https://auth.example.com",    // OAuth issuer URL (optional if server supports discovery)
     "client_name": "MCP Bridge Client",      // OAuth client name
-    "client_uri": "https://your-app.com"     // OAuth client URI
+    "client_uri": "https://your-app.com",    // OAuth client URI
+    "verify_ssl": true                       // Verify SSL certificates (default: true)
   }
 }
 ```
@@ -125,6 +126,8 @@ OAuth authentication features:
 - **PKCE support**: Uses Proof Key for Code Exchange for enhanced security
 - **Token management**: Automatic token storage and refresh
 - **Browser-based flow**: Opens browser for user authentication
+- **SSL verification**: Configurable SSL certificate verification (secure by default)
+- **HTTP/2 support**: Automatic HTTP/2 usage when available for better performance
 
 ## Bridge Configuration
 
@@ -240,11 +243,24 @@ The bridge includes comprehensive security features to protect against command i
       "transport": "sse",
       "oauth": {
         "enabled": true,
-        "issuer": "https://auth.company.com"
+        "issuer": "https://auth.company.com",
+        "verify_ssl": true  // Verify SSL certificates (default: true)
       },
       "toolNamespace": "remote",
       "priority": 100,
       "tags": ["remote", "oauth", "enterprise"]
+    },
+    "development-server": {
+      "enabled": true,
+      "url": "https://dev.example.com/sse",
+      "transport": "sse",
+      "oauth": {
+        "enabled": true,
+        "issuer": "https://dev-auth.example.com",
+        "verify_ssl": false  // Only for development with self-signed certificates
+      },
+      "toolNamespace": "dev",
+      "tags": ["development", "test"]
     }
   },
   "bridge": {
@@ -405,6 +421,8 @@ The bridge validates configuration files on startup. Common validation errors:
 5. **Set priorities** to control which server handles conflicts
 6. **Tag your servers** for better organization
 7. **Test configurations** with a single server first
+8. **Keep SSL verification enabled** (default) for security - only disable for development with self-signed certificates
+9. **Use HTTP/2** when available for better performance with OAuth-enabled servers
 
 ## Next Steps
 

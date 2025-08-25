@@ -52,7 +52,8 @@ from .config.config_loader import (
     load_named_server_configs_from_file,
 )
 from .server.mcp_server import MCPServerSettings, run_bridge_server
-from .utils.logging_config import setup_rich_logging
+from .utils.config_migration import get_config_dir, migrate_config_directory
+from .utils.logging import setup_logging
 
 # Deprecated env var. Here for backwards compatibility.
 SSE_URL: t.Final[str | None] = os.getenv(
@@ -227,7 +228,7 @@ def _add_arguments_to_parser(parser: argparse.ArgumentParser) -> None:
         default=os.getenv("MCP_CONFIG_DIR", None),
         metavar="DIRECTORY_PATH",
         help=(
-            "Root configuration directory. Defaults to ~/.foxxy-bridge/ or MCP_CONFIG_DIR "
+            "Root configuration directory. Defaults to ~/.config/foxxy-bridge/ or MCP_CONFIG_DIR "
             "environment variable. Config file will be {config_dir}/config.json, "
             "OAuth tokens in {config_dir}/auth/"
         ),
@@ -272,7 +273,7 @@ def _add_arguments_to_parser(parser: argparse.ArgumentParser) -> None:
 
 def _setup_logging(*, debug: bool) -> logging.Logger:
     """Set up Rich-based logging configuration and return the logger."""
-    return setup_rich_logging(debug=debug)
+    return setup_logging(debug=debug)
 
 
 def _handle_sse_client_mode(
@@ -420,6 +421,9 @@ def main() -> None:
     args_parsed = parser.parse_args()
     logger = _setup_logging(debug=args_parsed.debug)
 
+    # Migrate configuration directory if needed
+    migrate_config_directory()
+
     # Set command substitution environment variable if flag is provided
     if args_parsed.allow_command_substitution:
         os.environ["MCP_ALLOW_COMMAND_SUBSTITUTION"] = "true"
@@ -427,22 +431,14 @@ def main() -> None:
     # Set dangerous commands flag with prominent warning
     if args_parsed.allow_dangerous_commands:
         os.environ["MCP_ALLOW_DANGEROUS_COMMANDS"] = "true"
-        logger.warning("⚠️" * 10)
-        logger.warning("🚨 DANGER: UNSAFE MODE ENABLED - Command validation DISABLED!")
-        logger.warning("🚨 ANY command can now execute via command substitution")
-        logger.warning("🚨 This includes rm, curl uploads, privilege escalation, etc.")
-        logger.warning("🚨 Only use this for testing/development environments!")
-        logger.warning("⚠️" * 10)
+        logger.critical("DANGER: UNSAFE MODE ENABLED - Command validation DISABLED!")
+        logger.critical("ANY command can now execute via command substitution")
+        logger.critical("This includes rm, curl uploads, privilege escalation, etc.")
+        logger.critical("Only use this for testing/development environments!")
 
     # Handle bridge mode first (takes precedence over all other options)
-    # Determine config directory
-    if args_parsed.config_dir:
-        config_dir = Path(args_parsed.config_dir).expanduser().absolute()
-    else:
-        config_dir = Path.home() / ".foxxy-bridge"
-
-    # Ensure config directory exists
-    config_dir.mkdir(parents=True, exist_ok=True)
+    # Determine config directory using centralized utility
+    config_dir = Path(args_parsed.config_dir).expanduser().absolute() if args_parsed.config_dir else get_config_dir()
 
     # Determine config file path
     if args_parsed.bridge_config:

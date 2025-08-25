@@ -9,8 +9,11 @@ MCP Foxxy Bridge implements defense-in-depth security with multiple layers of pr
 - **Network Security**: Localhost-only binding by default
 - **Command Substitution Security**: Allow-list based command validation
 - **OAuth Authentication**: Secure authentication with PKCE
+- **SSL/TLS Verification**: Configurable SSL certificate verification (secure by default)
+- **HTTP/2 Support**: Automatic protocol upgrade for improved performance
 - **Input Validation**: Comprehensive parameter and argument validation
 - **Shell Injection Protection**: Multi-layer protection against command injection
+- **Security Headers**: Comprehensive security headers in all HTTP requests
 
 ## Network Security
 
@@ -240,6 +243,61 @@ This mode:
 }
 ```
 
+## SSL/TLS Security
+
+MCP Foxxy Bridge provides comprehensive SSL/TLS security features for all network connections:
+
+### SSL Certificate Verification
+
+- **Secure by Default**: SSL verification is enabled by default for all HTTPS connections
+- **Development Override**: Can be disabled with `"verify_ssl": false` for development environments only
+- **Per-Server Configuration**: Each server can have its own SSL verification setting
+
+### HTTP/2 Support
+
+- **Automatic Upgrade**: HTTP/2 is automatically used when available
+- **Performance Benefits**: Reduced latency and improved throughput
+- **Security Benefits**: Better header compression and multiplexing
+
+### Configuration Examples
+
+**Production (Secure):**
+```json
+{
+  "oauth": {
+    "enabled": true,
+    "issuer": "https://auth.example.com",
+    "verify_ssl": true  // Default: always verify certificates
+  }
+}
+```
+
+**Development (Self-Signed Certificates):**
+```json
+{
+  "oauth": {
+    "enabled": true,
+    "issuer": "https://dev.local:8443",
+    "verify_ssl": false  // ONLY for development - logs warning
+  }
+}
+```
+
+### Security Headers
+
+All HTTP requests include comprehensive security headers:
+- `X-Content-Type-Options: nosniff`
+- `X-XSS-Protection: 1; mode=block`
+- `X-Frame-Options: DENY`
+- `Strict-Transport-Security` (when using HTTPS)
+
+### Connection Security
+
+- **Connection Pooling**: Managed connection pools prevent resource exhaustion
+- **Timeout Configuration**: All network operations have appropriate timeouts
+- **Rate Limiting**: Built-in connection limits prevent abuse
+- **Proxy Settings**: Environment proxy settings disabled for security
+
 ## OAuth Authentication Security
 
 The bridge implements OAuth 2.0 with PKCE (Proof Key for Code Exchange) for enhanced security.
@@ -251,6 +309,8 @@ The bridge implements OAuth 2.0 with PKCE (Proof Key for Code Exchange) for enha
 - **Secure Token Storage**: Tokens stored in local filesystem with appropriate permissions
 - **Automatic Discovery**: OAuth endpoints discovered from server metadata
 - **Token Refresh**: Automatic token renewal when possible
+- **SSL Verification**: Configurable SSL certificate verification (enabled by default)
+- **HTTP/2 Support**: Automatic HTTP/2 usage for better performance and security
 
 ### OAuth Configuration
 
@@ -262,7 +322,17 @@ The bridge implements OAuth 2.0 with PKCE (Proof Key for Code Exchange) for enha
       "args": ["-y", "@modelcontextprotocol/server-atlassian"],
       "oauth": {
         "enabled": true,
-        "issuer": "https://auth.atlassian.com"
+        "issuer": "https://auth.atlassian.com",
+        "verify_ssl": true  // Default: enabled for security
+      }
+    },
+    "dev-service": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-dev"],
+      "oauth": {
+        "enabled": true,
+        "issuer": "https://dev.local:8443",
+        "verify_ssl": false  // ONLY for development with self-signed certificates
       }
     }
   },
@@ -271,6 +341,8 @@ The bridge implements OAuth 2.0 with PKCE (Proof Key for Code Exchange) for enha
   }
 }
 ```
+
+**⚠️ Important**: Only disable SSL verification (`"verify_ssl": false`) in development environments with self-signed certificates. Never disable it in production.
 
 ### OAuth Flow Security
 
@@ -357,12 +429,15 @@ grep "OAuth" /var/log/mcp-bridge.log
 - [ ] Command substitution disabled unless specifically needed
 - [ ] Custom command allow-lists defined when using command substitution
 - [ ] OAuth authentication enabled for sensitive services
+- [ ] SSL verification enabled (default) for all OAuth connections
+- [ ] HTTP/2 enabled for improved performance and security
 - [ ] Firewall rules in place for external access
 - [ ] Logging enabled and monitored
 - [ ] Regular security updates applied
 - [ ] Configuration files have appropriate permissions
 - [ ] OAuth token storage secured
 - [ ] Network segmentation implemented where possible
+- [ ] SSL certificate warnings reviewed and addressed
 
 ## Reporting Security Issues
 

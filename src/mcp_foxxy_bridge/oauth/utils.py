@@ -15,6 +15,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from mcp_foxxy_bridge.utils.config_migration import get_auth_dir, get_config_dir
+
 try:
     import keyring
     from cryptography.fernet import Fernet
@@ -93,7 +95,9 @@ def _validate_config_path(path: Path) -> Path:
         raise ValueError(f"Path traversal attempt detected: {path}")
 
     # For custom config directories, be more permissive but still safe
-    config_base = Path.home() / ".foxxy-bridge"
+    # Use centralized config directory utility
+
+    config_base = get_config_dir()
 
     # If the path is under home directory, it's generally safe
     home = Path.home()
@@ -222,7 +226,7 @@ def is_pid_running(pid: int) -> bool:
         return False
 
 
-def get_config_dir() -> Path:
+def get_oauth_config_dir() -> Path:
     """Get the configuration directory for storing OAuth tokens and lockfiles."""
     # Check for custom OAuth config directory first
     custom_config_dir = os.getenv("MCP_OAUTH_CONFIG_DIR")
@@ -231,9 +235,9 @@ def get_config_dir() -> Path:
         # Validate the custom config directory for security
         config_dir = _validate_config_path(config_dir)
     else:
-        # Default to ~/.foxxy-bridge/auth/
-        home = Path.home()
-        config_dir = home / ".foxxy-bridge" / "auth"
+        # Use centralized auth directory utility
+
+        config_dir = get_auth_dir()
 
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir
@@ -241,13 +245,13 @@ def get_config_dir() -> Path:
 
 def get_lockfile_path(server_url_hash: str) -> Path:
     """Get the path to the lockfile for a given server URL hash."""
-    config_dir = get_config_dir()
+    config_dir = get_oauth_config_dir()
     return config_dir / f"auth-{server_url_hash}.lock"
 
 
 def get_tokens_path(server_url_hash: str, server_name: str | None = None) -> Path:
     """Get the path to the tokens file for a given server URL hash."""
-    config_dir = get_config_dir()
+    config_dir = get_oauth_config_dir()
 
     # Use server name subdirectory if provided, otherwise fall back to old format
     if server_name:
@@ -342,7 +346,17 @@ def load_tokens(server_url_hash: str, server_name: str | None = None) -> dict[st
                 return parsed_tokens
             except Exception as e:
                 logger = logging.getLogger(__name__)
-                logger.warning("Failed to decrypt tokens: %s", e)
+                logger.warning(
+                    "Failed to decrypt tokens for server '%s': %s. Token file may be corrupted.",
+                    server_name or "unknown",
+                    type(e).__name__,
+                )
+                # Remove corrupted token file to prevent repeated failures
+                try:
+                    tokens_path.unlink()
+                    logger.info("Removed corrupted token file: %s", tokens_path)
+                except Exception:
+                    logger.debug("Failed to remove corrupted token file: %s", tokens_path, exc_info=True)
                 return None
         else:
             # Unencrypted data
@@ -356,7 +370,7 @@ def load_tokens(server_url_hash: str, server_name: str | None = None) -> dict[st
 
 def save_client_info(server_url_hash: str, client_info: dict[str, Any], server_name: str | None = None) -> None:
     """Save OAuth client information to disk."""
-    config_dir = get_config_dir()
+    config_dir = get_oauth_config_dir()
 
     if server_name:
         # Validate and sanitize server name
@@ -377,7 +391,7 @@ def save_client_info(server_url_hash: str, client_info: dict[str, Any], server_n
 
 def load_client_info(server_url_hash: str, server_name: str | None = None) -> dict[str, Any] | None:
     """Load OAuth client information from disk."""
-    config_dir = get_config_dir()
+    config_dir = get_oauth_config_dir()
 
     if server_name:
         # Validate and sanitize server name
@@ -411,7 +425,7 @@ def load_client_info(server_url_hash: str, server_name: str | None = None) -> di
 
 def save_code_verifier(server_url_hash: str, code_verifier: str, server_name: str | None = None) -> None:
     """Save PKCE code verifier to disk."""
-    config_dir = get_config_dir()
+    config_dir = get_oauth_config_dir()
 
     if server_name:
         # Validate and sanitize server name
@@ -432,7 +446,7 @@ def save_code_verifier(server_url_hash: str, code_verifier: str, server_name: st
 
 def load_code_verifier(server_url_hash: str, server_name: str | None = None) -> str | None:
     """Load PKCE code verifier from disk."""
-    config_dir = get_config_dir()
+    config_dir = get_oauth_config_dir()
 
     if server_name:
         # Validate and sanitize server name
@@ -464,7 +478,7 @@ def load_code_verifier(server_url_hash: str, server_name: str | None = None) -> 
 
 def cleanup_auth_files(server_url_hash: str, server_name: str | None = None) -> None:
     """Clean up all authentication-related files for a server."""
-    config_dir = get_config_dir()
+    config_dir = get_oauth_config_dir()
 
     files_to_remove = []
 

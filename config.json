@@ -2,7 +2,7 @@
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"],
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/billybryant/github/"],
       "tags": ["development", "local", "files"],
       "log_level": "WARNING"
     },
@@ -28,7 +28,8 @@
       "log_level": "ERROR",
       "oauth_config": {
         "enabled": true,
-        "issuer": "https://auth.atlassian.com"
+        "issuer": "https://auth.atlassian.com",
+        "verify_ssl": true
       }
     }
   },
@@ -36,6 +37,7 @@
     "host": "127.0.0.1",
     "port": 9000,
     "conflictResolution": "namespace",
-    "log_level": "INFO"
+    "log_level": "INFO",
+    "oauth_port": 9090
   }
 }

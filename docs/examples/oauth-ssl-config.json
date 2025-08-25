@@ -1,0 +1,109 @@
+{
+  "mcpServers": {
+    "production-api": {
+      "enabled": true,
+      "timeout": 60,
+      "url": "https://api.production.com/mcp/sse",
+      "transport": "sse",
+      "oauth": {
+        "enabled": true,
+        "issuer": "https://auth.production.com",
+        "client_name": "MCP Foxxy Bridge Production",
+        "client_uri": "https://github.com/billyjbryant/mcp-foxxy-bridge",
+        "verify_ssl": true
+      },
+      "retryAttempts": 3,
+      "retryDelay": 2000,
+      "healthCheck": {
+        "enabled": true,
+        "interval": 30000,
+        "timeout": 10000
+      },
+      "toolNamespace": "prod",
+      "priority": 100,
+      "tags": ["production", "oauth", "secure"]
+    },
+    "staging-api": {
+      "enabled": true,
+      "timeout": 60,
+      "url": "https://api.staging.com/mcp/sse",
+      "transport": "sse",
+      "oauth": {
+        "enabled": true,
+        "issuer": "https://auth.staging.com",
+        "verify_ssl": true
+      },
+      "toolNamespace": "staging",
+      "priority": 200,
+      "tags": ["staging", "oauth", "secure"]
+    },
+    "development-api": {
+      "enabled": true,
+      "timeout": 45,
+      "url": "https://dev.local:8443/mcp/sse",
+      "transport": "sse",
+      "oauth": {
+        "enabled": true,
+        "issuer": "https://dev-auth.local:9443",
+        "client_name": "MCP Foxxy Bridge Dev",
+        "verify_ssl": false
+      },
+      "toolNamespace": "dev",
+      "priority": 300,
+      "tags": ["development", "oauth", "self-signed"]
+    },
+    "github": {
+      "enabled": true,
+      "timeout": 45,
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "retryAttempts": 3,
+      "retryDelay": 1500,
+      "healthCheck": {
+        "enabled": true,
+        "interval": 30000,
+        "timeout": 5000
+      },
+      "toolNamespace": "github",
+      "priority": 150,
+      "tags": ["github", "git", "local"]
+    },
+    "filesystem": {
+      "enabled": true,
+      "timeout": 30,
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/app/data"],
+      "retryAttempts": 2,
+      "retryDelay": 1000,
+      "healthCheck": {
+        "enabled": true,
+        "interval": 45000,
+        "timeout": 3000
+      },
+      "toolNamespace": "fs",
+      "resourceNamespace": "fs",
+      "priority": 50,
+      "tags": ["filesystem", "local"]
+    }
+  },
+  "bridge": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "oauth_port": 8090,
+    "conflictResolution": "namespace",
+    "defaultNamespace": true,
+    "aggregation": {
+      "tools": true,
+      "resources": true,
+      "prompts": true
+    },
+    "failover": {
+      "enabled": true,
+      "maxFailures": 3,
+      "recoveryInterval": 60000
+    }
+  }
+}

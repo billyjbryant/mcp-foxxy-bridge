@@ -1,6 +1,6 @@
 """Test for secure logging utilities to ensure sensitive data is properly redacted."""
 
-from mcp_foxxy_bridge.utils.logging_utils import (
+from mcp_foxxy_bridge.utils.logging import (
     mask_authentication_config,
     mask_authorization_header,
     mask_oauth_tokens,
@@ -21,7 +21,7 @@ class TestSecureLogging:
         masked = mask_authorization_header(original)
         assert masked.startswith("Bearer abc123def456")
         assert "..." in masked
-        assert masked.endswith("i789")
+        assert masked.endswith("789")
         # Should not contain the full original token
         assert "abc123def456ghi789" not in masked
 

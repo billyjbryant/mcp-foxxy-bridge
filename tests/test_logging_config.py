@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 
 from rich.console import Console
 
-from mcp_foxxy_bridge.utils.logging_config import (
+from mcp_foxxy_bridge.utils.logging import (
     MCPRichHandler,
     get_logger,
-    setup_rich_logging,
+    setup_logging,
 )
 
 # Constants for console width testing
@@ -153,7 +153,7 @@ class TestSetupRichLogging:
 
     def test_setup_rich_logging_debug_mode(self) -> None:
         """Test setup_rich_logging in debug mode."""
-        setup_rich_logging(debug=True)
+        setup_logging(debug=True)
 
         # Check root logger configuration
         root_logger = logging.getLogger()
@@ -167,7 +167,7 @@ class TestSetupRichLogging:
 
     def test_setup_rich_logging_normal_mode(self) -> None:
         """Test setup_rich_logging in normal mode."""
-        setup_rich_logging(debug=False)
+        setup_logging(debug=False)
 
         # Check root logger configuration
         root_logger = logging.getLogger()
@@ -181,7 +181,7 @@ class TestSetupRichLogging:
 
     def test_setup_third_party_loggers(self) -> None:
         """Test setup of third-party logger configurations."""
-        setup_rich_logging(debug=True)
+        setup_logging(debug=True)
 
         # Check asyncio logger
         asyncio_logger = logging.getLogger("asyncio")
@@ -204,7 +204,7 @@ class TestSetupRichLogging:
 
     def test_setup_mcp_loggers_debug_mode(self) -> None:
         """Test MCP logger setup in debug mode."""
-        setup_rich_logging(debug=True)
+        setup_logging(debug=True)
 
         # Check MCP loggers
         mcp_logger = logging.getLogger("mcp")
@@ -217,7 +217,7 @@ class TestSetupRichLogging:
 
     def test_setup_mcp_loggers_normal_mode(self) -> None:
         """Test MCP logger setup in normal mode."""
-        setup_rich_logging(debug=False)
+        setup_logging(debug=False)
 
         # Check MCP server logger in normal mode
         mcp_server_logger = logging.getLogger("mcp.server")
@@ -236,7 +236,7 @@ class TestSetupRichLogging:
         uvicorn_logger.addHandler(old_uvicorn_handler)
 
         # Setup rich logging
-        setup_rich_logging(debug=True)
+        setup_logging(debug=True)
 
         # Check that old handlers were removed
         assert old_handler not in root_logger.handlers
@@ -251,7 +251,7 @@ class TestSetupRichLogging:
 
     def test_uvicorn_access_formatter(self) -> None:
         """Test custom Uvicorn access log formatter."""
-        setup_rich_logging(debug=True)
+        setup_logging(debug=True)
 
         uvicorn_access_logger = logging.getLogger("uvicorn.access")
         handler = uvicorn_access_logger.handlers[0]
@@ -276,7 +276,7 @@ class TestSetupRichLogging:
 
     def test_uvicorn_access_formatter_insufficient_args(self) -> None:
         """Test Uvicorn access formatter with insufficient arguments."""
-        setup_rich_logging(debug=True)
+        setup_logging(debug=True)
 
         uvicorn_access_logger = logging.getLogger("uvicorn.access")
         handler = uvicorn_access_logger.handlers[0]
@@ -301,7 +301,7 @@ class TestSetupRichLogging:
 
     def test_uvicorn_access_formatter_no_args(self) -> None:
         """Test Uvicorn access formatter with no arguments."""
-        setup_rich_logging(debug=True)
+        setup_logging(debug=True)
 
         uvicorn_access_logger = logging.getLogger("uvicorn.access")
         handler = uvicorn_access_logger.handlers[0]
@@ -381,7 +381,7 @@ class TestLoggingIntegration:
 
     def test_server_logger_formatting(self) -> None:
         """Test that server loggers format messages correctly."""
-        setup_rich_logging(debug=True)
+        setup_logging(debug=True)
 
         # Create a server logger
         server_logger = get_logger("mcp_foxxy_bridge.servers.test_server")
@@ -390,7 +390,7 @@ class TestLoggingIntegration:
         # where we can capture the actual Rich output
         assert server_logger.name == "mcp_foxxy_bridge.servers.test_server"
 
-    @patch("mcp_foxxy_bridge.utils.logging_config.Console")
+    @patch("mcp_foxxy_bridge.utils.logging.Console")
     def test_rich_console_configuration(self, mock_console_class: MagicMock) -> None:
         """Test Rich console configuration."""
         mock_console = MagicMock()
@@ -408,11 +408,11 @@ class TestLoggingIntegration:
     def test_multiple_setup_calls(self) -> None:
         """Test that multiple setup calls work correctly."""
         # First setup
-        setup_rich_logging(debug=True)
+        setup_logging(debug=True)
         root_handlers_count_1 = len(logging.getLogger().handlers)
 
         # Second setup - should replace handlers
-        setup_rich_logging(debug=False)
+        setup_logging(debug=False)
         root_handlers_count_2 = len(logging.getLogger().handlers)
 
         # Should still have the same number of handlers
