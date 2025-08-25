@@ -12,6 +12,7 @@ MCP Foxxy Bridge implements defense-in-depth security with multiple layers of pr
 - **SSL/TLS Verification**: Configurable SSL certificate verification (secure by default)
 - **HTTP/2 Support**: Automatic protocol upgrade for improved performance
 - **Input Validation**: Comprehensive parameter and argument validation
+- **Path Traversal Protection**: Secure file path validation to prevent directory traversal attacks
 - **Shell Injection Protection**: Multi-layer protection against command injection
 - **Security Headers**: Comprehensive security headers in all HTTP requests
 
@@ -243,6 +244,58 @@ This mode:
 }
 ```
 
+## Path Traversal Protection
+
+MCP Foxxy Bridge implements comprehensive path traversal attack prevention for all file operations:
+
+### Security Features
+
+- **Directory Traversal Prevention**: All file paths are validated to prevent `../` attacks
+- **Null Byte Injection Protection**: Prevents null byte injection attacks in file paths
+- **Path Length Limits**: Enforces maximum path lengths to prevent buffer overflow attacks
+- **File Extension Validation**: Configuration files must have approved extensions (`.json`)
+- **Base Directory Enforcement**: All paths must be within allowed base directories
+- **Absolute Path Resolution**: All paths are resolved to absolute paths for validation
+
+### Protected Operations
+
+The following operations are protected against path traversal attacks:
+
+- **Configuration File Loading**: `--bridge-config` parameter validation
+- **Configuration Directory**: `--config-dir` parameter validation
+- **Config File Creation**: Automatic config generation uses secure paths
+- **OAuth Token Storage**: All token files are written to validated paths
+
+### Implementation Details
+
+```python
+# Example: Secure config path validation
+try:
+    config_path = validate_config_path(user_provided_path, config_base_dir)
+except PathTraversalError as e:
+    logger.error("Path traversal attack detected: %s", e)
+    sys.exit(1)
+```
+
+### Attack Vector Prevention
+
+The system prevents these common attack patterns:
+
+- `../../../etc/passwd` - Directory traversal
+- `config.json\x00../../../etc/passwd` - Null byte injection
+- `/var/log/../../etc/passwd` - Absolute path traversal
+- `config/../../../sensitive` - Mixed traversal patterns
+- Symlink attacks pointing outside allowed directories
+- Long path attacks exceeding system limits
+
+### File Permissions
+
+All configuration files are created with restrictive permissions:
+
+- **Configuration Files**: `0600` (owner read/write only)
+- **OAuth Tokens**: `0600` (owner read/write only)
+- **Log Files**: `0644` (owner read/write, group/others read only)
+
 ## SSL/TLS Security
 
 MCP Foxxy Bridge provides comprehensive SSL/TLS security features for all network connections:
@@ -434,8 +487,9 @@ grep "OAuth" /var/log/mcp-bridge.log
 - [ ] Firewall rules in place for external access
 - [ ] Logging enabled and monitored
 - [ ] Regular security updates applied
-- [ ] Configuration files have appropriate permissions
-- [ ] OAuth token storage secured
+- [ ] Configuration files have appropriate permissions (`0600`)
+- [ ] OAuth token storage secured with restrictive permissions
+- [ ] File path validation enabled (prevents directory traversal attacks)
 - [ ] Network segmentation implemented where possible
 - [ ] SSL certificate warnings reviewed and addressed
 

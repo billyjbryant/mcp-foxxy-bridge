@@ -31,11 +31,10 @@ except ImportError:
 def get_server_url_hash(server_url: str) -> str:
     """Generate a hash for the server URL to use in lockfile names.
 
-    Note: MD5 is used here only for generating file names, not for cryptographic purposes.
-    This is acceptable since we only need a consistent, collision-resistant identifier.
+    Uses SHA-256 for better security practices, even though this is only for file naming.
+    We only need a consistent, collision-resistant identifier.
     """
-    # S324: MD5 is acceptable for non-cryptographic use (file naming)
-    return hashlib.md5(server_url.encode()).hexdigest()[:8]  # noqa: S324
+    return hashlib.sha256(server_url.encode()).hexdigest()[:12]  # Slightly longer for SHA-256
 
 
 # Security validation functions

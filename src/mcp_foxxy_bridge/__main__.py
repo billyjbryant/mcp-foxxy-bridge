@@ -54,6 +54,7 @@ from .config.config_loader import (
 from .server.mcp_server import MCPServerSettings, run_bridge_server
 from .utils.config_migration import get_config_dir, migrate_config_directory
 from .utils.logging import setup_logging
+from .utils.path_security import PathTraversalError, validate_config_dir, validate_config_path
 
 # Deprecated env var. Here for backwards compatibility.
 SSE_URL: t.Final[str | None] = os.getenv(
@@ -437,13 +438,25 @@ def main() -> None:
         logger.critical("Only use this for testing/development environments!")
 
     # Handle bridge mode first (takes precedence over all other options)
-    # Determine config directory using centralized utility
-    config_dir = Path(args_parsed.config_dir).expanduser().absolute() if args_parsed.config_dir else get_config_dir()
+    # Determine config directory using centralized utility with security validation
+    if args_parsed.config_dir:
+        try:
+            config_dir = validate_config_dir(args_parsed.config_dir)
+        except (PathTraversalError, ValueError) as e:
+            logger.exception("Invalid config directory path: %s", e)
+            sys.exit(1)
+    else:
+        config_dir = get_config_dir()
 
     # Determine config file path
     if args_parsed.bridge_config:
-        # Explicit config file path provided
-        config_path = Path(args_parsed.bridge_config).expanduser().absolute()
+        # Explicit config file path provided - validate for security
+        try:
+            config_path = validate_config_path(args_parsed.bridge_config, config_dir)
+        except (PathTraversalError, ValueError) as e:
+            logger.exception("Invalid bridge config file path: %s", e)
+            sys.exit(1)
+
         if not config_path.exists():
             logger.error("Bridge configuration file not found: %s", config_path)
             sys.exit(1)
@@ -454,6 +467,16 @@ def main() -> None:
         if not config_path.exists():
             # Create example config and copy to config.json
             example_config_path = config_dir / "config.example.json"
+
+            # Validate paths are within the config directory for security
+            try:
+                # These should be safe since they're constructed from config_dir,
+                # but validate to be absolutely certain
+                validated_example_path = validate_config_path(example_config_path, config_dir)
+                validated_config_path = validate_config_path(config_path, config_dir)
+            except (PathTraversalError, ValueError) as e:
+                logger.exception("Security validation failed for config paths: %s", e)
+                sys.exit(1)
 
             # Create basic example config
             example_config = {
@@ -471,18 +494,36 @@ def main() -> None:
                 },
             }
 
-            # Write example config
-            with Path(example_config_path).open("w") as f:
-                json.dump(example_config, f, indent=2)
+            # Create config directory if it doesn't exist
+            config_dir.mkdir(parents=True, exist_ok=True)
 
-            # Copy example to config.json
+            # Write example config securely
+            try:
+                with validated_example_path.open("w", encoding="utf-8") as f:
+                    json.dump(example_config, f, indent=2)
 
-            shutil.copy2(example_config_path, config_path)
+                # Set restrictive permissions
+                validated_example_path.chmod(0o600)
+            except (OSError, ValueError) as e:
+                logger.exception("Failed to write example config: %s", e)
+                sys.exit(1)
+
+            # Copy example to config.json securely
+            try:
+                shutil.copy2(validated_example_path, validated_config_path)
+                # Set restrictive permissions on the main config file
+                validated_config_path.chmod(0o600)
+            except (OSError, ValueError) as e:
+                logger.exception("Failed to copy config file: %s", e)
+                sys.exit(1)
 
             logger.info("Created new configuration directory: %s", config_dir)
-            logger.info("Created example configuration: %s", example_config_path)
-            logger.info("Created default configuration: %s", config_path)
-            logger.info("You can now edit %s to customize your configuration", config_path)
+            logger.info("Created example configuration: %s", validated_example_path)
+            logger.info("Created default configuration: %s", validated_config_path)
+            logger.info("You can now edit %s to customize your configuration", validated_config_path)
+
+            # Use the validated path going forward
+            config_path = validated_config_path
 
     config_path_str = str(config_path)
 
