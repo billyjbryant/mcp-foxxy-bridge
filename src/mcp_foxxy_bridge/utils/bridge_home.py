@@ -33,6 +33,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .config_migration import get_config_dir
+
 
 class BridgeHome:
     """Manages the bridge's home directory structure.
@@ -51,8 +53,6 @@ class BridgeHome:
             self.home_dir = Path(home_dir).expanduser()
         else:
             # Use centralized config directory utility
-            from .config_migration import get_config_dir
-
             self.home_dir = get_config_dir()
 
         # Define standard subdirectories

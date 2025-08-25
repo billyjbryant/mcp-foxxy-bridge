@@ -276,7 +276,7 @@ class TestOAuthIntegrationSecurity:
         """Test OAuth data migration from legacy format with security validation."""
         with (
             tempfile.TemporaryDirectory() as temp_dir,
-            patch("mcp_foxxy_bridge.oauth.utils.get_config_dir") as mock_get_config,
+            patch("mcp_foxxy_bridge.oauth.utils.get_oauth_config_dir") as mock_get_config,
         ):
             config_dir = Path(temp_dir)
             mock_get_config.return_value = config_dir

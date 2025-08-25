@@ -2,13 +2,14 @@
 
 import asyncio
 import json
-import logging
 import threading
 import time
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+
+from mcp_foxxy_bridge.utils.logging import get_logger
 
 from .config import OAUTH_USER_AGENT
 from .coordination import cleanup_lockfile, coordinate_auth
@@ -17,7 +18,7 @@ from .oauth_client_provider import OAuthClientProvider
 from .types import OAuthClientInformation, OAuthProviderOptions, OAuthTokens
 from .utils import setup_signal_handlers
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class OAuthFlow:
@@ -249,7 +250,7 @@ class OAuthFlow:
                 tokens = self.provider.tokens()
                 if tokens:
                     elapsed = time.time() - start_time
-                    logger.success("Authentication successful after %.1f seconds!", elapsed)
+                    logger.success("Authentication successful after %.1f seconds!", elapsed)  # type: ignore[attr-defined]
                     return tokens
 
                 current_time = time.time()

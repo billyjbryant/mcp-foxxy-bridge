@@ -25,7 +25,6 @@
 import asyncio
 import contextlib
 import hashlib
-import logging
 import os
 import secrets
 import signal
@@ -61,7 +60,11 @@ from mcp_foxxy_bridge.config.config_loader import (
 )
 from mcp_foxxy_bridge.oauth import OAUTH_USER_AGENT, OAuthFlow, OAuthProviderOptions, get_oauth_client_config
 from mcp_foxxy_bridge.oauth.http_security import create_localhost_client, create_secure_async_client
+from mcp_foxxy_bridge.oauth.oauth_flow import OAuthFlow as OAuthFlowImpl
+from mcp_foxxy_bridge.oauth.types import OAuthClientInformation
+from mcp_foxxy_bridge.oauth.types import OAuthProviderOptions as OAuthProviderOptionsImpl
 from mcp_foxxy_bridge.utils.config_watcher import ConfigWatcher
+from mcp_foxxy_bridge.utils.logging import get_logger
 
 from .bridge_server import (
     _server_manager_registry,
@@ -74,7 +77,7 @@ from .bridge_server import (
 from .bridge_server_config import set_bridge_server_config
 from .proxy_server import create_proxy_server
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def validate_oauth_server_config(server_config: BridgeServerConfig, server_name: str) -> str:
@@ -1092,8 +1095,6 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
 
         async def handle_oauth_callback(request: Request) -> Response:
             """Handle OAuth callback from provider using new OAuth implementation."""
-            import time
-
             callback_start_time = time.time()
 
             logger.info("OAuth callback received from provider")
@@ -1170,32 +1171,45 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                 logger.debug("OAuth authorization code received (length: %d)", len(code) if code else 0)
 
                 # Actually perform token exchange instead of just showing success
-                from mcp_foxxy_bridge.oauth.oauth_flow import OAuthFlow
-                from mcp_foxxy_bridge.oauth.types import OAuthProviderOptions
 
                 # Extract bridge port from the request
                 bridge_port = request.url.port or 8080
                 bridge_host = request.url.hostname or "127.0.0.1"
 
                 # Create OAuth flow instance for this server
-                oauth_options = OAuthProviderOptions(
-                    client_name=server_config.oauth.client_name if server_config.oauth else f"{server_id}-client",
-                    server_url=server_config.oauth.issuer if server_config.oauth and server_config.oauth.issuer else "",
+                oauth_config = server_config.oauth_config or {}
+                oauth_options = OAuthProviderOptionsImpl(
+                    client_name=oauth_config.get("client_name", f"{server_id}-client"),
+                    server_url=oauth_config.get("issuer", ""),
                     callback_port=bridge_port,
                     host=bridge_host,
-                    scopes=server_config.oauth.scopes if server_config.oauth else ["openid", "profile", "email"],
                 )
 
-                oauth_flow = OAuthFlow(oauth_options)
+                oauth_flow = OAuthFlowImpl(oauth_options)
 
                 try:
                     # Perform token exchange with the authorization code
                     logger.info("Exchanging authorization code for tokens...")
                     exchange_start_time = time.time()
-                    oauth_flow.exchange_code_for_tokens(code)
+                    # Get token endpoint from discovery or config
+                    token_endpoint = oauth_config.get("token_endpoint")
+                    if not token_endpoint:
+                        endpoints = oauth_flow.discover_endpoints()
+                        token_endpoint = endpoints.get("token_endpoint")
+
+                    if not token_endpoint:
+                        raise ValueError("Token endpoint not found in OAuth configuration or discovery")
+
+                    # Get client info (simplified for now)
+                    client_info = OAuthClientInformation(
+                        client_id=oauth_config.get("client_id", f"{server_id}-client"),
+                        client_secret=oauth_config.get("client_secret")
+                    )
+
+                    oauth_flow.exchange_code_for_tokens(token_endpoint, code, client_info)
                     exchange_duration = time.time() - exchange_start_time
                     total_duration = time.time() - callback_start_time
-                    logger.success(
+                    logger.success(  # type: ignore[attr-defined]
                         "Token exchange successful for server '%s' (exchange: %.2fs, total: %.2fs)",
                         server_id,
                         exchange_duration,

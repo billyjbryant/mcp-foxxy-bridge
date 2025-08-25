@@ -29,7 +29,7 @@ from .types import (
     StaticOAuthClientInformationFull,
     StaticOAuthClientMetadata,
 )
-from .utils import cleanup_auth_files, find_available_port, get_oauth_config_dir, get_server_url_hash
+from .utils import cleanup_auth_files, find_available_port, get_server_url_hash
 
 __version__ = "1.0.0"
 __author__ = "Assistant"

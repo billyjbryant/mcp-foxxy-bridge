@@ -12,8 +12,10 @@ import asyncio
 import contextlib
 import logging
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from logging.handlers import RotatingFileHandler
+from types import TracebackType  # noqa: TC003
+from typing import cast
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -46,6 +48,7 @@ class MCPRichHandler(RichHandler):
         super().__init__(**kwargs)  # type: ignore[arg-type]
 
     def get_level_text(self, record: logging.LogRecord) -> Text:
+        """Get styled level text for log records."""
         level_name = record.levelname
         return Text.styled(
             f"{level_name:^7}",
@@ -53,6 +56,7 @@ class MCPRichHandler(RichHandler):
         )
 
     def render_message(self, record: logging.LogRecord, message: str) -> Text:
+        """Render log message with server context highlighting."""
         formatted_message = self._add_emoji(record, message)
         message_text = Text(formatted_message)
 
@@ -110,6 +114,7 @@ class MCPFileLoggerManager:
         self._file_handlers: dict[str, RotatingFileHandler] = {}
 
     def get_logger(self, server_name: str, log_level: str = "INFO") -> logging.Logger:
+        """Get or create a file logger for a server."""
         if server_name not in self._file_loggers:
             self._create_file_logger(server_name, log_level)
         return self._file_loggers[server_name]
@@ -139,10 +144,12 @@ class MCPFileLoggerManager:
         self._file_handlers[server_name] = handler
 
     def log_message(self, server_name: str, message: str, level: int = logging.INFO) -> None:
+        """Log a message to a server's file log."""
         logger = self.get_logger(server_name)
         logger.log(level, message)
 
     def cleanup(self) -> None:
+        """Clean up all file loggers and handlers."""
         for handler in self._file_handlers.values():
             handler.close()
         self._file_loggers.clear()
@@ -158,10 +165,16 @@ class ProcessLogHandler:
         self._log_level_pattern = re.compile(r"\[(DEBUG|INFO|WARN|WARNING|ERROR|CRITICAL|FATAL)\]", re.IGNORECASE)
 
     async def capture_output(self, process: asyncio.subprocess.Process) -> None:
+        """Capture stdout and stderr from a subprocess."""
+        tasks = []
         if process.stdout:
-            asyncio.create_task(self._read_stream(process.stdout, logging.INFO))
+            tasks.append(asyncio.create_task(self._read_stream(process.stdout, logging.INFO)))
         if process.stderr:
-            asyncio.create_task(self._read_stream(process.stderr, logging.WARNING))
+            tasks.append(asyncio.create_task(self._read_stream(process.stderr, logging.WARNING)))
+
+        # Keep references to tasks to avoid warnings
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _read_stream(self, stream: asyncio.StreamReader, default_level: int) -> None:
         while True:
@@ -251,12 +264,33 @@ def setup_logging(*, debug: bool = False, quiet: bool = False) -> logging.Logger
     uvicorn_logger.setLevel(logging.INFO if debug else logging.WARNING)
     uvicorn_logger.propagate = False
 
+    # Configure uvicorn access logger
+    uvicorn_access_logger = logging.getLogger("uvicorn.access")
+    uvicorn_access_logger.handlers.clear()
+    uvicorn_access_logger.addHandler(rich_handler)
+    uvicorn_access_logger.setLevel(logging.INFO)
+    uvicorn_access_logger.propagate = False
+
+    # Configure uvicorn error logger
+    uvicorn_error_logger = logging.getLogger("uvicorn.error")
+    uvicorn_error_logger.handlers.clear()
+    uvicorn_error_logger.addHandler(rich_handler)
+    uvicorn_error_logger.setLevel(logging.WARNING)
+    uvicorn_error_logger.propagate = False
+
     # Configure MCP loggers
     mcp_logger = logging.getLogger("mcp")
     mcp_logger.handlers.clear()
     mcp_logger.addHandler(rich_handler)
     mcp_logger.setLevel(logging.WARNING)
     mcp_logger.propagate = False
+
+    # Configure MCP server logger based on debug mode
+    mcp_server_logger = logging.getLogger("mcp.server")
+    mcp_server_logger.handlers.clear()
+    mcp_server_logger.addHandler(rich_handler)
+    mcp_server_logger.setLevel(logging.INFO if debug else logging.ERROR)
+    mcp_server_logger.propagate = False
 
     return logging.getLogger(__name__)
 
@@ -346,7 +380,7 @@ def mask_oauth_tokens(tokens: dict[str, object] | None) -> dict[str, object]:
 
     # Fully redact refresh tokens
     if "refresh_token" in masked:
-        masked["refresh_token"] = "[REDACTED]"
+        masked["refresh_token"] = "[REDACTED]"  # noqa: S105
 
     # Partially show access tokens
     if "access_token" in masked and isinstance(masked["access_token"], str):
@@ -354,7 +388,7 @@ def mask_oauth_tokens(tokens: dict[str, object] | None) -> dict[str, object]:
         if len(token) >= 6:
             masked["access_token"] = f"{token[:3]}...{token[-3:]}"
         else:
-            masked["access_token"] = "[REDACTED]"
+            masked["access_token"] = "[REDACTED]"  # noqa: S105
 
     return masked
 
@@ -428,8 +462,8 @@ def safe_log_headers(headers: dict[str, object] | None) -> dict[str, object]:
 
 def safe_log_server_name(server_name: str | None, show_partial: bool = False) -> str:
     """Safely log server names with optional partial visibility."""
-    if not server_name or not isinstance(server_name, str):
-        return "[INVALID_SERVER_NAME]" if server_name is not None else "[INVALID_SERVER_NAME]"
+    if server_name is None or not isinstance(server_name, str):
+        return "[INVALID_SERVER_NAME]"
 
     server_name = server_name.strip()
     if not server_name:
@@ -449,9 +483,17 @@ def _add_success_method(logger: logging.Logger) -> None:
     if not hasattr(logger, "success"):
 
         def success(message: str, *args: object, **kwargs: object) -> None:
-            logger.log(SUCCESS_LEVEL, message, *args, **kwargs)
+            # Extract and type-cast known kwargs for logger.log()
 
-        logger.success = success  # type: ignore[attr-defined,method-assign]
+            exc_info = cast("bool | tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | BaseException | None", kwargs.get("exc_info"))  # noqa: E501
+            stack_info = cast("bool", kwargs.get("stack_info", False))
+            stacklevel = cast("int", kwargs.get("stacklevel", 1))
+            extra = cast("Mapping[str, object] | None", kwargs.get("extra"))
+
+            logger.log(SUCCESS_LEVEL, message, *args, exc_info=exc_info,
+                      stack_info=stack_info, stacklevel=stacklevel, extra=extra)
+
+        logger.success = success  # type: ignore[attr-defined]
 
 
 # Monkey patch Logger class
@@ -459,10 +501,18 @@ def _patch_logger_class() -> None:
     """Add success method to all loggers."""
 
     def success(self: logging.Logger, message: str, *args: object, **kwargs: object) -> None:
-        self.log(SUCCESS_LEVEL, message, *args, **kwargs)
+        # Extract and type-cast known kwargs for logger.log()
+
+        exc_info = cast("bool | tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | BaseException | None", kwargs.get("exc_info"))  # noqa: E501
+        stack_info = cast("bool", kwargs.get("stack_info", False))
+        stacklevel = cast("int", kwargs.get("stacklevel", 1))
+        extra = cast("Mapping[str, object] | None", kwargs.get("extra"))
+
+        self.log(SUCCESS_LEVEL, message, *args, exc_info=exc_info,
+                stack_info=stack_info, stacklevel=stacklevel, extra=extra)
 
     if not hasattr(logging.Logger, "success"):
-        logging.Logger.success = success  # type: ignore[attr-defined,method-assign]
+        logging.Logger.success = success  # type: ignore[attr-defined]
 
 
 # Apply patch on import

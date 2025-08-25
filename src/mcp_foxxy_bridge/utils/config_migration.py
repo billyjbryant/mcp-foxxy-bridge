@@ -24,9 +24,19 @@ def get_config_directories() -> tuple[Path, Path]:
     home = Path.home()
     legacy_dir = home / ".foxxy-bridge"
 
-    # Use XDG Base Directory Specification
-    xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
-    new_dir = Path(xdg_config_home) / "foxxy-bridge" if xdg_config_home else home / ".config" / "foxxy-bridge"
+    # Check for custom OAuth config directory (for tests)
+    oauth_config_dir = os.environ.get("MCP_OAUTH_CONFIG_DIR")
+    if oauth_config_dir:
+        custom_dir = Path(oauth_config_dir)
+        # Validate path to prevent traversal
+        custom_str = str(custom_dir)
+        if ".." in custom_str and ("/../" in custom_str or custom_str.endswith("/..")):
+            raise ValueError(f"Path traversal attempt detected: {custom_dir}")
+        new_dir = custom_dir
+    else:
+        # Use XDG Base Directory Specification
+        xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
+        new_dir = Path(xdg_config_home) / "foxxy-bridge" if xdg_config_home else home / ".config" / "foxxy-bridge"
 
     return legacy_dir, new_dir
 
