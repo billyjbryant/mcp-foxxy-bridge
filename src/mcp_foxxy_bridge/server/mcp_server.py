@@ -794,6 +794,7 @@ def create_tag_based_routes(
             )
 
     tag_routes = [
+        Route("/sse/tag/{tag}/list_tools", endpoint=handle_list_tools_by_tag),
         Route("/sse/tag/{tag_path:path}", endpoint=handle_tag_sse),
         Mount("/sse/tag/{tag_path:path}/messages/", app=handle_tag_messages),
     ]
@@ -938,6 +939,254 @@ async def handle_tag_discovery(request: Request) -> Response:
 
     except Exception:
         logger.exception("Error in tag discovery endpoint")
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
+
+
+async def handle_list_tools_all(request: Request) -> Response:
+    """Handle /sse/list_tools endpoint that lists all available tools from all servers."""
+    try:
+        tools_info = []
+
+        # Get all active servers and their tools
+        for manager in _server_manager_registry.values():
+            for server in manager.get_active_servers():
+                # Get effective namespace for this server
+                namespace = server.get_effective_namespace("tools", manager.bridge_config.bridge)
+
+                for tool in server.tools:
+                    tool_name = tool.name
+                    if namespace:
+                        tool_name = f"{namespace}__{tool.name}"
+
+                    tools_info.append(
+                        {
+                            "name": tool_name,
+                            "original_name": tool.name,
+                            "server": server.name,
+                            "namespace": namespace,
+                            "description": tool.description,
+                            "tags": server.config.tags or [],
+                            "server_status": server.health.status.value,
+                        }
+                    )
+
+        return JSONResponse(
+            {
+                "tools": tools_info,
+                "total_tools": len(tools_info),
+                "aggregated": True,
+            }
+        )
+
+    except Exception:
+        logger.exception("Error in list tools endpoint")
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
+
+
+async def handle_list_tools_by_server(request: Request) -> Response:
+    """Handle /sse/mcp/<server_name>/list_tools endpoint for server-specific tools."""
+    try:
+        server_name = request.path_params.get("server_name", "")
+        if not server_name:
+            return JSONResponse({"error": "Server name required"}, status_code=400)
+
+        # Find the server across all managers
+        target_server = None
+        for manager in _server_manager_registry.values():
+            server = manager.get_server_by_name(server_name)
+            if server:
+                target_server = server
+                break
+
+        if not target_server:
+            return JSONResponse({"error": f"Server '{server_name}' not found"}, status_code=404)
+
+        if target_server.health.status.value not in ("connected", "healthy"):
+            return JSONResponse(
+                {"error": f"Server '{server_name}' is not active (status: {target_server.health.status.value})"},
+                status_code=503,
+            )
+
+        tools_info = [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "server": target_server.name,
+                "tags": target_server.config.tags or [],
+                "server_status": target_server.health.status.value,
+            }
+            for tool in target_server.tools
+        ]
+
+        return JSONResponse(
+            {
+                "server": server_name,
+                "tools": tools_info,
+                "total_tools": len(tools_info),
+                "server_status": target_server.health.status.value,
+                "tags": target_server.config.tags or [],
+            }
+        )
+
+    except Exception:
+        logger.exception("Error in server-specific list tools endpoint")
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
+
+
+async def handle_list_tools_by_tag(request: Request) -> Response:
+    """Handle /sse/tag/<tag>/list_tools endpoint for tag-filtered tools."""
+    try:
+        tag = request.path_params.get("tag", "")
+        if not tag:
+            return JSONResponse({"error": "Tag required"}, status_code=400)
+
+        # Parse tag expression (supporting comma for union, + for intersection)
+        tags_to_match, operation = parse_tag_query(tag)
+
+        tools_info = []
+        servers_matched = []
+
+        # Get all active servers and filter by tags
+        for manager in _server_manager_registry.values():
+            for server in manager.get_active_servers():
+                server_tags = set(server.config.tags or [])
+
+                # Apply tag filtering logic
+                if operation == "intersection":
+                    matches = all(t in server_tags for t in tags_to_match)
+                else:  # union
+                    matches = any(t in server_tags for t in tags_to_match)
+
+                if matches:
+                    servers_matched.append(server.name)
+                    namespace = server.get_effective_namespace("tools", manager.bridge_config.bridge)
+
+                    for tool in server.tools:
+                        tool_name = tool.name
+                        if namespace:
+                            tool_name = f"{namespace}__{tool.name}"
+
+                        tools_info.append(
+                            {
+                                "name": tool_name,
+                                "original_name": tool.name,
+                                "server": server.name,
+                                "namespace": namespace,
+                                "description": tool.description,
+                                "tags": server.config.tags or [],
+                                "server_status": server.health.status.value,
+                            }
+                        )
+
+        return JSONResponse(
+            {
+                "tag_filter": tag,
+                "operation": operation,
+                "matched_tags": tags_to_match,
+                "servers_matched": servers_matched,
+                "tools": tools_info,
+                "total_tools": len(tools_info),
+                "total_servers": len(servers_matched),
+            }
+        )
+
+    except Exception:
+        logger.exception("Error in tag-filtered list tools endpoint")
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
+
+
+async def handle_server_reconnect(request: Request) -> Response:
+    """Handle server reconnect endpoint for forcing server reconnection."""
+    try:
+        server_name = request.path_params.get("server_name", "")
+        if not server_name:
+            return JSONResponse({"error": "Server name required"}, status_code=400)
+
+        # Find the server and its manager
+        target_server = None
+        target_manager = None
+        for manager in _server_manager_registry.values():
+            server = manager.get_server_by_name(server_name)
+            if server:
+                target_server = server
+                target_manager = manager
+                break
+
+        if not target_server or not target_manager:
+            return JSONResponse({"error": f"Server '{server_name}' not found"}, status_code=404)
+
+        # Force reconnection by updating the server's connection
+        await target_manager.reconnect_server(target_server)
+
+        return JSONResponse(
+            {
+                "message": f"Reconnection initiated for server '{server_name}'",
+                "server": server_name,
+                "status": target_server.health.status.value,
+            }
+        )
+
+    except Exception:
+        logger.exception("Error in server reconnect endpoint")
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
+
+
+async def handle_tools_rescan(request: Request) -> Response:
+    """Handle tools rescan endpoint for refreshing tool capabilities."""
+    try:
+        # Trigger capability refresh for all active servers
+        rescan_results = []
+
+        for manager in _server_manager_registry.values():
+            for server in manager.get_active_servers():
+                try:
+                    if server.session:
+                        # Request fresh capabilities
+                        result = await server.session.list_tools()
+                        server.tools = result.tools
+
+                        rescan_results.append(
+                            {
+                                "server": server.name,
+                                "status": "success",
+                                "tools_count": len(server.tools),
+                                "server_status": server.health.status.value,
+                            }
+                        )
+                        logger.info("Rescanned tools for server '%s': %d tools", server.name, len(server.tools))
+                    else:
+                        rescan_results.append(
+                            {
+                                "server": server.name,
+                                "status": "skipped",
+                                "reason": "No active session",
+                                "server_status": server.health.status.value,
+                            }
+                        )
+                except Exception as e:
+                    rescan_results.append(
+                        {
+                            "server": server.name,
+                            "status": "error",
+                            "error": str(e),
+                            "server_status": server.health.status.value,
+                        }
+                    )
+                    logger.exception("Failed to rescan tools for server '%s'", server.name)
+
+        success_count = sum(1 for r in rescan_results if r["status"] == "success")
+
+        return JSONResponse(
+            {
+                "message": f"Tools rescan completed for {success_count}/{len(rescan_results)} servers",
+                "results": rescan_results,
+                "total_servers": len(rescan_results),
+                "successful_rescans": success_count,
+            }
+        )
+
+    except Exception:
+        logger.exception("Error in tools rescan endpoint")
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
@@ -1203,7 +1452,7 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                     # Get client info (simplified for now)
                     client_info = OAuthClientInformation(
                         client_id=oauth_config.get("client_id", f"{server_id}-client"),
-                        client_secret=oauth_config.get("client_secret")
+                        client_secret=oauth_config.get("client_secret"),
                     )
 
                     oauth_flow.exchange_code_for_tokens(token_endpoint, code, client_info)
@@ -1898,7 +2147,26 @@ async def run_bridge_server(
             return JSONResponse({"routes": sorted(route_list)})
 
         debug_route = Route("/debug/routes", endpoint=handle_routes_debug)
-        all_routes.extend([server_discovery_route, tag_discovery_route, debug_route])
+
+        # Add new tool listing and management endpoints
+        tools_all_route = Route("/sse/list_tools", endpoint=handle_list_tools_all)
+        server_tools_route = Route("/sse/mcp/{server_name}/list_tools", endpoint=handle_list_tools_by_server)
+        server_reconnect_route = Route(
+            "/sse/mcp/{server_name}/reconnect", endpoint=handle_server_reconnect, methods=["POST"]
+        )
+        tools_rescan_route = Route("/sse/tools/rescan", endpoint=handle_tools_rescan, methods=["POST"])
+
+        all_routes.extend(
+            [
+                server_discovery_route,
+                tag_discovery_route,
+                debug_route,
+                tools_all_route,
+                server_tools_route,
+                server_reconnect_route,
+                tools_rescan_route,
+            ]
+        )
 
         # Set global bridge server configuration for OAuth flow and other components
         # OAuth is now integrated with bridge server, so use bridge port for OAuth

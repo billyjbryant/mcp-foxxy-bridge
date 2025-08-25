@@ -21,7 +21,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.text import Text
 
-from .config_migration import get_server_logs_dir
+from .config_migration import get_logs_dir, get_server_logs_dir
 
 # Add custom SUCCESS level
 SUCCESS_LEVEL = 25  # Between INFO (20) and WARNING (30)
@@ -126,6 +126,7 @@ class MCPFileLoggerManager:
         logger.propagate = False
 
         log_dir = get_server_logs_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
         log_file = log_dir / f"{server_name}.log"
 
         handler = RotatingFileHandler(
@@ -234,6 +235,26 @@ def setup_logging(*, debug: bool = False, quiet: bool = False) -> logging.Logger
 
     root_logger.setLevel(log_level)
     root_logger.addHandler(rich_handler)
+
+    # Add file logging for main bridge process
+    logs_dir = get_logs_dir()
+    logs_dir.mkdir(parents=True, exist_ok=True)  # Ensure logs directory exists
+    bridge_log_file = logs_dir / "bridge.log"
+
+    file_handler = RotatingFileHandler(
+        bridge_log_file,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding="utf-8",
+    )
+
+    # Use clean format for file logging (no colors/markup)
+    file_formatter = logging.Formatter(
+        fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    file_handler.setFormatter(file_formatter)
+    file_handler.setLevel(log_level)
+    root_logger.addHandler(file_handler)
 
     # Configure third-party loggers
     third_party_loggers = [
@@ -485,13 +506,26 @@ def _add_success_method(logger: logging.Logger) -> None:
         def success(message: str, *args: object, **kwargs: object) -> None:
             # Extract and type-cast known kwargs for logger.log()
 
-            exc_info = cast("bool | tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | BaseException | None", kwargs.get("exc_info"))  # noqa: E501
+            exc_info = cast(
+                (
+                    "bool | tuple[type[BaseException], BaseException, TracebackType | None] | "
+                    "tuple[None, None, None] | BaseException | None"
+                ),
+                kwargs.get("exc_info"),
+            )
             stack_info = cast("bool", kwargs.get("stack_info", False))
             stacklevel = cast("int", kwargs.get("stacklevel", 1))
             extra = cast("Mapping[str, object] | None", kwargs.get("extra"))
 
-            logger.log(SUCCESS_LEVEL, message, *args, exc_info=exc_info,
-                      stack_info=stack_info, stacklevel=stacklevel, extra=extra)
+            logger.log(
+                SUCCESS_LEVEL,
+                message,
+                *args,
+                exc_info=exc_info,
+                stack_info=stack_info,
+                stacklevel=stacklevel,
+                extra=extra,
+            )
 
         logger.success = success  # type: ignore[attr-defined]
 
@@ -503,13 +537,20 @@ def _patch_logger_class() -> None:
     def success(self: logging.Logger, message: str, *args: object, **kwargs: object) -> None:
         # Extract and type-cast known kwargs for logger.log()
 
-        exc_info = cast("bool | tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | BaseException | None", kwargs.get("exc_info"))  # noqa: E501
+        exc_info = cast(
+            (
+                "bool | tuple[type[BaseException], BaseException, TracebackType | None] | "
+                "tuple[None, None, None] | BaseException | None"
+            ),
+            kwargs.get("exc_info"),
+        )
         stack_info = cast("bool", kwargs.get("stack_info", False))
         stacklevel = cast("int", kwargs.get("stacklevel", 1))
         extra = cast("Mapping[str, object] | None", kwargs.get("extra"))
 
-        self.log(SUCCESS_LEVEL, message, *args, exc_info=exc_info,
-                stack_info=stack_info, stacklevel=stacklevel, extra=extra)
+        self.log(
+            SUCCESS_LEVEL, message, *args, exc_info=exc_info, stack_info=stack_info, stacklevel=stacklevel, extra=extra
+        )
 
     if not hasattr(logging.Logger, "success"):
         logging.Logger.success = success  # type: ignore[attr-defined]

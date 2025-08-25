@@ -158,11 +158,14 @@ class TestSetupRichLogging:
         # Check root logger configuration
         root_logger = logging.getLogger()
         assert root_logger.level == logging.DEBUG
-        assert len(root_logger.handlers) == 1
-        assert isinstance(root_logger.handlers[0], MCPRichHandler)
+        assert len(root_logger.handlers) == 2  # Console + file handler
+        handler_types = [type(h).__name__ for h in root_logger.handlers]
+        assert "MCPRichHandler" in handler_types
+        assert "RotatingFileHandler" in handler_types
 
-        # Check handler level
-        handler = root_logger.handlers[0]
+        # Check MCP handler level
+        mcp_handler = next(h for h in root_logger.handlers if isinstance(h, MCPRichHandler))
+        handler = mcp_handler
         assert handler.level == logging.DEBUG
 
     def test_setup_rich_logging_normal_mode(self) -> None:
@@ -172,11 +175,14 @@ class TestSetupRichLogging:
         # Check root logger configuration
         root_logger = logging.getLogger()
         assert root_logger.level == logging.INFO
-        assert len(root_logger.handlers) == 1
-        assert isinstance(root_logger.handlers[0], MCPRichHandler)
+        assert len(root_logger.handlers) == 2  # Console + file handler
+        handler_types = [type(h).__name__ for h in root_logger.handlers]
+        assert "MCPRichHandler" in handler_types
+        assert "RotatingFileHandler" in handler_types
 
-        # Check handler level
-        handler = root_logger.handlers[0]
+        # Check MCP handler level
+        mcp_handler = next(h for h in root_logger.handlers if isinstance(h, MCPRichHandler))
+        handler = mcp_handler
         assert handler.level == logging.INFO
 
     def test_setup_third_party_loggers(self) -> None:
@@ -242,9 +248,11 @@ class TestSetupRichLogging:
         assert old_handler not in root_logger.handlers
         assert old_uvicorn_handler not in uvicorn_logger.handlers
 
-        # Check that new handlers are MCPRichHandler instances
-        assert len(root_logger.handlers) == 1
-        assert isinstance(root_logger.handlers[0], MCPRichHandler)
+        # Check that new handlers are MCPRichHandler and RotatingFileHandler instances
+        assert len(root_logger.handlers) == 2  # Console + file handler
+        handler_types = [type(h).__name__ for h in root_logger.handlers]
+        assert "MCPRichHandler" in handler_types
+        assert "RotatingFileHandler" in handler_types
 
         assert len(uvicorn_logger.handlers) == 1
         assert isinstance(uvicorn_logger.handlers[0], MCPRichHandler)
@@ -415,8 +423,8 @@ class TestLoggingIntegration:
         setup_logging(debug=False)
         root_handlers_count_2 = len(logging.getLogger().handlers)
 
-        # Should still have the same number of handlers
-        assert root_handlers_count_1 == root_handlers_count_2 == 1
+        # Should still have the same number of handlers (console + file)
+        assert root_handlers_count_1 == root_handlers_count_2 == 2
 
         # Root logger level should be updated
         assert logging.getLogger().level == logging.INFO

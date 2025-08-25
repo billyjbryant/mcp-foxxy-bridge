@@ -36,8 +36,10 @@ class TestEnhancedLogging:
         # Check root logger configuration
         root_logger = logging.getLogger()
         assert root_logger.level == logging.DEBUG
-        assert len(root_logger.handlers) == 1
-        assert isinstance(root_logger.handlers[0], MCPRichHandler)
+        assert len(root_logger.handlers) == 2  # Console + file handler
+        handler_types = [type(h).__name__ for h in root_logger.handlers]
+        assert "MCPRichHandler" in handler_types
+        assert "RotatingFileHandler" in handler_types
 
     def test_setup_rich_logging_normal_mode(self) -> None:
         """Test setup_rich_logging in normal mode."""
@@ -46,8 +48,10 @@ class TestEnhancedLogging:
         # Check root logger configuration
         root_logger = logging.getLogger()
         assert root_logger.level == logging.INFO
-        assert len(root_logger.handlers) == 1
-        assert isinstance(root_logger.handlers[0], MCPRichHandler)
+        assert len(root_logger.handlers) == 2  # Console + file handler
+        handler_types = [type(h).__name__ for h in root_logger.handlers]
+        assert "MCPRichHandler" in handler_types
+        assert "RotatingFileHandler" in handler_types
 
     def test_uvicorn_logger_configuration(self) -> None:
         """Test that uvicorn loggers are properly configured."""

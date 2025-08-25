@@ -336,10 +336,23 @@ def load_tokens(server_url_hash: str, server_name: str | None = None) -> dict[st
             try:
                 safe_server_name = _validate_server_name(server_name)
                 encrypted_data = file_data.get("data")
+                stored_server_name = file_data.get("server_name")
+
                 if not encrypted_data:
                     logger = logging.getLogger(__name__)
                     logger.warning("Malformed encrypted token file")
                     return None
+
+                # Validate server name consistency
+                if stored_server_name and stored_server_name != safe_server_name:
+                    logger = logging.getLogger(__name__)
+                    logger.warning(
+                        "Server name mismatch in encrypted tokens: expected '%s', found '%s'",
+                        safe_server_name,
+                        stored_server_name,
+                    )
+                    # Use stored server name for decryption to handle name changes
+                    safe_server_name = stored_server_name
 
                 decrypted_data = _decrypt_data(encrypted_data, safe_server_name)
                 parsed_tokens: dict[str, Any] = json.loads(decrypted_data)
@@ -347,9 +360,13 @@ def load_tokens(server_url_hash: str, server_name: str | None = None) -> dict[st
             except Exception as e:
                 logger = logging.getLogger(__name__)
                 logger.warning(
-                    "Failed to decrypt tokens for server '%s': %s. Token file may be corrupted.",
+                    "Failed to decrypt tokens for server '%s': %s. Token file may be corrupted. "
+                    "Expected server: %s, stored server: %s, tokens path: %s",
                     server_name or "unknown",
                     type(e).__name__,
+                    safe_server_name if "safe_server_name" in locals() else "unknown",
+                    stored_server_name if "stored_server_name" in locals() else "unknown",
+                    tokens_path,
                 )
                 # Remove corrupted token file to prevent repeated failures
                 try:

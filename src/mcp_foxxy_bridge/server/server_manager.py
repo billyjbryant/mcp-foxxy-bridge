@@ -1525,6 +1525,15 @@ class ServerManager:
                 logger.exception("Error during server restart for '%s'", server.name)
                 server.health.last_error = f"Restart failed: {e!s}"
 
+    async def reconnect_server(self, server: ManagedServer) -> None:
+        """Force reconnection of a specific server.
+
+        Args:
+            server: The server to reconnect
+        """
+        logger.info("Forcing reconnection for server '%s'", server.name)
+        await self._connect_server(server)
+
     async def update_servers(self, new_server_configs: dict[str, BridgeServerConfig]) -> None:
         """Update server configurations dynamically.
 
