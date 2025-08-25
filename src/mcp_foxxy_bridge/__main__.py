@@ -450,9 +450,9 @@ def main() -> None:
 
     # Determine config file path
     if args_parsed.bridge_config:
-        # Explicit config file path provided - validate for security
+        # Explicit config file path provided - validate for security (allow any location)
         try:
-            config_path = validate_config_path(args_parsed.bridge_config, config_dir)
+            config_path = validate_config_path(args_parsed.bridge_config)
         except (PathTraversalError, ValueError) as e:
             logger.exception("Invalid bridge config file path: %s", e)
             sys.exit(1)

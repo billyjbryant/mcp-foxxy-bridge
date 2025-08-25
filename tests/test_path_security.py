@@ -95,7 +95,7 @@ class TestConfigPathValidation:
                 validate_config_path(config_file, temp_path)
 
     def test_config_file_outside_base_dir(self) -> None:
-        """Test rejection of config files outside allowed directories."""
+        """Test rejection of config files outside allowed directories when restricted."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             # Try to access file outside the config directory
@@ -103,6 +103,19 @@ class TestConfigPathValidation:
 
             with pytest.raises(PathTraversalError):
                 validate_config_path(outside_file, temp_path)
+
+    def test_config_file_unrestricted_allows_absolute_paths(self) -> None:
+        """Test that unrestricted validation allows absolute paths."""
+        # This should work for user-provided config files
+        config_file = Path("/tmp/user_config.json")
+        result = validate_config_path(config_file)  # No config_base_dir restriction
+        assert result.is_absolute()
+        assert result.name == "user_config.json"
+
+    def test_config_file_unrestricted_still_blocks_traversal(self) -> None:
+        """Test that unrestricted validation still blocks traversal attacks."""
+        with pytest.raises(PathTraversalError):
+            validate_config_path("../../../etc/passwd.json")  # Still has traversal
 
     def test_config_dir_validation_success(self) -> None:
         """Test successful config directory validation."""

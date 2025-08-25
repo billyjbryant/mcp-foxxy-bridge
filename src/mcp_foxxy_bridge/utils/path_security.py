@@ -99,12 +99,12 @@ def validate_safe_path(
     return path
 
 
-def validate_config_path(user_path: str | Path, config_base_dir: Path) -> Path:
+def validate_config_path(user_path: str | Path, config_base_dir: Path | None = None) -> Path:
     """Validate a configuration file path.
 
     Args:
         user_path: User-provided config file path
-        config_base_dir: Base configuration directory
+        config_base_dir: Base configuration directory (optional, for restricting to specific dir)
 
     Returns:
         Path: Validated configuration file path
@@ -113,10 +113,20 @@ def validate_config_path(user_path: str | Path, config_base_dir: Path) -> Path:
         PathTraversalError: If path traversal is detected
         ValueError: If path is invalid
     """
+    if config_base_dir is not None:
+        # Restrict to specific config directory (for auto-generated configs)
+        return validate_safe_path(
+            user_path,
+            allowed_base_dirs=[config_base_dir],
+            must_be_relative_to_base=True,
+            allowed_extensions=[".json"],
+            max_path_length=1024,
+        )
+    # Allow any location but validate for security (for user-provided configs)
     return validate_safe_path(
         user_path,
-        allowed_base_dirs=[config_base_dir, config_base_dir.parent],
-        must_be_relative_to_base=True,
+        allowed_base_dirs=None,
+        must_be_relative_to_base=False,
         allowed_extensions=[".json"],
         max_path_length=1024,
     )
