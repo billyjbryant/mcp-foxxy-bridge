@@ -200,40 +200,6 @@ These endpoints are ideal for monitoring, debugging, and operational management 
 
 ---
 
-## 🔒 Security
-
-MCP Foxxy Bridge is built with security-first principles:
-
-### 🛡️ Defense in Depth
-- **🏠 Secure by Default**: Localhost-only binding (`127.0.0.1:8080`)
-- **🔐 OAuth 2.0 + PKCE**: Enterprise authentication with configurable SSL verification
-- **🔒 SSL/TLS Security**: SSL verification enabled by default, HTTP/2 support
-- **⚡ Command Validation**: Allow-list based command substitution with shell injection protection
-- **🔍 Input Validation**: Comprehensive validation of all parameters and arguments
-
-### 🚨 Quick Security Setup
-```bash
-# Secure defaults (recommended)
-mcp-foxxy-bridge --bridge-config config.json
-
-# With command substitution (be careful!)
-mcp-foxxy-bridge --bridge-config config.json --allow-command-substitution
-
-# Production with OAuth
-mcp-foxxy-bridge --bridge-config production-config.json
-```
-
-### 📋 Security Checklist
-- ✅ Keep localhost binding for local development
-- ✅ Use OAuth for production deployments
-- ✅ Enable command substitution only when needed
-- ✅ Review and audit your server configurations
-- ✅ Monitor access logs regularly
-
-**📖 For complete security guidance, see our [Security Guide](docs/security.md) and [OAuth Documentation](docs/oauth.md).**
-
----
-
 ## ⚖️ License
 
 This project is licensed under the GNU Affero General Public License v3.0 or later (AGPLv3+). See the [LICENSE](LICENSE) file for details.
