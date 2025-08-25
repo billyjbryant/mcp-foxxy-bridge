@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.4.0...v1.5.0) (2025-08-25)
+
+
+### 🚀 Features
+
+* Comprehensive REST API endpoints + OAuth security improvements ([#19](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/19)) ([624b620](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/624b620efee50a5c42490b55afc62ad1a78d1e96))
+
+
+### 📚 Documentation
+
+* comprehensive documentation cleanup and improvement ([#18](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/18)) ([24e80e5](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/24e80e53471e9fd6f156231d7214592db55c16b1))
+* Updates the Readme ([9fb2127](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/9fb2127bac8486089123486a8725ae523fc82d6e))
+
 ## [1.4.0](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.3.1...v1.4.0) (2025-08-20)
 
 
