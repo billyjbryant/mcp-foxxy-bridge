@@ -6,24 +6,9 @@ query-packs:
   - codeql/python-queries:codeql-suites/python-security.qls
   - codeql/javascript-queries:codeql-suites/javascript-security.qls
 
-# Additional queries to run
-queries:
-  # Python security queries
-  - name: "Python: Command injection"
-    uses: security-extended
-    languages: [python]
-  - name: "Python: Hardcoded credentials"
-    uses: security-extended
-    languages: [python]
-  - name: "Python: Path injection"
-    uses: security-extended
-    languages: [python]
-  - name: "Python: SQL injection"
-    uses: security-extended
-    languages: [python]
-  - name: "Python: Weak cryptographic algorithm"
-    uses: security-extended
-    languages: [python]
+# Additional queries to run - use standard query packs instead of individual queries
+# queries:
+  # Python security queries - using query packs instead for better reliability
 
 # Paths to include in analysis
 paths-ignore:
