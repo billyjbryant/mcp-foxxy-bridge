@@ -42,9 +42,7 @@ async def handle_oauth_status(
     """Handle OAuth status command from Click CLI."""
     # Convert to argparse-style namespace for compatibility
     argparse_args = argparse.Namespace(
-        oauth_command="status",
-        name=getattr(args, "name", None),
-        format=getattr(args, "format", "table")
+        oauth_command="status", name=getattr(args, "name", None), format=getattr(args, "format", "table")
     )
     await _oauth_status(argparse_args, config_path, console, logger)
 
@@ -60,6 +58,7 @@ async def handle_oauth_command(
     # Check if no subcommand was provided
     if not hasattr(args, "oauth_command") or args.oauth_command is None:
         from ..main import _setup_argument_parser
+
         parser = _setup_argument_parser()
         for action in parser._subparsers._actions:
             if hasattr(action, "choices") and "oauth" in action.choices:
@@ -212,6 +211,7 @@ async def _oauth_logout(
 
             if auth_dir.exists():
                 import shutil
+
                 shutil.rmtree(auth_dir)
                 auth_dir.mkdir(parents=True, exist_ok=True)
                 console.print("[green]✓[/green] Cleared all OAuth tokens")

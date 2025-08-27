@@ -132,10 +132,10 @@ class StatusFormatter:
         if uptime_seconds < 60:
             return f"{uptime_seconds:.1f}s"
         if uptime_seconds < 3600:
-            return f"{uptime_seconds/60:.1f}m"
+            return f"{uptime_seconds / 60:.1f}m"
         if uptime_seconds < 86400:
-            return f"{uptime_seconds/3600:.1f}h"
-        return f"{uptime_seconds/86400:.1f}d"
+            return f"{uptime_seconds / 3600:.1f}h"
+        return f"{uptime_seconds / 86400:.1f}d"
 
 
 class ToolFormatter:
@@ -175,17 +175,17 @@ class ToolFormatter:
 
         # Success/error status
         if result.get("isError", False):
-            console.print(Panel(
-                f"[red]Error: {result.get('content', [{}])[0].get('text', 'Unknown error')}[/red]",
-                title="❌ Tool Call Failed",
-                border_style="red"
-            ))
+            console.print(
+                Panel(
+                    f"[red]Error: {result.get('content', [{}])[0].get('text', 'Unknown error')}[/red]",
+                    title="❌ Tool Call Failed",
+                    border_style="red",
+                )
+            )
         else:
-            console.print(Panel(
-                "[green]Tool executed successfully[/green]",
-                title="✅ Tool Call Result",
-                border_style="green"
-            ))
+            console.print(
+                Panel("[green]Tool executed successfully[/green]", title="✅ Tool Call Result", border_style="green")
+            )
 
         # Display content
         if "content" in result:

@@ -21,7 +21,6 @@
 import asyncio
 import hashlib
 import json
-import os
 import subprocess
 import sys
 from datetime import datetime
@@ -34,123 +33,123 @@ from rich.console import Console
 
 class DaemonManager:
     """Manage the bridge daemon process."""
-    
+
     @staticmethod
     def generate_daemon_name(config_file: str | Path) -> str:
         """Generate a unique daemon name based on the config file path.
-        
+
         Args:
             config_file: Path to the configuration file
-            
+
         Returns:
             A short, unique daemon name
         """
         config_path = Path(config_file).resolve()
-        
+
         # Create a short hash from the absolute path
         path_hash = hashlib.md5(str(config_path).encode()).hexdigest()[:8]
-        
+
         # Use the config file stem (name without extension) plus hash
         config_stem = config_path.stem
         return f"{config_stem}-{path_hash}"
-    
+
     @staticmethod
     def find_running_bridge_processes() -> list[dict[str, Any]]:
         """Find all running bridge processes by scanning the process table.
-        
+
         Returns:
             List of process info dictionaries for running bridge instances
         """
         running_processes = []
-        
+
         try:
-            for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'create_time']):
+            for proc in psutil.process_iter(["pid", "name", "cmdline", "create_time"]):
                 try:
-                    cmdline = proc.info['cmdline']
+                    cmdline = proc.info["cmdline"]
                     if not cmdline:
                         continue
-                    
+
                     # Look for bridge server processes only
-                    cmdline_str = ' '.join(cmdline)
-                    
+                    cmdline_str = " ".join(cmdline)
+
                     # Match only actual bridge server invocations by looking at the executed command
-                    executable = cmdline[0] if cmdline else ''
-                    
+                    executable = cmdline[0] if cmdline else ""
+
                     # Check if this is a bridge server process
                     is_bridge = False
-                    
+
                     # Direct invocation of bridge commands
-                    if executable.endswith('foxxy-bridge') or executable.endswith('mcp-foxxy-bridge'):
+                    if executable.endswith("foxxy-bridge") or executable.endswith("mcp-foxxy-bridge"):
                         is_bridge = True
                     # Python module invocation
-                    elif executable.endswith('python') or executable.endswith('python3'):
-                        if len(cmdline) > 2 and cmdline[1] == '-m' and 'mcp_foxxy_bridge' in cmdline[2]:
+                    elif executable.endswith("python") or executable.endswith("python3"):
+                        if len(cmdline) > 2 and cmdline[1] == "-m" and "mcp_foxxy_bridge" in cmdline[2]:
                             is_bridge = True
-                    
+
                     if is_bridge:
                         # Extract configuration info from command line
                         config_file = None
                         port = None
                         host = None
                         name = None
-                        
+
                         # Parse command line arguments
                         for i, arg in enumerate(cmdline):
-                            if arg in ['--bridge-config', '-c'] and i + 1 < len(cmdline):
+                            if arg in ["--bridge-config", "-c"] and i + 1 < len(cmdline):
                                 config_file = cmdline[i + 1]
-                            elif arg in ['--port', '-p'] and i + 1 < len(cmdline):
+                            elif arg in ["--port", "-p"] and i + 1 < len(cmdline):
                                 try:
                                     port = int(cmdline[i + 1])
                                 except ValueError:
                                     pass
-                            elif arg in ['--host'] and i + 1 < len(cmdline):
+                            elif arg in ["--host"] and i + 1 < len(cmdline):
                                 host = cmdline[i + 1]
-                            elif arg in ['--name', '-n'] and i + 1 < len(cmdline):
+                            elif arg in ["--name", "-n"] and i + 1 < len(cmdline):
                                 name = cmdline[i + 1]
-                        
+
                         process_info = {
-                            'pid': proc.info['pid'],
-                            'name': name or f"foreground-{proc.info['pid']}",
-                            'status': 'running',
-                            'type': 'foreground',
-                            'config_file': config_file,
-                            'port': port,
-                            'host': host,
-                            'started_at': str(int(proc.info['create_time'])),
-                            'cmdline': cmdline_str
+                            "pid": proc.info["pid"],
+                            "name": name or f"foreground-{proc.info['pid']}",
+                            "status": "running",
+                            "type": "foreground",
+                            "config_file": config_file,
+                            "port": port,
+                            "host": host,
+                            "started_at": str(int(proc.info["create_time"])),
+                            "cmdline": cmdline_str,
                         }
-                        
+
                         running_processes.append(process_info)
-                        
+
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     # Process may have disappeared or we don't have access
                     continue
-                    
+
         except Exception:
             # If process scanning fails entirely, just return empty list
             pass
-            
+
         return running_processes
-    
+
     @staticmethod
     def list_daemons(config_dir: Path) -> list[dict[str, Any]]:
         """List all running bridge instances (both daemon and foreground).
-        
+
         Args:
             config_dir: Configuration directory to search
-            
+
         Returns:
             List of daemon/process info dictionaries
         """
         daemons = []
         daemon_pids = set()
-        
+
         # Find all daemon info files
         for info_file in config_dir.glob("bridge-*.json"):
             try:
                 with info_file.open("r") as f:
                     daemon_info = json.load(f)
-                
+
                 # Check if process is still running
                 pid = daemon_info.get("pid")
                 if pid and psutil.pid_exists(pid):
@@ -165,7 +164,7 @@ class DaemonManager:
                         # Extract daemon name from file name
                         daemon_name = info_file.stem.replace("bridge-", "")
                         info_file.unlink()  # Remove .json file
-                        
+
                         # Also remove corresponding PID file
                         pid_file = config_dir / f"bridge-{daemon_name}.pid"
                         if pid_file.exists():
@@ -173,18 +172,18 @@ class DaemonManager:
                     except (PermissionError, OSError):
                         # If cleanup fails, still show the stopped daemon
                         daemons.append(daemon_info)
-                        
+
             except (json.JSONDecodeError, FileNotFoundError, PermissionError):
                 # Skip invalid or inaccessible files
                 continue
-        
+
         # Also check for default daemon
         default_info_file = config_dir / "bridge.json"
         if default_info_file.exists():
             try:
                 with default_info_file.open("r") as f:
                     daemon_info = json.load(f)
-                
+
                 # Check if process is still running
                 pid = daemon_info.get("pid")
                 if pid and psutil.pid_exists(pid):
@@ -197,7 +196,7 @@ class DaemonManager:
                     daemon_info["status"] = "stopped"
                     try:
                         default_info_file.unlink()  # Remove .json file
-                        
+
                         # Also remove corresponding PID file
                         pid_file = config_dir / "bridge.pid"
                         if pid_file.exists():
@@ -205,25 +204,25 @@ class DaemonManager:
                     except (PermissionError, OSError):
                         # If cleanup fails, still show the stopped daemon
                         daemons.append(daemon_info)
-                        
+
             except (json.JSONDecodeError, FileNotFoundError, PermissionError):
                 pass
-        
+
         # Find running foreground processes not already tracked as daemons
         for process_info in DaemonManager.find_running_bridge_processes():
-            if process_info['pid'] not in daemon_pids:
+            if process_info["pid"] not in daemon_pids:
                 daemons.append(process_info)
-        
+
         return daemons
-    
+
     @staticmethod
     def get_daemon_info_by_name(config_dir: Path, daemon_name: str) -> dict[str, Any] | None:
         """Get daemon info by name without loading config.
-        
+
         Args:
             config_dir: Configuration directory
             daemon_name: Name of the daemon
-            
+
         Returns:
             Daemon info dictionary or None if not found
         """
@@ -231,13 +230,13 @@ class DaemonManager:
             info_file = config_dir / "bridge.json"
         else:
             info_file = config_dir / f"bridge-{daemon_name}.json"
-        
+
         # First try to find in daemon files
         if info_file.exists():
             try:
                 with info_file.open("r") as f:
                     daemon_info = json.load(f)
-                
+
                 # Check if process is still running
                 pid = daemon_info.get("pid")
                 if pid and psutil.pid_exists(pid):
@@ -256,21 +255,21 @@ class DaemonManager:
                     daemon_info["status"] = "stopped"
                     # Clean up stale daemon files
                     _cleanup_stale_daemon_files(config_dir, daemon_name)
-                
+
                 return daemon_info
             except (json.JSONDecodeError, FileNotFoundError, PermissionError):
                 pass
-        
+
         # If not found in daemon files, check running processes
         for process_info in DaemonManager.find_running_bridge_processes():
             if process_info["name"] == daemon_name:
                 return process_info
-        
+
         return None
 
     def __init__(self, config_dir: Path, console: Console | None = None, daemon_name: str | None = None) -> None:
         """Initialize daemon manager.
-        
+
         Args:
             config_dir: Configuration directory
             console: Rich console for output
@@ -279,7 +278,7 @@ class DaemonManager:
         self.config_dir = config_dir
         self.console = console or Console()
         self.daemon_name = daemon_name
-        
+
         # Use daemon name for file naming if provided
         if daemon_name:
             self.pid_file = config_dir / f"bridge-{daemon_name}.pid"
@@ -298,13 +297,13 @@ class DaemonManager:
         detach: bool = True,
     ) -> bool:
         """Start the bridge daemon.
-        
+
         Args:
             config_file: Configuration file path
             host: Server host
             port: Server port
             detach: Run in background
-            
+
         Returns:
             True if started successfully
         """
@@ -347,7 +346,7 @@ class DaemonManager:
                 # Write PID file
                 with self.pid_file.open("w") as pid_f:
                     pid_f.write(str(process.pid))
-                
+
                 # Write daemon info file
                 daemon_info = {
                     "pid": process.pid,
@@ -357,19 +356,19 @@ class DaemonManager:
                     "host": host,
                     "port": port,
                     "log_file": str(self.log_file),
-                    "pid_file": str(self.pid_file)
+                    "pid_file": str(self.pid_file),
                 }
-                
+
                 with self.info_file.open("w") as info_f:
                     json.dump(daemon_info, info_f, indent=2)
 
                 # Give it a moment to start, then detach completely
                 await asyncio.sleep(1)  # Reduced wait time
-                
+
                 # Detach from the process - don't maintain reference
                 pid = process.pid
                 process = None  # Release the process reference
-                
+
                 # Quick check if process exists without blocking
                 if await self._is_process_running(pid):
                     return True
@@ -389,10 +388,10 @@ class DaemonManager:
 
     async def stop_daemon(self, force: bool = False) -> bool:
         """Stop the bridge daemon.
-        
+
         Args:
             force: Force stop with SIGKILL
-            
+
         Returns:
             True if stopped successfully
         """
@@ -437,11 +436,11 @@ class DaemonManager:
 
     async def restart_daemon(self, force: bool = False, **start_kwargs) -> bool:
         """Restart the bridge daemon.
-        
+
         Args:
             force: Force stop before restart
             **start_kwargs: Arguments for start_daemon
-            
+
         Returns:
             True if restarted successfully
         """
@@ -456,7 +455,7 @@ class DaemonManager:
 
     async def get_daemon_status(self) -> dict[str, Any]:
         """Get daemon status information.
-        
+
         Returns:
             Dictionary with daemon status details
         """
@@ -500,7 +499,7 @@ class DaemonManager:
 
     async def is_running(self) -> bool:
         """Check if daemon is running.
-        
+
         Returns:
             True if daemon is running
         """
@@ -509,10 +508,10 @@ class DaemonManager:
 
     async def get_log_content(self, lines: int = 50) -> str:
         """Get daemon log content.
-        
+
         Args:
             lines: Number of lines to read from end
-            
+
         Returns:
             Log content as string
         """
@@ -529,7 +528,7 @@ class DaemonManager:
 
     async def follow_logs(self, console: Console) -> None:
         """Follow daemon logs in real-time.
-        
+
         Args:
             console: Rich console for output
         """
@@ -560,7 +559,7 @@ class DaemonManager:
 
     async def _get_daemon_pid(self) -> int | None:
         """Get daemon PID from file.
-        
+
         Returns:
             PID if found and valid, None otherwise
         """
@@ -576,10 +575,10 @@ class DaemonManager:
 
     async def _is_process_running(self, pid: int) -> bool:
         """Check if process with PID is running.
-        
+
         Args:
             pid: Process ID
-            
+
         Returns:
             True if process is running
         """
@@ -602,7 +601,7 @@ def _cleanup_stale_daemon_files(config_dir: Path, daemon_name: str) -> None:
                 config_dir / f"bridge-{daemon_name}.pid",
                 config_dir / f"bridge-{daemon_name}.json",
             ]
-        
+
         for file_path in files_to_remove:
             if file_path.exists():
                 try:
@@ -610,7 +609,7 @@ def _cleanup_stale_daemon_files(config_dir: Path, daemon_name: str) -> None:
                 except (PermissionError, OSError):
                     # Ignore cleanup failures - don't break status checking
                     pass
-                    
+
     except Exception:
         # Ignore cleanup failures - don't break status checking
         pass

@@ -50,7 +50,9 @@ async def handle_mcp_add(
                     console.print("[yellow]Operation cancelled[/yellow]")
                     return
             except EOFError:
-                console.print(f"[red]Server '{args.name}' already exists. Use --force to overwrite in non-interactive mode.[/red]")
+                console.print(
+                    f"[red]Server '{args.name}' already exists. Use --force to overwrite in non-interactive mode.[/red]"
+                )
                 return
 
         # Build server configuration based on transport type
@@ -238,9 +240,11 @@ async def handle_mcp_list(
 
         if args.format == "json":
             import json
+
             console.print(json.dumps(servers, indent=2))
         elif args.format == "yaml":
             import yaml
+
             console.print(yaml.dump(servers, default_flow_style=False))
         else:
             ConfigFormatter.format_servers_table(servers, console)
@@ -352,7 +356,9 @@ async def handle_config_init(
                     console.print("[yellow]Operation cancelled[/yellow]")
                     return
             except EOFError:
-                console.print("[red]Configuration already exists. Use --force to overwrite in non-interactive mode[/red]")
+                console.print(
+                    "[red]Configuration already exists. Use --force to overwrite in non-interactive mode[/red]"
+                )
                 return
 
         # Create default configuration
@@ -362,20 +368,16 @@ async def handle_config_init(
                     "transport": "stdio",
                     "command": "npx",
                     "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"],
-                    "tags": ["local", "development"]
+                    "tags": ["local", "development"],
                 }
             },
             "bridge": {
                 "conflictResolution": "namespace",
                 "defaultNamespace": True,
-                "aggregation": {
-                    "tools": True,
-                    "resources": True,
-                    "prompts": True
-                },
+                "aggregation": {"tools": True, "resources": True, "prompts": True},
                 "host": "127.0.0.1",
-                "port": 9000
-            }
+                "port": 9000,
+            },
         }
 
         # Ensure config directory exists
@@ -401,26 +403,27 @@ async def handle_mcp_restart(
 ) -> None:
     """Handle MCP server restart/reconnect command."""
     try:
-        import aiohttp
-        
         # Load configuration to get bridge port
         import os
+
+        import aiohttp
+
         config = load_bridge_config_from_file(config_path, os.environ)
         bridge_port = config.bridge.port
-        
+
         server_name = args.server_name
-        
+
         # Check if server exists in configuration
         if server_name not in config.servers:
             console.print(f"[red]Error: Server '{server_name}' not found in configuration[/red]")
             console.print(f"Available servers: {', '.join(config.servers.keys())}")
             return
-        
+
         # Make API call to restart the server
         url = f"http://127.0.0.1:{bridge_port}/sse/mcp/{server_name}/reconnect"
-        
+
         console.print(f"[blue]Restarting MCP server '[cyan]{server_name}[/cyan]'...[/blue]")
-        
+
         try:
             timeout = aiohttp.ClientTimeout(total=30)
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -435,14 +438,14 @@ async def handle_mcp_restart(
                         error_text = await response.text()
                         console.print(f"[red]Error restarting server: HTTP {response.status}[/red]")
                         console.print(f"[red]{error_text}[/red]")
-                        
+
         except aiohttp.ClientError as e:
             console.print(f"[red]Error connecting to bridge server on port {bridge_port}: {e}[/red]")
             console.print("[yellow]Make sure the bridge server is running[/yellow]")
         except Exception as e:
             console.print(f"[red]Unexpected error during server restart: {e}[/red]")
             logger.exception("Failed to restart MCP server")
-            
+
     except Exception as e:
         console.print(f"[red]Error restarting MCP server: {e}[/red]")
         logger.exception("Failed to restart MCP server")

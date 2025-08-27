@@ -24,6 +24,7 @@ from enum import Enum
 
 class ToolType(Enum):
     """Classification of tool operations."""
+
     READ = "read"
     WRITE = "write"
     UNKNOWN = "unknown"
@@ -110,7 +111,7 @@ class ToolClassifier:
 
     def __init__(self, classification_overrides: dict[str, str] | None = None) -> None:
         """Initialize classifier with optional overrides.
-        
+
         Args:
             classification_overrides: Manual tool classification overrides
         """
@@ -120,10 +121,10 @@ class ToolClassifier:
 
     def classify_tool(self, tool_name: str) -> ToolType:
         """Classify a tool as read, write, or unknown.
-        
+
         Args:
             tool_name: Name of the tool to classify
-            
+
         Returns:
             ToolType classification
         """
@@ -152,10 +153,10 @@ class ToolClassifier:
 
     def is_read_only_tool(self, tool_name: str) -> bool:
         """Check if a tool is classified as read-only.
-        
+
         Args:
             tool_name: Name of the tool to check
-            
+
         Returns:
             True if tool is read-only, False otherwise
         """
@@ -163,10 +164,10 @@ class ToolClassifier:
 
     def is_write_tool(self, tool_name: str) -> bool:
         """Check if a tool is classified as a write operation.
-        
+
         Args:
             tool_name: Name of the tool to check
-            
+
         Returns:
             True if tool performs write operations, False otherwise
         """
@@ -174,7 +175,7 @@ class ToolClassifier:
 
     def add_classification_override(self, tool_name: str, tool_type: ToolType) -> None:
         """Add a manual classification override for a specific tool.
-        
+
         Args:
             tool_name: Name of the tool
             tool_type: Classification to override with
@@ -183,10 +184,10 @@ class ToolClassifier:
 
     def get_classification_stats(self, tool_names: list[str]) -> dict[str, int]:
         """Get classification statistics for a list of tools.
-        
+
         Args:
             tool_names: List of tool names to analyze
-            
+
         Returns:
             Dictionary with counts for each classification type
         """

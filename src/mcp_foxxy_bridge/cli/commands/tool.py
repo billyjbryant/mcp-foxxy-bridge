@@ -45,7 +45,7 @@ async def handle_tool_list(
         tool_command="list",
         server=getattr(args, "server", None),
         format=getattr(args, "format", "table"),
-        tag=getattr(args, "tag", None)
+        tag=getattr(args, "tag", None),
     )
     await _tool_list(argparse_args, config_path, console, logger)
 
@@ -61,6 +61,7 @@ async def handle_tool_command(
     # Check if no subcommand was provided
     if not hasattr(args, "tool_command") or args.tool_command is None:
         from ..main import _setup_argument_parser
+
         parser = _setup_argument_parser()
         for action in parser._subparsers._actions:
             if hasattr(action, "choices") and "tool" in action.choices:
@@ -150,7 +151,9 @@ async def _tool_test(
         server_name = tool.get("server", "unknown")
 
         if args.dry_run:
-            console.print(f"[blue]Would test tool '[cyan]{args.name}[/cyan]' on server '[cyan]{server_name}[/cyan]'[/blue]")
+            console.print(
+                f"[blue]Would test tool '[cyan]{args.name}[/cyan]' on server '[cyan]{server_name}[/cyan]'[/blue]"
+            )
             console.print(f"Description: {tool.get('description', 'No description')}")
             if "inputSchema" in tool:
                 console.print("Input Schema:")

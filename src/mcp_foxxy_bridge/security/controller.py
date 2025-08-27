@@ -33,7 +33,7 @@ class AccessController:
 
     def __init__(self, bridge_config: BridgeSecurityConfig) -> None:
         """Initialize access controller with bridge security configuration.
-        
+
         Args:
             bridge_config: Global bridge security configuration
         """
@@ -43,10 +43,10 @@ class AccessController:
 
     def _sanitize_input(self, value: str) -> str:
         """Sanitize user input to prevent injection attacks.
-        
+
         Args:
             value: User input value to sanitize
-            
+
         Returns:
             Sanitized input value
         """
@@ -65,10 +65,10 @@ class AccessController:
 
     def _sanitize_pattern_list(self, patterns: list[str]) -> list[str]:
         """Sanitize a list of patterns.
-        
+
         Args:
             patterns: List of patterns to sanitize
-            
+
         Returns:
             List of sanitized patterns
         """
@@ -111,7 +111,7 @@ class AccessController:
 
     def register_server(self, server_name: str, server_config: ServerSecurityConfig | None = None) -> None:
         """Register a server with its security configuration.
-        
+
         Args:
             server_name: Name of the server to register
             server_config: Optional server-specific security configuration
@@ -135,7 +135,7 @@ class AccessController:
 
     def _sanitize_server_config(self, server_config: ServerSecurityConfig) -> None:
         """Sanitize server-specific security configuration.
-        
+
         Args:
             server_config: Server configuration to sanitize
         """
@@ -161,11 +161,11 @@ class AccessController:
 
     def is_tool_allowed(self, server_name: str, tool_name: str) -> bool:
         """Check if a tool is allowed to be executed on a specific server.
-        
+
         Args:
             server_name: Name of the server
             tool_name: Name of the tool to check
-            
+
         Returns:
             True if tool is allowed, False if blocked
         """
@@ -194,11 +194,11 @@ class AccessController:
 
     def get_block_reason(self, server_name: str, tool_name: str) -> str | None:
         """Get the reason why a tool is blocked.
-        
+
         Args:
             server_name: Name of the server
             tool_name: Name of the tool to check
-            
+
         Returns:
             Human-readable reason for blocking, or None if tool is allowed
         """
@@ -218,10 +218,10 @@ class AccessController:
 
     def get_server_policy_summary(self, server_name: str) -> dict[str, Any] | None:
         """Get a summary of the security policy for a specific server.
-        
+
         Args:
             server_name: Name of the server
-            
+
         Returns:
             Dictionary with policy summary, or None if server not found
         """
@@ -231,7 +231,7 @@ class AccessController:
 
     def list_registered_servers(self) -> list[str]:
         """Get list of registered server names.
-        
+
         Returns:
             List of registered server names
         """
@@ -239,10 +239,10 @@ class AccessController:
 
     def audit_tool_access(self, tools_by_server: dict[str, list[str]]) -> dict[str, dict[str, str]]:
         """Audit tool access permissions across all servers.
-        
+
         Args:
             tools_by_server: Dictionary mapping server names to tool lists
-            
+
         Returns:
             Dictionary with access audit results
         """

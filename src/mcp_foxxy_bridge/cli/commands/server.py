@@ -46,11 +46,11 @@ async def handle_server_start(
     # Determine daemon name
     daemon_name = args.name
     config_file = getattr(args, "config", None)
-    
+
     if not daemon_name and config_file:
         # Auto-generate daemon name from config file
         daemon_name = DaemonManager.generate_daemon_name(config_file)
-    
+
     daemon_manager = DaemonManager(config_dir, console, daemon_name)
 
     # Convert to argparse-style namespace for compatibility
@@ -59,7 +59,7 @@ async def handle_server_start(
         config=getattr(args, "config", None),
         port=getattr(args, "port", None),
         host=getattr(args, "host", None),
-        detach=getattr(args, "detach", False)
+        detach=getattr(args, "detach", False),
     )
     await _daemon_start(argparse_args, config_path, daemon_manager, console, logger)
 
@@ -73,14 +73,11 @@ async def handle_server_stop(
 ) -> None:
     """Handle server stop command from Click CLI."""
     daemon_name = getattr(args, "name", None)
-    
+
     if daemon_name:
         # Stop specific named daemon
         daemon_manager = DaemonManager(config_dir, console, daemon_name)
-        argparse_args = argparse.Namespace(
-            daemon_command="stop",
-            force=getattr(args, "force", False)
-        )
+        argparse_args = argparse.Namespace(daemon_command="stop", force=getattr(args, "force", False))
         await _daemon_stop(argparse_args, daemon_manager, console, logger)
     else:
         # Stop all daemons if no name specified
@@ -88,16 +85,13 @@ async def handle_server_stop(
         if not daemons:
             console.print("No running daemons found")
             return
-        
+
         for daemon_info in daemons:
             if daemon_info.get("status") == "running":
                 daemon_name = daemon_info.get("name", "default")
                 console.print(f"Stopping daemon: {daemon_name}")
                 daemon_manager = DaemonManager(config_dir, console, daemon_name if daemon_name != "default" else None)
-                argparse_args = argparse.Namespace(
-                    daemon_command="stop",
-                    force=getattr(args, "force", False)
-                )
+                argparse_args = argparse.Namespace(daemon_command="stop", force=getattr(args, "force", False))
                 await _daemon_stop(argparse_args, daemon_manager, console, logger)
 
 
@@ -111,11 +105,11 @@ async def handle_server_restart(
     """Handle server restart command from Click CLI."""
     daemon_name = getattr(args, "name", None)
     config_file = getattr(args, "config", None)
-    
+
     # If name not provided but config file is, generate name from config
     if not daemon_name and config_file:
         daemon_name = DaemonManager.generate_daemon_name(config_file)
-    
+
     daemon_manager = DaemonManager(config_dir, console, daemon_name)
 
     # Convert to argparse-style namespace for compatibility
@@ -124,7 +118,7 @@ async def handle_server_restart(
         force=getattr(args, "force", False),
         config=config_file,
         port=getattr(args, "port", None),
-        host=getattr(args, "host", None)
+        host=getattr(args, "host", None),
     )
     await _daemon_restart(argparse_args, daemon_manager, console, logger)
 
@@ -139,7 +133,7 @@ async def handle_server_list(
     """Handle server list command from Click CLI."""
     try:
         daemons = DaemonManager.list_daemons(config_dir)
-        
+
         if args.format == "json":
             console.print(json.dumps(daemons, indent=2))
         else:
@@ -147,9 +141,9 @@ async def handle_server_list(
             if not daemons:
                 console.print("No bridge instances found")
                 return
-            
+
             from rich.table import Table
-            
+
             table = Table(title="Bridge Instances")
             table.add_column("Name", style="cyan")
             table.add_column("PID", style="green")
@@ -157,30 +151,30 @@ async def handle_server_list(
             table.add_column("Config File", style="dim")
             table.add_column("Port", style="blue")
             table.add_column("Started", style="dim")
-            
+
             for daemon in daemons:
                 status_color = "green" if daemon.get("status") == "running" else "red"
                 config_file = daemon.get("config_file", "N/A")
                 if config_file and len(config_file) > 50:
                     config_file = "..." + config_file[-47:]
-                
+
                 # Add type indicator to PID column
                 pid_with_type = str(daemon.get("pid", "N/A"))
                 daemon_type = daemon.get("type", "daemon")
                 type_indicator = "[D]" if daemon_type == "daemon" else "[F]"
                 pid_display = f"{pid_with_type} {type_indicator}"
-                
+
                 table.add_row(
                     daemon.get("name", "unknown"),
                     pid_display,
                     f"[{status_color}]{daemon.get('status', 'unknown')}[/{status_color}]",
                     config_file,
                     str(daemon.get("port", "N/A")),
-                    daemon.get("started_at", "N/A")
+                    daemon.get("started_at", "N/A"),
                 )
-            
+
             console.print(table)
-    
+
     except Exception as e:
         console.print(f"[red]Error listing daemons: {e}[/red]")
         logger.exception("Failed to list daemons")
@@ -199,13 +193,13 @@ async def handle_server_status(
     if not full_api_status:
         await _daemon_status(args, config_dir, console, logger)
         return
-        
+
     # Convert to argparse-style namespace for compatibility
     argparse_args = argparse.Namespace(
         server_command="status",
         name=getattr(args, "name", None),
         format=getattr(args, "format", "table"),
-        watch=getattr(args, "watch", False)
+        watch=getattr(args, "watch", False),
     )
     await _server_status(argparse_args, config_path, console, logger)
 
@@ -221,6 +215,7 @@ async def handle_server_command(
     # Check if no subcommand was provided
     if not hasattr(args, "server_command") or args.server_command is None:
         from ..main import _setup_argument_parser
+
         parser = _setup_argument_parser()
         for action in parser._subparsers._actions:
             if hasattr(action, "choices") and "server" in action.choices:
@@ -295,6 +290,7 @@ async def _server_status_watch(
     console: Console,
 ) -> None:
     """Watch server status with live updates."""
+
     async def update_status():
         try:
             if args.name:
@@ -310,9 +306,7 @@ async def _server_status_watch(
 
                 if "error" in status_data:
                     panel = Panel(
-                        f"[red]Error: {status_data['error']}[/red]",
-                        title="❌ Connection Error",
-                        border_style="red"
+                        f"[red]Error: {status_data['error']}[/red]", title="❌ Connection Error", border_style="red"
                     )
                     live.update(panel)
                 else:
@@ -320,6 +314,7 @@ async def _server_status_watch(
                     from io import StringIO
 
                     from rich.console import Console as TempConsole
+
                     temp_output = StringIO()
                     temp_console = TempConsole(file=temp_output, width=console.size.width)
 
@@ -336,11 +331,7 @@ async def _server_status_watch(
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                panel = Panel(
-                    f"[red]Update failed: {e}[/red]",
-                    title="❌ Update Error",
-                    border_style="red"
-                )
+                panel = Panel(f"[red]Update failed: {e}[/red]", title="❌ Update Error", border_style="red")
                 live.update(panel)
                 await asyncio.sleep(5)  # Wait longer on error
 
@@ -378,6 +369,7 @@ async def _server_restart(
 
         if not args.force:
             from rich.prompt import Confirm
+
             if not Confirm.ask(f"Restart server '[cyan]{args.name}[/cyan]'?"):
                 console.print("[yellow]Operation cancelled[/yellow]")
                 return
@@ -590,14 +582,14 @@ async def _daemon_status(
     """Show daemon status without loading config."""
     try:
         daemon_name = getattr(args, "name", None)
-        
+
         if daemon_name:
             # Show specific daemon status
             daemon_info = DaemonManager.get_daemon_info_by_name(config_dir, daemon_name)
             if not daemon_info:
                 console.print(f"[red]Daemon '{daemon_name}' not found[/red]")
                 return
-                
+
             if args.format == "json":
                 console.print(json.dumps(daemon_info, indent=2))
             else:
@@ -605,11 +597,11 @@ async def _daemon_status(
                 status_color = "green" if daemon_info.get("status") == "running" else "red"
                 console.print(f"Daemon: [cyan]{daemon_info.get('name', 'unknown')}[/cyan]")
                 console.print(f"Status: [{status_color}]{daemon_info.get('status', 'unknown')}[/{status_color}]")
-                pid = daemon_info.get('pid', 'N/A')
-                daemon_type = daemon_info.get('type', 'daemon')
+                pid = daemon_info.get("pid", "N/A")
+                daemon_type = daemon_info.get("type", "daemon")
                 type_indicator = "[D]" if daemon_type == "daemon" else "[F]"
                 console.print(f"PID: {pid} {type_indicator}")
-                
+
                 if daemon_info.get("config_file"):
                     console.print(f"Config: {daemon_info['config_file']}")
                 if daemon_info.get("port"):
@@ -620,14 +612,14 @@ async def _daemon_status(
                     console.print(f"Started: {daemon_info['started_at']}")
                 if daemon_info.get("log_file"):
                     console.print(f"Logs: {daemon_info['log_file']}")
-                
+
         else:
             # Show all daemons status or suggest specifying by name if multiple
             daemons = DaemonManager.list_daemons(config_dir)
             if not daemons:
                 console.print("No bridge instances found")
                 return
-                
+
             if args.format == "json":
                 console.print(json.dumps(daemons, indent=2))
             elif len(daemons) == 1:
@@ -637,7 +629,7 @@ async def _daemon_status(
                 console.print(f"Daemon: [cyan]{daemon.get('name', 'unknown')}[/cyan]")
                 console.print(f"Status: [{status_color}]{daemon.get('status', 'unknown')}[/{status_color}]")
                 console.print(f"PID: {daemon.get('pid', 'N/A')}")
-                
+
                 if daemon.get("config_file"):
                     console.print(f"Config: {daemon['config_file']}")
                 if daemon.get("port"):
@@ -650,27 +642,30 @@ async def _daemon_status(
                     console.print(f"Logs: {daemon['log_file']}")
             else:
                 # Multiple daemons - show list and advise to specify by name
-                console.print(f"[yellow]Found {len(daemons)} bridge daemons. Please specify a daemon by name:[/yellow]\n")
-                
+                console.print(
+                    f"[yellow]Found {len(daemons)} bridge daemons. Please specify a daemon by name:[/yellow]\n"
+                )
+
                 from rich.table import Table
+
                 table = Table(show_header=True, header_style="bold cyan")
                 table.add_column("Name", style="cyan")
                 table.add_column("Status", style="bold")
                 table.add_column("PID", style="green")
                 table.add_column("Port", style="blue")
-                
+
                 for daemon in daemons:
                     status_color = "green" if daemon.get("status") == "running" else "red"
                     table.add_row(
                         daemon.get("name", "unknown"),
                         f"[{status_color}]{daemon.get('status', 'unknown')}[/{status_color}]",
                         str(daemon.get("pid", "N/A")),
-                        str(daemon.get("port", "N/A"))
+                        str(daemon.get("port", "N/A")),
                     )
-                
+
                 console.print(table)
-                console.print(f"\n[dim]Use: foxxy-bridge server status --name <daemon_name>[/dim]")
-    
+                console.print("\n[dim]Use: foxxy-bridge server status --name <daemon_name>[/dim]")
+
     except Exception as e:
         console.print(f"[red]Error getting daemon status: {e}[/red]")
         logger.exception("Failed to get daemon status")

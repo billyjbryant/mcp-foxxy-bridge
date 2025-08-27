@@ -49,7 +49,6 @@ from mcp_foxxy_bridge.config.config_loader import (
     BridgeServerConfig,
     normalize_server_name,
 )
-from mcp_foxxy_bridge.security.controller import AccessController
 from mcp_foxxy_bridge.security.policy import SecurityPolicy
 from mcp_foxxy_bridge.utils.logging import log_to_file
 
@@ -907,17 +906,20 @@ class ServerManager:
 
             # Create security policy for this server using bridge-level read_only_mode
             from mcp_foxxy_bridge.security.config import BridgeSecurityConfig
+
             bridge_security = None
             if self.bridge_config.bridge:
                 # Create a minimal BridgeSecurityConfig using the bridge-level read_only_mode
                 bridge_security = BridgeSecurityConfig(
                     read_only_mode=self.bridge_config.bridge.read_only_mode,
-                    tools=self.bridge_config.bridge.security.tools if self.bridge_config.bridge.security else None
+                    tools=self.bridge_config.bridge.security.tools if self.bridge_config.bridge.security else None,
                 )
-            
+
             security_policy = SecurityPolicy(
                 bridge_config=bridge_security,
-                server_config=server.config.security if hasattr(server.config, 'security') and server.config.security else None
+                server_config=server.config.security
+                if hasattr(server.config, "security") and server.config.security
+                else None,
             )
 
             for tool in server.tools:
@@ -929,12 +931,12 @@ class ServerManager:
 
                 # Apply security filtering - check if tool is allowed
                 if not security_policy.is_tool_allowed(original_tool_name):
-                    logger.debug("Tool '%s' from server '%s' blocked by security policy", original_tool_name, server.name)
-                    filtered_tools.append({
-                        "tool": original_tool_name,
-                        "server": server.name,
-                        "namespaced_name": tool_name
-                    })
+                    logger.debug(
+                        "Tool '%s' from server '%s' blocked by security policy", original_tool_name, server.name
+                    )
+                    filtered_tools.append(
+                        {"tool": original_tool_name, "server": server.name, "namespaced_name": tool_name}
+                    )
                     continue
 
                 # Handle name conflicts based on configuration
@@ -959,7 +961,7 @@ class ServerManager:
 
         # Store filtered tools for status reporting
         self._filtered_tools = filtered_tools
-        
+
         # Log filtering summary
         filtered_count = len(filtered_tools)
         if filtered_count > 0:
@@ -969,12 +971,12 @@ class ServerManager:
                     logger.debug("Filtered tool: %s from server %s", filtered["tool"], filtered["server"])
         else:
             logger.info("Security filtering: %d tools available (no tools filtered)", len(tools))
-        
+
         return tools
-    
+
     def get_filtered_tools(self) -> list[dict[str, str]]:
         """Get information about tools that were filtered out by security policies.
-        
+
         Returns:
             List of filtered tool dictionaries with keys: tool, server, namespaced_name
         """
@@ -1013,7 +1015,7 @@ class ServerManager:
                     # Use helper function to handle both standard and custom URI schemes
                     parsed_uri = _create_resource_uri(resource_uri)
 
-                    # If _create_resource_uri returned a string (custom scheme), 
+                    # If _create_resource_uri returned a string (custom scheme),
                     # don't try to convert to AnyUrl again as it will fail
                     if isinstance(parsed_uri, str):
                         # For custom schemes that failed AnyUrl validation, we need a different approach
@@ -1027,12 +1029,12 @@ class ServerManager:
                                 namespaced_uri = f"{scheme}://{namespace}"
                         else:
                             namespaced_uri = original_uri
-                        
+
                         # Try to create AnyUrl with the properly namespaced URI
                         resource_uri_typed = AnyUrl(namespaced_uri)
                     else:
                         resource_uri_typed = parsed_uri
-                        
+
                     namespaced_resource = types.Resource(
                         uri=resource_uri_typed,
                         name=resource.name,
@@ -1134,17 +1136,20 @@ class ServerManager:
 
         # Apply security check for tool execution using bridge-level read_only_mode
         from mcp_foxxy_bridge.security.config import BridgeSecurityConfig
+
         bridge_security = None
         if self.bridge_config.bridge:
             # Create a minimal BridgeSecurityConfig using the bridge-level read_only_mode
             bridge_security = BridgeSecurityConfig(
                 read_only_mode=self.bridge_config.bridge.read_only_mode,
-                tools=self.bridge_config.bridge.security.tools if self.bridge_config.bridge.security else None
+                tools=self.bridge_config.bridge.security.tools if self.bridge_config.bridge.security else None,
             )
-        
+
         security_policy = SecurityPolicy(
             bridge_config=bridge_security,
-            server_config=server.config.security if hasattr(server.config, 'security') and server.config.security else None
+            server_config=server.config.security
+            if hasattr(server.config, "security") and server.config.security
+            else None,
         )
 
         if not security_policy.is_tool_allowed(actual_tool_name):

@@ -45,6 +45,7 @@ async def handle_config_command(
     if not hasattr(args, "config_command") or args.config_command is None:
         # Import the parser to show help
         from ..main import _setup_argument_parser
+
         parser = _setup_argument_parser()
         # Get the config subparser to show its help
         for action in parser._subparsers._actions:
@@ -95,7 +96,9 @@ async def _config_add(
                     console.print("[yellow]Operation cancelled[/yellow]")
                     return
             except EOFError:
-                console.print(f"[red]Server '{args.name}' already exists. Use --force to overwrite in non-interactive mode.[/red]")
+                console.print(
+                    f"[red]Server '{args.name}' already exists. Use --force to overwrite in non-interactive mode.[/red]"
+                )
                 return
 
         # Build server configuration
@@ -194,6 +197,7 @@ async def _config_list(
             console.print(json.dumps(servers, indent=2))
         elif args.format == "yaml":
             import yaml
+
             console.print(yaml.dump(servers, default_flow_style=False))
         else:
             ConfigFormatter.format_servers_table(servers, console)
@@ -278,7 +282,9 @@ async def _config_init(
                     console.print("[yellow]Operation cancelled[/yellow]")
                     return
             except EOFError:
-                console.print("[red]Configuration already exists. Use --force to overwrite in non-interactive mode[/red]")
+                console.print(
+                    "[red]Configuration already exists. Use --force to overwrite in non-interactive mode[/red]"
+                )
                 return
 
         # Create default configuration
@@ -288,20 +294,16 @@ async def _config_init(
                     "transport": "stdio",
                     "command": "npx",
                     "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"],
-                    "tags": ["local", "development"]
+                    "tags": ["local", "development"],
                 }
             },
             "bridge": {
                 "conflictResolution": "namespace",
                 "defaultNamespace": True,
-                "aggregation": {
-                    "tools": True,
-                    "resources": True,
-                    "prompts": True
-                },
+                "aggregation": {"tools": True, "resources": True, "prompts": True},
                 "host": "127.0.0.1",
-                "port": 9000
-            }
+                "port": 9000,
+            },
         }
 
         # Ensure config directory exists
@@ -375,15 +377,14 @@ async def _config_get(
     try:
         config = _load_config_safe(config_path, logger)
         value = _get_config_value(config, args.key)
-        
+
         if value is None:
             console.print(f"[yellow]Configuration key '{args.key}' not found[/yellow]")
+        elif isinstance(value, (dict, list)):
+            console.print(json.dumps(value, indent=2))
         else:
-            if isinstance(value, (dict, list)):
-                console.print(json.dumps(value, indent=2))
-            else:
-                console.print(str(value))
-                
+            console.print(str(value))
+
     except Exception as e:
         console.print(f"[red]Error getting config value: {e}[/red]")
         logger.exception("Failed to get config value")
@@ -398,27 +399,27 @@ async def _config_set(
     """Set a configuration value by key path (assumes bridge prefix)."""
     try:
         config = _load_config_safe(config_path, logger)
-        
+
         # Get key and value from CLI args
         key = args.key
         value = args.value
-        
+
         # Assume bridge prefix unless key starts with "mcpServers" or other root-level keys
         bridge_key = _normalize_bridge_config_key(key)
-        
+
         old_value = _get_config_value(config, bridge_key)
         parsed_value = _parse_config_value(value)
-        
+
         # Set the value
         _set_config_value(config, bridge_key, parsed_value)
-        
+
         # Save configuration
         _save_config(config, config_path, console, logger)
-        
+
         console.print(f"[green]✓[/green] Set [bold]{bridge_key}[/bold] = [cyan]{parsed_value}[/cyan]")
         if old_value is not None and old_value != parsed_value:
             console.print(f"[dim]Previous value: {old_value}[/dim]")
-            
+
     except Exception as e:
         console.print(f"[red]Error setting config value: {e}[/red]")
         logger.exception("Failed to set config value")
@@ -433,27 +434,27 @@ async def _config_unset(
     """Unset a configuration value by key path (assumes bridge prefix)."""
     try:
         config = _load_config_safe(config_path, logger)
-        
+
         # Get key from CLI args
         key = args.key
-        
+
         # Assume bridge prefix unless key starts with "mcpServers" or other root-level keys
         bridge_key = _normalize_bridge_config_key(key)
-        
+
         old_value = _get_config_value(config, bridge_key)
         if old_value is None:
             console.print(f"[yellow]Key [bold]{bridge_key}[/bold] is not set[/yellow]")
             return
-        
+
         # Unset the value
         _unset_config_value(config, bridge_key)
-        
+
         # Save configuration
         _save_config(config, config_path, console, logger)
-        
+
         console.print(f"[green]✓[/green] Unset [bold]{bridge_key}[/bold]")
         console.print(f"[dim]Previous value: {old_value}[/dim]")
-            
+
     except Exception as e:
         console.print(f"[red]Error unsetting config value: {e}[/red]")
         logger.exception("Failed to unset config value")
@@ -463,16 +464,16 @@ def _normalize_bridge_config_key(key: str) -> str:
     """Normalize a config key to assume bridge prefix unless it's a root-level key."""
     # Root-level keys that should not be prefixed with "bridge."
     root_keys = {"mcpServers"}
-    
+
     # If key starts with a root-level key, don't add bridge prefix
     first_part = key.split(".")[0]
     if first_part in root_keys:
         return key
-    
+
     # If key already starts with "bridge.", don't add prefix
     if key.startswith("bridge."):
         return key
-        
+
     # Otherwise, assume bridge prefix
     return f"bridge.{key}"
 
@@ -481,13 +482,13 @@ def _get_config_value(config: dict[str, Any], key: str) -> Any:
     """Get a configuration value by key path (e.g. 'bridge.read_only_mode')."""
     keys = key.split(".")
     current = config
-    
+
     for k in keys:
         if isinstance(current, dict) and k in current:
             current = current[k]
         else:
             return None
-    
+
     return current
 
 
@@ -495,7 +496,7 @@ def _set_config_value(config: dict[str, Any], key: str, value: Any) -> None:
     """Set a configuration value by key path."""
     keys = key.split(".")
     current = config
-    
+
     # Navigate to the parent of the target key
     for k in keys[:-1]:
         if k not in current:
@@ -503,7 +504,7 @@ def _set_config_value(config: dict[str, Any], key: str, value: Any) -> None:
         elif not isinstance(current[k], dict):
             raise ValueError(f"Cannot set nested value: '{k}' is not an object")
         current = current[k]
-    
+
     # Set the final value
     current[keys[-1]] = value
 
@@ -512,14 +513,14 @@ def _unset_config_value(config: dict[str, Any], key: str) -> None:
     """Unset a configuration value by key path."""
     keys = key.split(".")
     current = config
-    
+
     # Navigate to the parent of the target key
     for k in keys[:-1]:
         if k not in current or not isinstance(current[k], dict):
             # Key doesn't exist, nothing to unset
             return
         current = current[k]
-    
+
     # Remove the final key if it exists
     if keys[-1] in current:
         del current[keys[-1]]
@@ -530,20 +531,19 @@ def _parse_config_value(value: str) -> Any:
     # Handle boolean values
     if value.lower() in ("true", "false"):
         return value.lower() == "true"
-    
+
     # Handle null/none
     if value.lower() in ("null", "none"):
         return None
-    
+
     # Handle numbers
     try:
         if "." in value:
             return float(value)
-        else:
-            return int(value)
+        return int(value)
     except ValueError:
         pass
-    
+
     # Handle arrays (comma-separated or JSON format)
     if value.startswith("[") and value.endswith("]"):
         try:
@@ -552,19 +552,20 @@ def _parse_config_value(value: str) -> Any:
             pass
     elif "," in value:
         return [item.strip() for item in value.split(",")]
-    
+
     # Handle objects (JSON format)
     if value.startswith("{") and value.endswith("}"):
         try:
             return json.loads(value)
         except json.JSONDecodeError:
             pass
-    
+
     # Return as string
     return value
 
 
 # MCP Server Configuration Functions
+
 
 async def _mcp_config_set(
     args: argparse.Namespace,
@@ -575,35 +576,35 @@ async def _mcp_config_set(
     """Set an MCP server configuration value."""
     try:
         config = _load_config_safe(config_path, logger)
-        
+
         # Get server name, key, and value from CLI args
         server_name = args.server_name
         key = args.key
         value = args.value
-        
+
         # Check if server exists
         servers = config.get("mcpServers", {})
         if server_name not in servers:
             console.print(f"[red]MCP server '{server_name}' not found[/red]")
             console.print("[dim]Use 'foxxy-bridge mcp list' to see available servers[/dim]")
             return
-        
+
         # Build the full key path for mcpServers
         full_key = f"mcpServers.{server_name}.{key}"
-        
+
         old_value = _get_config_value(config, full_key)
         parsed_value = _parse_config_value(value)
-        
+
         # Set the value
         _set_config_value(config, full_key, parsed_value)
-        
+
         # Save configuration
         _save_config(config, config_path, console, logger)
-        
+
         console.print(f"[green]✓[/green] Set [bold]{server_name}.{key}[/bold] = [cyan]{parsed_value}[/cyan]")
         if old_value is not None and old_value != parsed_value:
             console.print(f"[dim]Previous value: {old_value}[/dim]")
-            
+
     except Exception as e:
         console.print(f"[red]Error setting MCP server config value: {e}[/red]")
         logger.exception("Failed to set MCP server config value")
@@ -618,27 +619,27 @@ async def _mcp_config_get(
     """Get an MCP server configuration value."""
     try:
         config = _load_config_safe(config_path, logger)
-        
+
         # Get server name and key from CLI args
         server_name = args.server_name
         key = args.key
-        
+
         # Check if server exists
         servers = config.get("mcpServers", {})
         if server_name not in servers:
             console.print(f"[red]MCP server '{server_name}' not found[/red]")
             console.print("[dim]Use 'foxxy-bridge mcp list' to see available servers[/dim]")
             return
-        
+
         # Build the full key path for mcpServers
         full_key = f"mcpServers.{server_name}.{key}"
-        
+
         value = _get_config_value(config, full_key)
         if value is None:
             console.print(f"[yellow]Key [bold]{server_name}.{key}[/bold] is not set[/yellow]")
         else:
             console.print(f"[bold]{server_name}.{key}[/bold] = [cyan]{value}[/cyan]")
-            
+
     except Exception as e:
         console.print(f"[red]Error getting MCP server config value: {e}[/red]")
         logger.exception("Failed to get MCP server config value")
@@ -653,35 +654,35 @@ async def _mcp_config_unset(
     """Unset an MCP server configuration value."""
     try:
         config = _load_config_safe(config_path, logger)
-        
+
         # Get server name and key from CLI args
         server_name = args.server_name
         key = args.key
-        
+
         # Check if server exists
         servers = config.get("mcpServers", {})
         if server_name not in servers:
             console.print(f"[red]MCP server '{server_name}' not found[/red]")
             console.print("[dim]Use 'foxxy-bridge mcp list' to see available servers[/dim]")
             return
-        
+
         # Build the full key path for mcpServers
         full_key = f"mcpServers.{server_name}.{key}"
-        
+
         old_value = _get_config_value(config, full_key)
         if old_value is None:
             console.print(f"[yellow]Key [bold]{server_name}.{key}[/bold] is not set[/yellow]")
             return
-        
+
         # Unset the value
         _unset_config_value(config, full_key)
-        
+
         # Save configuration
         _save_config(config, config_path, console, logger)
-        
+
         console.print(f"[green]✓[/green] Unset [bold]{server_name}.{key}[/bold]")
         console.print(f"[dim]Previous value: {old_value}[/dim]")
-            
+
     except Exception as e:
         console.print(f"[red]Error unsetting MCP server config value: {e}[/red]")
         logger.exception("Failed to unset MCP server config value")

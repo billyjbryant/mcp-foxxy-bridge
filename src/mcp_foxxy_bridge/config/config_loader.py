@@ -68,7 +68,7 @@ import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from mcp_foxxy_bridge.security.config import BridgeSecurityConfig, ServerSecurityConfig
@@ -1292,18 +1292,18 @@ def _load_bridge_settings(config_data: dict[str, Any], allow_command_substitutio
 
 def _load_bridge_security_config(security_data: dict[str, Any]) -> "BridgeSecurityConfig | None":
     """Load bridge security configuration from config data.
-    
+
     Args:
         security_data: Security configuration dictionary
-        
+
     Returns:
         BridgeSecurityConfig object or None if no security config
     """
     if not security_data:
         return None
-    
+
     from mcp_foxxy_bridge.security.config import BridgeSecurityConfig, ToolSecurityConfig
-    
+
     # Load tool security config if present
     tool_config = None
     if "tool_security" in security_data:
@@ -1315,7 +1315,7 @@ def _load_bridge_security_config(security_data: dict[str, Any]) -> "BridgeSecuri
             block_tools=tool_data.get("block_tools", []),
             classification_overrides=tool_data.get("classification_overrides", {}),
         )
-    
+
     return BridgeSecurityConfig(
         read_only_mode=security_data.get("read_only_mode", True),
         tools=tool_config,
@@ -1378,8 +1378,9 @@ def _load_server_configurations(
 
         # Normalize server name for consistency with OAuth token storage
         from mcp_foxxy_bridge.oauth.utils import _validate_server_name
+
         normalized_name = _validate_server_name(name)
-        
+
         # Create server configuration
         server = BridgeServerConfig(
             name=normalized_name,

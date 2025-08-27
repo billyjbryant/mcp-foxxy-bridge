@@ -132,8 +132,7 @@ def _setup_config_commands(subparsers: argparse._SubParsersAction) -> None:
 
     # config show
     show_parser = config_subparsers.add_parser("show", help="Show bridge configuration")
-    show_parser.add_argument("--format", choices=["json", "yaml"], default="yaml",
-                           help="Output format")
+    show_parser.add_argument("--format", choices=["json", "yaml"], default="yaml", help="Output format")
 
     # config set
     set_parser = config_subparsers.add_parser("set", help="Set bridge configuration options")
@@ -173,14 +172,16 @@ def _setup_mcp_commands(subparsers: argparse._SubParsersAction) -> None:
     add_parser.add_argument("name", help="Server name")
     add_parser.add_argument("server_command", help="Server command")
     add_parser.add_argument("server_args", nargs="*", help="Server arguments")
-    add_parser.add_argument("--env", nargs=2, action="append", metavar=("KEY", "VALUE"),
-                           help="Environment variables", default=[])
+    add_parser.add_argument(
+        "--env", nargs=2, action="append", metavar=("KEY", "VALUE"), help="Environment variables", default=[]
+    )
     add_parser.add_argument("--cwd", help="Working directory")
     add_parser.add_argument("--tags", nargs="+", help="Server tags", default=[])
     add_parser.add_argument("--oauth", action="store_true", help="Enable OAuth")
     add_parser.add_argument("--oauth-issuer", help="OAuth issuer URL")
-    add_parser.add_argument("--transport", choices=["stdio", "sse", "http"], default="stdio",
-                           help="Server transport type")
+    add_parser.add_argument(
+        "--transport", choices=["stdio", "sse", "http"], default="stdio", help="Server transport type"
+    )
     add_parser.add_argument("--url", help="Server URL (for SSE/HTTP transports)")
 
     # mcp remove
@@ -190,14 +191,12 @@ def _setup_mcp_commands(subparsers: argparse._SubParsersAction) -> None:
 
     # mcp list
     list_parser = mcp_subparsers.add_parser("list", help="List configured MCP servers")
-    list_parser.add_argument("--format", choices=["table", "json", "yaml"], default="table",
-                           help="Output format")
+    list_parser.add_argument("--format", choices=["table", "json", "yaml"], default="table", help="Output format")
 
     # mcp show
     show_parser = mcp_subparsers.add_parser("show", help="Show MCP server details")
     show_parser.add_argument("name", nargs="?", help="Server name (show all if not specified)")
-    show_parser.add_argument("--format", choices=["json", "yaml"], default="yaml",
-                           help="Output format")
+    show_parser.add_argument("--format", choices=["json", "yaml"], default="yaml", help="Output format")
 
     # mcp enable/disable
     enable_parser = mcp_subparsers.add_parser("enable", help="Enable MCP server")
@@ -224,8 +223,7 @@ def _setup_server_commands(subparsers: argparse._SubParsersAction) -> None:
     # server status
     status_parser = server_subparsers.add_parser("status", help="Show server status")
     status_parser.add_argument("name", nargs="?", help="Server name (show all if not specified)")
-    status_parser.add_argument("--format", choices=["table", "json"], default="table",
-                             help="Output format")
+    status_parser.add_argument("--format", choices=["table", "json"], default="table", help="Output format")
     status_parser.add_argument("--watch", "-w", action="store_true", help="Watch for status changes")
 
     # server logs
@@ -233,8 +231,7 @@ def _setup_server_commands(subparsers: argparse._SubParsersAction) -> None:
     logs_parser.add_argument("name", help="Server name")
     logs_parser.add_argument("--follow", "-f", action="store_true", help="Follow log output")
     logs_parser.add_argument("--lines", "-n", type=int, default=50, help="Number of lines to show")
-    logs_parser.add_argument("--level", choices=["debug", "info", "warning", "error"],
-                           help="Filter by log level")
+    logs_parser.add_argument("--level", choices=["debug", "info", "warning", "error"], help="Filter by log level")
 
     # server restart
     restart_parser = server_subparsers.add_parser("restart", help="Restart server")
@@ -243,8 +240,7 @@ def _setup_server_commands(subparsers: argparse._SubParsersAction) -> None:
 
     # server health
     health_parser = server_subparsers.add_parser("health", help="Show health status")
-    health_parser.add_argument("--format", choices=["table", "json"], default="table",
-                             help="Output format")
+    health_parser.add_argument("--format", choices=["table", "json"], default="table", help="Output format")
 
     # server reconnect
     reconnect_parser = server_subparsers.add_parser("reconnect", help="Force reconnection")
@@ -268,8 +264,7 @@ def _setup_tool_commands(subparsers: argparse._SubParsersAction) -> None:
     # tool list
     list_parser = tool_subparsers.add_parser("list", help="List available tools")
     list_parser.add_argument("server", nargs="?", help="Server name (show all if not specified)")
-    list_parser.add_argument("--format", choices=["table", "json"], default="table",
-                           help="Output format")
+    list_parser.add_argument("--format", choices=["table", "json"], default="table", help="Output format")
     list_parser.add_argument("--tag", help="Filter by server tag")
 
     # tool test
@@ -319,8 +314,7 @@ def _setup_daemon_commands(subparsers: argparse._SubParsersAction) -> None:
 
     # daemon status
     status_parser = daemon_subparsers.add_parser("status", help="Show daemon status")
-    status_parser.add_argument("--format", choices=["table", "json"], default="table",
-                             help="Output format")
+    status_parser.add_argument("--format", choices=["table", "json"], default="table", help="Output format")
 
     # daemon restart
     restart_parser = daemon_subparsers.add_parser("restart", help="Restart daemon")
@@ -349,8 +343,7 @@ def _setup_oauth_commands(subparsers: argparse._SubParsersAction) -> None:
     # oauth status
     status_parser = oauth_subparsers.add_parser("status", help="Show OAuth status")
     status_parser.add_argument("name", nargs="?", help="Server name (show all if not specified)")
-    status_parser.add_argument("--format", choices=["table", "json"], default="table",
-                             help="Output format")
+    status_parser.add_argument("--format", choices=["table", "json"], default="table", help="Output format")
 
     # oauth login
     login_parser = oauth_subparsers.add_parser("login", help="Trigger OAuth login")
@@ -377,6 +370,7 @@ async def main() -> None:
     # Get config directory and config path
     if args.config_dir:
         from ..utils.path_security import validate_config_dir
+
         try:
             config_dir = validate_config_dir(args.config_dir)
         except Exception as e:
@@ -388,6 +382,7 @@ async def main() -> None:
     # Determine config file path with priority: CLI arg > ENV var > default
     if args.config:
         from ..utils.path_security import validate_config_path
+
         try:
             config_path = validate_config_path(args.config)
         except Exception as e:
@@ -405,18 +400,23 @@ async def main() -> None:
         # Import and dispatch to command handlers
         if args.command == "config":
             from .commands.config import handle_config_command
+
             await handle_config_command(args, config_path, config_dir, console, logger)
         elif args.command == "server":
             from .commands.server import handle_server_command
+
             await handle_server_command(args, config_path, config_dir, console, logger)
         elif args.command == "tool":
             from .commands.tool import handle_tool_command
+
             await handle_tool_command(args, config_path, config_dir, console, logger)
         elif args.command == "daemon":
             from .commands.daemon import handle_daemon_command
+
             await handle_daemon_command(args, config_path, config_dir, console, logger)
         elif args.command == "oauth":
             from .commands.oauth import handle_oauth_command
+
             await handle_oauth_command(args, config_path, config_dir, console, logger)
         else:
             console.print(f"[red]Unknown command: {args.command}[/red]")

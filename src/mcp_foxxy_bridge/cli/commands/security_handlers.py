@@ -46,9 +46,11 @@ async def handle_security_show(
 
         if args.format == "json":
             import json
+
             console.print(json.dumps(security_config, indent=2))
         else:  # yaml
             import yaml
+
             yaml_str = yaml.dump(security_config, default_flow_style=False, sort_keys=False)
             console.print(yaml_str.rstrip())
 
@@ -86,13 +88,9 @@ async def handle_security_set(
             console.print(f"[green]✓[/green] Set read-only mode: {args.read_only}")
 
         # Set tool security configuration
-        has_tool_security_updates = any([
-            args.allow_patterns,
-            args.block_patterns,
-            args.allow_tools,
-            args.block_tools,
-            args.classify_tools
-        ])
+        has_tool_security_updates = any(
+            [args.allow_patterns, args.block_patterns, args.allow_tools, args.block_tools, args.classify_tools]
+        )
 
         if has_tool_security_updates:
             if "tool_security" not in security_config:

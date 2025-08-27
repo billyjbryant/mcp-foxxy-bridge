@@ -28,7 +28,7 @@ class PatternMatcher:
 
     def __init__(self, patterns: list[str]) -> None:
         """Initialize pattern matcher with a list of patterns.
-        
+
         Args:
             patterns: List of glob or regex patterns to match against
         """
@@ -50,10 +50,10 @@ class PatternMatcher:
 
     def _is_regex_pattern(self, pattern: str) -> bool:
         """Determine if a pattern is regex or glob.
-        
+
         Args:
             pattern: Pattern string to analyze
-            
+
         Returns:
             True if pattern appears to be regex, False if glob
         """
@@ -75,10 +75,10 @@ class PatternMatcher:
 
     def matches(self, text: str) -> bool:
         """Check if text matches any of the patterns.
-        
+
         Args:
             text: Text to match against patterns
-            
+
         Returns:
             True if text matches any pattern, False otherwise
         """
@@ -96,10 +96,10 @@ class PatternMatcher:
 
     def get_matching_patterns(self, text: str) -> list[str]:
         """Get all patterns that match the given text.
-        
+
         Args:
             text: Text to match against patterns
-            
+
         Returns:
             List of patterns that match the text
         """
@@ -127,7 +127,7 @@ class PatternMatcher:
 
     def is_empty(self) -> bool:
         """Check if this matcher has any patterns.
-        
+
         Returns:
             True if no patterns are configured, False otherwise
         """
@@ -136,11 +136,11 @@ class PatternMatcher:
     @classmethod
     def create_allow_matcher(cls, allow_patterns: list[str], allow_tools: list[str]) -> "PatternMatcher":
         """Create a matcher for allow rules.
-        
+
         Args:
             allow_patterns: List of allow patterns (glob/regex)
             allow_tools: List of specific tool names to allow
-            
+
         Returns:
             PatternMatcher configured for allow rules
         """
@@ -152,11 +152,11 @@ class PatternMatcher:
     @classmethod
     def create_block_matcher(cls, block_patterns: list[str], block_tools: list[str]) -> "PatternMatcher":
         """Create a matcher for block rules.
-        
+
         Args:
             block_patterns: List of block patterns (glob/regex)
             block_tools: List of specific tool names to block
-            
+
         Returns:
             PatternMatcher configured for block rules
         """

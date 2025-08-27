@@ -37,7 +37,7 @@ class BridgeAPIClient:
         console: Console | None = None,
     ) -> None:
         """Initialize the API client.
-        
+
         Args:
             base_url: Base URL for the bridge API
             timeout: Request timeout in seconds
@@ -76,7 +76,7 @@ class BridgeAPIClient:
 
     async def list_tools_by_tag(self, tags: str, union: bool = False) -> list[dict[str, Any]]:
         """List tools by tag(s).
-        
+
         Args:
             tags: Tag string (single tag, + for AND, , for OR)
             union: If True, use union (OR) logic, else intersection (AND)
@@ -98,45 +98,35 @@ class BridgeAPIClient:
         return await self._request("GET", f"/oauth/{server_name}/status")
 
     async def call_tool(
-        self,
-        server_name: str,
-        tool_name: str,
-        arguments: dict[str, Any] | None = None
+        self, server_name: str, tool_name: str, arguments: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Call a tool on a specific server.
-        
+
         Args:
             server_name: Name of the server
             tool_name: Name of the tool to call
             arguments: Tool arguments as dictionary
-            
+
         Returns:
             Tool execution result
         """
-        payload = {
-            "name": tool_name,
-            "arguments": arguments or {}
-        }
+        payload = {"name": tool_name, "arguments": arguments or {}}
         return await self._request("POST", f"/sse/mcp/{server_name}/call_tool", json_data=payload)
 
     async def _request(
-        self,
-        method: str,
-        endpoint: str,
-        json_data: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None
+        self, method: str, endpoint: str, json_data: dict[str, Any] | None = None, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Make an HTTP request to the API.
-        
+
         Args:
             method: HTTP method
             endpoint: API endpoint (without base URL)
             json_data: JSON data for request body
             params: Query parameters
-            
+
         Returns:
             Response data as dictionary
-            
+
         Raises:
             aiohttp.ClientError: For HTTP errors
             asyncio.TimeoutError: For timeout errors
@@ -145,12 +135,7 @@ class BridgeAPIClient:
 
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
             try:
-                async with session.request(
-                    method,
-                    url,
-                    json=json_data,
-                    params=params
-                ) as response:
+                async with session.request(method, url, json=json_data, params=params) as response:
                     # Check for HTTP errors
                     if response.status >= 400:
                         error_text = await response.text()
@@ -170,25 +155,19 @@ class BridgeAPIClient:
 
             except aiohttp.ClientConnectionError as e:
                 raise aiohttp.ClientConnectionError(
-                    f"Failed to connect to bridge at {self.base_url}. "
-                    f"Is the bridge running? Error: {e}"
+                    f"Failed to connect to bridge at {self.base_url}. Is the bridge running? Error: {e}"
                 ) from e
             except TimeoutError as e:
-                raise TimeoutError(
-                    f"Request to {url} timed out after {self.timeout.total}s"
-                ) from e
+                raise TimeoutError(f"Request to {url} timed out after {self.timeout.total}s") from e
 
 
-def get_api_client_from_config(
-    config_path: str,
-    console: Console | None = None
-) -> BridgeAPIClient:
+def get_api_client_from_config(config_path: str, console: Console | None = None) -> BridgeAPIClient:
     """Create API client using configuration file settings.
-    
+
     Args:
         config_path: Path to bridge configuration file
         console: Rich console for output
-        
+
     Returns:
         Configured API client instance
     """

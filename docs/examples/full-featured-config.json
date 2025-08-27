@@ -51,7 +51,7 @@
         "timeout": 3000
       },
       "toolNamespace": "fs",
-      "resourceNamespace": "fs", 
+      "resourceNamespace": "fs",
       "priority": 50,
       "tags": ["filesystem", "files", "local"],
       "security": {

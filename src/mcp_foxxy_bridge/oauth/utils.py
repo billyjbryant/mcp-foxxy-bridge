@@ -63,14 +63,14 @@ def _validate_server_name(server_name: str) -> str:
     # Convert common special chars: spaces and plus to hyphens, dots to underscores, then remove others
     sanitized = server_name.lower().replace(" ", "-").replace("+", "-").replace(".", "_")
     sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", sanitized)
-    
+
     # Clean up consecutive hyphens and underscores for better readability
     sanitized = re.sub(r"-+", "-", sanitized)  # Multiple hyphens → single hyphen
     sanitized = re.sub(r"_+", "_", sanitized)  # Multiple underscores → single underscore
-    
+
     # Remove leading/trailing hyphens and underscores
     sanitized = sanitized.strip("-_")
-    
+
     # Ensure the normalized name is not empty after cleaning
     if not sanitized:
         raise ValueError(f"Server name '{server_name}' results in empty name after normalization")

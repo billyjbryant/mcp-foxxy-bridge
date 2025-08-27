@@ -17,7 +17,7 @@
       }
     },
     "github-controlled": {
-      "transport": "stdio", 
+      "transport": "stdio",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
       "tags": ["development", "restricted"],
@@ -50,7 +50,7 @@
     },
     "trusted-admin": {
       "transport": "stdio",
-      "command": "npx", 
+      "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-postgres"],
       "tags": ["admin", "trusted"],
       "enabled": false,
@@ -94,7 +94,7 @@
         "allow_tools": [],
         "block_tools": [
           "system_shutdown",
-          "format_disk", 
+          "format_disk",
           "rm_rf"
         ],
         "classification_overrides": {

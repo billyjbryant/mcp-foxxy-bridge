@@ -34,7 +34,7 @@ class SecurityPolicy:
         server_config: ServerSecurityConfig | None = None,
     ) -> None:
         """Initialize security policy resolver.
-        
+
         Args:
             bridge_config: Global bridge security configuration
             server_config: Optional server-specific security configuration
@@ -72,7 +72,7 @@ class SecurityPolicy:
 
     def _resolve_read_only_mode(self) -> bool:
         """Resolve the effective read-only mode.
-        
+
         Returns:
             True if read-only mode should be enforced, False otherwise
         """
@@ -83,13 +83,13 @@ class SecurityPolicy:
         # Fall back to bridge setting (defaults to True for security)
         if self.bridge_config:
             return self.bridge_config.read_only_mode
-        
+
         # Default to True for security if no configuration is provided
         return True
 
     def _resolve_tool_security_config(self) -> ToolSecurityConfig | None:
         """Resolve the effective tool security configuration by merging bridge and server configs.
-        
+
         Returns:
             Merged tool security configuration
         """
@@ -120,10 +120,10 @@ class SecurityPolicy:
 
     def is_tool_allowed(self, tool_name: str) -> bool:
         """Check if a tool is allowed to be executed.
-        
+
         Args:
             tool_name: Name of the tool to check
-            
+
         Returns:
             True if tool is allowed, False if blocked
         """
@@ -150,10 +150,10 @@ class SecurityPolicy:
 
     def get_block_reason(self, tool_name: str) -> str | None:
         """Get the reason why a tool is blocked.
-        
+
         Args:
             tool_name: Name of the tool to check
-            
+
         Returns:
             Human-readable reason for blocking, or None if tool is allowed
         """
@@ -180,10 +180,10 @@ class SecurityPolicy:
 
     def classify_tool(self, tool_name: str) -> ToolType:
         """Classify a tool using the configured classifier.
-        
+
         Args:
             tool_name: Name of the tool to classify
-            
+
         Returns:
             Tool classification
         """
@@ -191,7 +191,7 @@ class SecurityPolicy:
 
     def is_read_only_mode(self) -> bool:
         """Check if read-only mode is enabled.
-        
+
         Returns:
             True if read-only mode is active, False otherwise
         """
@@ -199,7 +199,7 @@ class SecurityPolicy:
 
     def get_effective_config_summary(self) -> dict[str, Any]:
         """Get a summary of the effective security configuration.
-        
+
         Returns:
             Dictionary with configuration summary
         """
@@ -211,11 +211,13 @@ class SecurityPolicy:
         }
 
         if self._effective_tool_config:
-            summary.update({
-                "allow_patterns_count": len(self._effective_tool_config.allow_patterns),
-                "block_patterns_count": len(self._effective_tool_config.block_patterns),
-                "allow_tools_count": len(self._effective_tool_config.allow_tools),
-                "block_tools_count": len(self._effective_tool_config.block_tools),
-            })
+            summary.update(
+                {
+                    "allow_patterns_count": len(self._effective_tool_config.allow_patterns),
+                    "block_patterns_count": len(self._effective_tool_config.block_patterns),
+                    "allow_tools_count": len(self._effective_tool_config.allow_tools),
+                    "block_tools_count": len(self._effective_tool_config.block_tools),
+                }
+            )
 
         return summary
