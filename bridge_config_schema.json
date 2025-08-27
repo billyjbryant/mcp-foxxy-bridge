@@ -42,12 +42,6 @@
               "default": 60,
               "description": "Connection timeout in seconds"
             },
-            "transportType": {
-              "type": "string",
-              "enum": ["stdio"],
-              "default": "stdio",
-              "description": "Transport type for the MCP server"
-            },
             "retryAttempts": {
               "type": "number",
               "default": 3,
@@ -107,6 +101,110 @@
               },
               "default": [],
               "description": "Tags for organizing and filtering servers"
+            },
+            "transport": {
+              "type": "string",
+              "enum": ["stdio", "sse", "http"],
+              "default": "stdio",
+              "description": "Transport mechanism for server communication"
+            },
+            "url": {
+              "type": "string",
+              "description": "URL for SSE/HTTP transport (required for non-stdio transports)"
+            },
+            "headers": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "HTTP headers for SSE/HTTP transports"
+            },
+            "oauth": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable OAuth 2.0 authentication"
+                },
+                "issuer": {
+                  "type": "string",
+                  "description": "OAuth issuer URL"
+                },
+                "verify_ssl": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Verify SSL certificates for OAuth endpoints"
+                }
+              },
+              "default": {
+                "enabled": false,
+                "verify_ssl": true
+              }
+            },
+            "security": {
+              "type": "object",
+              "properties": {
+                "read_only_mode": {
+                  "type": "boolean",
+                  "description": "Override global read-only mode for this server (null inherits from bridge)"
+                },
+                "tool_security": {
+                  "type": "object",
+                  "properties": {
+                    "allow_patterns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": [],
+                      "description": "Glob/regex patterns for allowed tool names"
+                    },
+                    "block_patterns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": [],
+                      "description": "Glob/regex patterns for blocked tool names"
+                    },
+                    "allow_tools": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": [],
+                      "description": "Specific tool names to allow"
+                    },
+                    "block_tools": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": [],
+                      "description": "Specific tool names to block"
+                    },
+                    "classification_overrides": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "enum": ["read", "write", "unknown"]
+                      },
+                      "default": {},
+                      "description": "Manual classification overrides for specific tools"
+                    }
+                  },
+                  "default": {
+                    "allow_patterns": [],
+                    "block_patterns": [],
+                    "allow_tools": [],
+                    "block_tools": [],
+                    "classification_overrides": {}
+                  }
+                }
+              },
+              "default": {}
             }
           },
           "required": ["command"],
@@ -178,6 +276,95 @@
             "maxFailures": 3,
             "recoveryInterval": 60000
           }
+        },
+        "port": {
+          "type": "number",
+          "default": 9000,
+          "description": "Port for the bridge HTTP server"
+        },
+        "oauth_port": {
+          "type": "number",
+          "default": 8090,
+          "description": "Port for OAuth callback server"
+        },
+        "allow_command_substitution": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow command substitution in configuration values"
+        },
+        "allowed_commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Allowed commands for command substitution (when enabled)"
+        },
+        "security": {
+          "type": "object",
+          "properties": {
+            "read_only_mode": {
+              "type": "boolean",
+              "default": true,
+              "description": "Global read-only mode (blocks all write tools by default)"
+            },
+            "tool_security": {
+              "type": "object",
+              "properties": {
+                "allow_patterns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "description": "Global glob/regex patterns for allowed tool names"
+                },
+                "block_patterns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "description": "Global glob/regex patterns for blocked tool names"
+                },
+                "allow_tools": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "description": "Global specific tool names to allow"
+                },
+                "block_tools": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "description": "Global specific tool names to block"
+                },
+                "classification_overrides": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "enum": ["read", "write", "unknown"]
+                  },
+                  "default": {},
+                  "description": "Global manual classification overrides for specific tools"
+                }
+              },
+              "default": {
+                "allow_patterns": [],
+                "block_patterns": [],
+                "allow_tools": [],
+                "block_tools": [],
+                "classification_overrides": {}
+              }
+            }
+          },
+          "default": {
+            "read_only_mode": true
+          }
         }
       },
       "default": {
@@ -192,6 +379,13 @@
           "enabled": true,
           "maxFailures": 3,
           "recoveryInterval": 60000
+        },
+        "port": 9000,
+        "oauth_port": 8090,
+        "allow_command_substitution": false,
+        "allowed_commands": [],
+        "security": {
+          "read_only_mode": true
         }
       }
     }

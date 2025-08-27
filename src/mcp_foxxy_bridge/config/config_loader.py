@@ -68,7 +68,10 @@ import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mcp_foxxy_bridge.security.config import BridgeSecurityConfig, ServerSecurityConfig
 
 from mcp.client.stdio import StdioServerParameters
 
@@ -286,6 +289,7 @@ class BridgeServerConfig:
     authentication: dict[str, Any] | None = None  # General authentication config
     headers: dict[str, str] | None = None  # Custom headers for HTTP requests
     verify_ssl: bool = True  # SSL/TLS verification for HTTPS connections
+    security: "ServerSecurityConfig | None" = None  # Security configuration for this server
 
     def __post_init__(self) -> None:
         """Initialize default values for optional fields."""
@@ -412,6 +416,8 @@ class BridgeConfig:
     allow_command_substitution: bool = False  # Enable command substitution in configuration
     allowed_commands: list[str] | None = None  # Whitelist of allowed commands for substitution
     allow_dangerous_commands: bool = False  # UNSAFE: Allow any command without validation
+    read_only_mode: bool = True  # Block write operations when True (defaults to True for security)
+    security: "BridgeSecurityConfig | None" = None  # Security configuration for the bridge
 
     def __post_init__(self) -> None:
         """Initialize default values for bridge configuration."""
@@ -1279,6 +1285,40 @@ def _load_bridge_settings(config_data: dict[str, Any], allow_command_substitutio
         allow_command_substitution=effective_allow_substitution,
         allowed_commands=bridge_data.get("allowed_commands"),
         allow_dangerous_commands=bridge_data.get("allow_dangerous_commands", False),
+        read_only_mode=bridge_data.get("read_only_mode", True),
+        security=_load_bridge_security_config(bridge_data.get("security", {})),
+    )
+
+
+def _load_bridge_security_config(security_data: dict[str, Any]) -> "BridgeSecurityConfig | None":
+    """Load bridge security configuration from config data.
+    
+    Args:
+        security_data: Security configuration dictionary
+        
+    Returns:
+        BridgeSecurityConfig object or None if no security config
+    """
+    if not security_data:
+        return None
+    
+    from mcp_foxxy_bridge.security.config import BridgeSecurityConfig, ToolSecurityConfig
+    
+    # Load tool security config if present
+    tool_config = None
+    if "tool_security" in security_data:
+        tool_data = security_data["tool_security"]
+        tool_config = ToolSecurityConfig(
+            allow_patterns=tool_data.get("allow_patterns", []),
+            block_patterns=tool_data.get("block_patterns", []),
+            allow_tools=tool_data.get("allow_tools", []),
+            block_tools=tool_data.get("block_tools", []),
+            classification_overrides=tool_data.get("classification_overrides", {}),
+        )
+    
+    return BridgeSecurityConfig(
+        read_only_mode=security_data.get("read_only_mode", True),
+        tools=tool_config,
     )
 
 
@@ -1336,9 +1376,13 @@ def _load_server_configurations(
         server_env = base_env.copy()
         server_env.update(server_config.get("env", {}))
 
+        # Normalize server name for consistency with OAuth token storage
+        from mcp_foxxy_bridge.oauth.utils import _validate_server_name
+        normalized_name = _validate_server_name(name)
+        
         # Create server configuration
         server = BridgeServerConfig(
-            name=name,
+            name=normalized_name,
             enabled=server_config.get("enabled", True),
             command=server_config.get("command", ""),
             args=server_config.get("args", []),
@@ -1377,7 +1421,7 @@ def _load_server_configurations(
             logger.warning(f"Named server '{name}' from config has invalid 'args' (must be a list). Skipping.")
             continue
 
-        servers[name] = server
+        servers[normalized_name] = server
         logger.debug(f'MCP Server configured: {name} - "{server.command}" {" ".join(server.args)}')
 
     return servers
