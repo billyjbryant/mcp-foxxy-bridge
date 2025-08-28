@@ -1,3 +1,24 @@
+#
+# Copyright (C) 2024 Billy Bryant
+# Portions copyright (C) 2024 Sergey Parfenyuk (original MIT-licensed author)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# MIT License attribution: Portions of this file were originally licensed
+# under the MIT License by Sergey Parfenyuk (2024).
+#
+
 """Utility functions for MCP OAuth implementation."""
 
 import base64
@@ -29,10 +50,16 @@ except ImportError:
 
 
 def get_server_url_hash(server_url: str) -> str:
-    """Generate a hash for the server URL to use in lockfile names.
+    """Generate a short hash for the server URL to use in lockfile names.
 
     Uses SHA-256 for better security practices, even though this is only for file naming.
     We only need a consistent, collision-resistant identifier.
+
+    Args:
+        server_url: The server URL to hash
+
+    Returns:
+        A 12-character hex string hash of the URL
     """
     return hashlib.sha256(server_url.encode()).hexdigest()[:12]  # Slightly longer for SHA-256
 
@@ -213,7 +240,19 @@ def _decrypt_data(encrypted_data: str, server_name: str) -> str:
 
 
 def find_available_port(start_port: int = 8000, max_attempts: int = 100, host: str = "127.0.0.1") -> int:
-    """Find an available port starting from start_port."""
+    """Find an available port starting from the specified port.
+
+    Args:
+        start_port: Port to start searching from
+        max_attempts: Maximum number of ports to try
+        host: Host address to bind to for testing
+
+    Returns:
+        An available port number
+
+    Raises:
+        RuntimeError: If no available port found within the range
+    """
     for port in range(start_port, start_port + max_attempts):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -226,7 +265,14 @@ def find_available_port(start_port: int = 8000, max_attempts: int = 100, host: s
 
 
 def is_pid_running(pid: int) -> bool:
-    """Check if a process with the given PID is running."""
+    """Check if a process with the given PID is currently running.
+
+    Args:
+        pid: Process ID to check
+
+    Returns:
+        True if process is running, False otherwise
+    """
     try:
         os.kill(pid, 0)
         return True
@@ -235,7 +281,14 @@ def is_pid_running(pid: int) -> bool:
 
 
 def get_oauth_config_dir() -> Path:
-    """Get the configuration directory for storing OAuth tokens and lockfiles."""
+    """Get the configuration directory for storing OAuth tokens and lockfiles.
+
+    Returns:
+        Path to the OAuth configuration directory
+
+    The directory is created if it doesn't exist. Uses MCP_OAUTH_CONFIG_DIR
+    environment variable if set, otherwise uses the default auth directory.
+    """
     # Check for custom OAuth config directory first
     custom_config_dir = os.getenv("MCP_OAUTH_CONFIG_DIR")
     if custom_config_dir:
@@ -252,13 +305,29 @@ def get_oauth_config_dir() -> Path:
 
 
 def get_lockfile_path(server_url_hash: str) -> Path:
-    """Get the path to the lockfile for a given server URL hash."""
+    """Get the path to the lockfile for a given server URL hash.
+
+    Args:
+        server_url_hash: Hash of the server URL
+
+    Returns:
+        Path to the lockfile for the server
+    """
     config_dir = get_oauth_config_dir()
     return config_dir / f"auth-{server_url_hash}.lock"
 
 
 def get_tokens_path(server_url_hash: str, server_name: str | None = None) -> Path:
-    """Get the path to the tokens file for a given server URL hash."""
+    """Get the path to the tokens file for a given server URL hash.
+
+    Args:
+        server_url_hash: Hash of the server URL
+        server_name: Optional server name for organized storage
+
+    Returns:
+        Path to the tokens file. Uses server-specific subdirectory if name provided,
+        otherwise falls back to legacy hash-based naming.
+    """
     config_dir = get_oauth_config_dir()
 
     # Use server name subdirectory if provided, otherwise fall back to old format
@@ -273,7 +342,17 @@ def get_tokens_path(server_url_hash: str, server_name: str | None = None) -> Pat
 
 
 def save_tokens(server_url_hash: str, tokens: dict[str, Any], server_name: str | None = None) -> None:
-    """Save OAuth tokens to disk with encryption."""
+    """Save OAuth tokens to disk with optional encryption.
+
+    Args:
+        server_url_hash: Hash of the server URL
+        tokens: OAuth token dictionary to save
+        server_name: Optional server name for encryption and organized storage
+
+    Encrypts tokens if server name is provided and encryption dependencies are available.
+    Falls back to unencrypted storage if encryption fails or is unavailable.
+    Sets restrictive file permissions (owner read/write only).
+    """
     tokens_path = get_tokens_path(server_url_hash, server_name)
 
     # Add timestamp when tokens were saved for expiration checking
@@ -312,7 +391,18 @@ def save_tokens(server_url_hash: str, tokens: dict[str, Any], server_name: str |
 
 
 def load_tokens(server_url_hash: str, server_name: str | None = None) -> dict[str, Any] | None:
-    """Load OAuth tokens from disk with decryption support."""
+    """Load OAuth tokens from disk with automatic decryption.
+
+    Args:
+        server_url_hash: Hash of the server URL
+        server_name: Optional server name for decryption
+
+    Returns:
+        OAuth token dictionary, or None if not found or decryption fails
+
+    Automatically handles encrypted and unencrypted tokens. Migrates legacy
+    token files to new organized structure when server name is provided.
+    """
     tokens_path = get_tokens_path(server_url_hash, server_name)
 
     # If server name provided but file doesn't exist, try legacy format
@@ -400,7 +490,15 @@ def load_tokens(server_url_hash: str, server_name: str | None = None) -> dict[st
 
 
 def save_client_info(server_url_hash: str, client_info: dict[str, Any], server_name: str | None = None) -> None:
-    """Save OAuth client information to disk."""
+    """Save OAuth client information to disk.
+
+    Args:
+        server_url_hash: Hash of the server URL
+        client_info: OAuth client information dictionary
+        server_name: Optional server name for organized storage
+
+    Sets restrictive file permissions (owner read/write only).
+    """
     config_dir = get_oauth_config_dir()
 
     if server_name:
@@ -421,7 +519,17 @@ def save_client_info(server_url_hash: str, client_info: dict[str, Any], server_n
 
 
 def load_client_info(server_url_hash: str, server_name: str | None = None) -> dict[str, Any] | None:
-    """Load OAuth client information from disk."""
+    """Load OAuth client information from disk.
+
+    Args:
+        server_url_hash: Hash of the server URL
+        server_name: Optional server name for organized storage
+
+    Returns:
+        OAuth client information dictionary, or None if not found
+
+    Migrates legacy client files to new organized structure when server name is provided.
+    """
     config_dir = get_oauth_config_dir()
 
     if server_name:
@@ -455,7 +563,15 @@ def load_client_info(server_url_hash: str, server_name: str | None = None) -> di
 
 
 def save_code_verifier(server_url_hash: str, code_verifier: str, server_name: str | None = None) -> None:
-    """Save PKCE code verifier to disk."""
+    """Save PKCE code verifier to disk.
+
+    Args:
+        server_url_hash: Hash of the server URL
+        code_verifier: PKCE code verifier string
+        server_name: Optional server name for organized storage
+
+    Sets restrictive file permissions (owner read/write only).
+    """
     config_dir = get_oauth_config_dir()
 
     if server_name:
@@ -476,7 +592,17 @@ def save_code_verifier(server_url_hash: str, code_verifier: str, server_name: st
 
 
 def load_code_verifier(server_url_hash: str, server_name: str | None = None) -> str | None:
-    """Load PKCE code verifier from disk."""
+    """Load PKCE code verifier from disk.
+
+    Args:
+        server_url_hash: Hash of the server URL
+        server_name: Optional server name for organized storage
+
+    Returns:
+        PKCE code verifier string, or None if not found
+
+    Migrates legacy verifier files to new organized structure when server name is provided.
+    """
     config_dir = get_oauth_config_dir()
 
     if server_name:
@@ -508,7 +634,15 @@ def load_code_verifier(server_url_hash: str, server_name: str | None = None) -> 
 
 
 def cleanup_auth_files(server_url_hash: str, server_name: str | None = None) -> None:
-    """Clean up all authentication-related files for a server."""
+    """Clean up all authentication-related files for a server.
+
+    Args:
+        server_url_hash: Hash of the server URL
+        server_name: Optional server name
+
+    Removes tokens, client info, code verifier, and lockfiles.
+    Handles both new organized structure and legacy file naming.
+    """
     config_dir = get_oauth_config_dir()
 
     files_to_remove = []
@@ -593,7 +727,14 @@ class FileLock:
 
 
 def setup_signal_handlers(cleanup_func: Callable[[], None]) -> None:
-    """Setup signal handlers for graceful shutdown."""
+    """Setup signal handlers for graceful shutdown.
+
+    Args:
+        cleanup_func: Function to call for cleanup before exit
+
+    Sets up SIGINT and SIGTERM handlers that call the cleanup function
+    and then exit the process.
+    """
 
     def signal_handler(signum: int, frame: Any) -> None:
         cleanup_func()

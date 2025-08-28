@@ -32,6 +32,7 @@
 **MCP Foxxy Bridge** is a secure one-to-many proxy for the Model Context Protocol (MCP). Connect multiple MCP servers through a single endpoint with enterprise-grade security.
 
 **Key Features:**
+
 - Single endpoint for all MCP servers
 - OAuth 2.0 + PKCE authentication
 - Enhanced CLI with daemon management
@@ -80,126 +81,20 @@ Point your MCP-compatible client to: `http://localhost:8080/sse`
 
 ---
 
-## CLI Commands
-
-### Server Management
-```bash
-foxxy-bridge server start [--port 8080] [--host 127.0.0.1]
-foxxy-bridge server stop
-foxxy-bridge server restart
-foxxy-bridge server status
-foxxy-bridge server list
-```
-
-### MCP Server Configuration
-```bash
-foxxy-bridge mcp list                    # List all configured servers
-foxxy-bridge mcp add <name> <command>    # Add new server
-foxxy-bridge mcp remove <name>           # Remove server
-foxxy-bridge mcp show <name>             # Show server details
-foxxy-bridge mcp restart <name>          # Restart specific server
-```
-
-### Configuration Management
-```bash
-foxxy-bridge config init [--force]       # Initialize configuration
-foxxy-bridge config validate             # Validate configuration
-foxxy-bridge config get <key>            # Get configuration value
-foxxy-bridge config set <key> <value>    # Set configuration value
-foxxy-bridge config unset <key>          # Remove configuration key
-```
-
-### Tool Discovery
-```bash
-foxxy-bridge tool list [--server NAME]   # List available tools
-foxxy-bridge tool list --tag development # Filter by tag
-```
-
-### Security & OAuth
-```bash
-foxxy-bridge security show               # Show security settings
-foxxy-bridge security set <key> <value>  # Configure security
-foxxy-bridge oauth status [SERVER]       # Check OAuth status
-```
-
-### Monitoring
-```bash
-foxxy-bridge logs [--follow] [--tail N]  # View bridge logs
-```
-
-## REST API Endpoints
-
-**Status & Discovery:**
-- `GET /status` - Bridge health and server status
-- `GET /sse/servers` - List all configured servers
-- `GET /sse/tags` - List all available tags
-- `GET /sse/mcp/{server}/status` - Individual server status
-
-**Tool Management:**
-- `GET /sse/list_tools` - List all tools
-- `GET /sse/mcp/{server}/list_tools` - Server-specific tools
-- `GET /sse/tag/{tags}/list_tools` - Filter by tags (+ for AND, , for OR)
-- `POST /sse/tools/rescan` - Refresh tool capabilities
-
-**Server Control:**
-- `POST /sse/mcp/{server}/reconnect` - Force reconnection
-- `GET /oauth/{server}/status` - OAuth authentication status
-
 ## Documentation
 
-**Getting Started:**
-- [Installation Guide](docs/installation.md) - Detailed setup instructions
-- [Configuration Guide](docs/configuration.md) - Configuration options
-- [Example Configurations](docs/examples/README.md) - Ready-to-use configs
+**📖 Getting Started:**
 
-**Advanced Topics:**
-- [Security Guide](docs/security.md) - Security best practices
-- [OAuth Authentication](docs/oauth.md) - OAuth setup
-- [API Reference](docs/api.md) - Complete API documentation
-- [Architecture Overview](docs/architecture.md) - Technical details
-- [Deployment Guide](docs/deployment.md) - Production deployment
+- **[Installation Guide](docs/installation.md)** - Detailed setup and configuration
+- **[Configuration Guide](docs/configuration.md)** - Configuration options and examples
+- **[CLI Reference](docs/cli-reference.md)** - Complete command reference
 
-**Support:**
-- [Troubleshooting](docs/troubleshooting.md) - Common issues
-- [Contributing](CONTRIBUTING.md) - Development guide
+**🔧 Advanced Topics:**
 
----
-
-## Configuration Examples
-
-**Basic Configuration:**
-```json
-{
-  "mcpServers": {
-    "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {"GITHUB_TOKEN": "${GITHUB_TOKEN}"},
-      "toolNamespace": "github"
-    }
-  },
-  "bridge": {
-    "port": 8080,
-    "conflictResolution": "namespace"
-  }
-}
-```
-
-**With OAuth (SSE/HTTP servers only):**
-```json
-{
-  "mcpServers": {
-    "remote-mcp": {
-      "url": "https://mcp.example.com/sse",
-      "transport": "sse",
-      "oauth": {
-        "enabled": true,
-        "issuer": "https://auth.example.com"
-      }
-    }
-  }
-}
-```
+- **[API Reference](docs/api.md)** - REST API endpoints
+- **[OAuth Authentication](docs/oauth.md)** - OAuth setup and security
+- **[Daemon Management](docs/daemon-management.md)** - Background process management
+- **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
 
 ---
 

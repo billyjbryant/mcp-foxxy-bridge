@@ -42,7 +42,17 @@ async def handle_mcp_add(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Add a new MCP server to configuration."""
+    """Add a new MCP server to the configuration.
+
+    Args:
+        args: Command line arguments containing server configuration
+        config_path: Path to the configuration file
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Prompts for confirmation if server already exists, unless force flag is used.
+    """
     try:
         # Load existing configuration
         config = _load_config_safe(config_path, logger)
@@ -196,6 +206,17 @@ async def handle_mcp_remove(
     console: Console,
     logger: logging.Logger,
 ) -> None:
+    """Remove an MCP server from the configuration.
+
+    Args:
+        args: Command line arguments containing server name and options
+        config_path: Path to the configuration file
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Prompts for confirmation unless force flag is used.
+    """
     """Remove an MCP server from configuration."""
     try:
         # Load existing configuration
@@ -238,6 +259,17 @@ async def handle_mcp_list(
     console: Console,
     logger: logging.Logger,
 ) -> None:
+    """List all configured MCP servers.
+
+    Args:
+        args: Command line arguments containing format option
+        config_path: Path to the configuration file
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Supports table, JSON, and YAML output formats.
+    """
     """List configured MCP servers."""
     try:
         config = _load_config_safe(config_path, logger)
@@ -262,6 +294,17 @@ async def handle_mcp_show(
     console: Console,
     logger: logging.Logger,
 ) -> None:
+    """Show detailed configuration for a specific MCP server.
+
+    Args:
+        args: Command line arguments containing server name and format
+        config_path: Path to the configuration file
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Supports JSON and YAML output formats for detailed server configuration.
+    """
     """Show MCP server configuration details."""
     try:
         config = _load_config_safe(config_path, logger)
@@ -295,6 +338,17 @@ async def handle_config_show(
     console: Console,
     logger: logging.Logger,
 ) -> None:
+    """Show the complete bridge configuration.
+
+    Args:
+        args: Command line arguments containing format option
+        config_path: Path to the configuration file
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Shows the full bridge configuration including all servers and bridge settings.
+    """
     """Show bridge configuration (excluding MCP servers)."""
     try:
         config = _load_config_safe(config_path, logger)
@@ -319,6 +373,18 @@ async def handle_config_validate(
     console: Console,
     logger: logging.Logger,
 ) -> None:
+    """Validate the bridge configuration file.
+
+    Args:
+        args: Command line arguments (unused for basic validation)
+        config_path: Path to the configuration file
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Attempts to load and parse the configuration file, reporting any errors.
+    Shows a summary of configured servers if validation succeeds.
+    """
     """Validate configuration file."""
     try:
         # Try to load configuration
@@ -356,6 +422,18 @@ async def handle_config_init(
     console: Console,
     logger: logging.Logger,
 ) -> None:
+    """Initialize a new bridge configuration file with default settings.
+
+    Args:
+        args: Command line arguments containing force flag
+        config_path: Path where the configuration file will be created
+        config_dir: Configuration directory for schema reference
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Creates a default configuration with a filesystem server example.
+    Prompts for confirmation if file already exists unless force flag is used.
+    """
     """Initialize configuration with defaults."""
     try:
         if config_path.exists() and not args.force:
@@ -409,7 +487,18 @@ async def handle_mcp_restart(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Handle MCP server restart/reconnect command."""
+    """Restart a specific MCP server connection.
+
+    Args:
+        args: Command line arguments containing server name
+        config_path: Path to the configuration file
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Note: This is a placeholder implementation. Full server restart
+    functionality requires bridge API integration.
+    """
     try:
         # Load configuration to get bridge port
         config = load_bridge_config_from_file(str(config_path), dict(os.environ))

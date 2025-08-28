@@ -32,7 +32,19 @@ from mcp_foxxy_bridge.utils.config_migration import get_server_logs_dir
 async def handle_mcp_logs(
     args: Any, config_path: Path, config_dir: Path, console: Console, logger: logging.Logger
 ) -> None:
-    """Handle MCP server log viewing/tailing command."""
+    """Handle MCP server log viewing and tailing commands.
+
+    Args:
+        args: Command line arguments containing server_name, follow, and lines options
+        config_path: Path to configuration file (unused)
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Displays log entries for the specified MCP server. Supports both static viewing
+    of recent entries and live tailing mode. Uses the system 'tail' command for
+    efficient log following.
+    """
     server_name = args.server_name
     follow = args.follow if hasattr(args, "follow") else False
     lines = args.lines if hasattr(args, "lines") else 50

@@ -64,41 +64,51 @@ foxxy-bridge --version
 # Create default configuration
 foxxy-bridge config init
 
-# Or initialize with example servers
-foxxy-bridge config init --with-examples
+# View the created configuration
+foxxy-bridge config config-show
 ```
 
 ### 2. Add MCP Servers
 
 ```bash
-# Add GitHub server
-foxxy-bridge mcp add github "npx -y @modelcontextprotocol/server-github"
-foxxy-bridge config set mcpServers.github.env.GITHUB_TOKEN "${GITHUB_TOKEN}"
+# Add GitHub server (requires GITHUB_TOKEN)
+foxxy-bridge mcp add github "npx" "-y" "@modelcontextprotocol/server-github" \
+  --env GITHUB_TOKEN "${GITHUB_TOKEN}" \
+  --tags development git
 
-# Add filesystem server
-foxxy-bridge mcp add filesystem "npx -y @modelcontextprotocol/server-filesystem" \
-  --path /path/to/directory
+# Add filesystem server for local files
+foxxy-bridge mcp add filesystem "npx" "-y" "@modelcontextprotocol/server-filesystem" "./" \
+  --tags local files
 
-# Add fetch server
-foxxy-bridge mcp add fetch "uvx mcp-server-fetch"
+# Add fetch server for web content
+foxxy-bridge mcp add fetch "uvx" "mcp-server-fetch" \
+  --tags web remote
+
+# List configured servers
+foxxy-bridge mcp mcp-list
 ```
 
 ### 3. Start the Bridge
 
 ```bash
-# Start server daemon
+# Start bridge server
 foxxy-bridge server start
 
-# Check status
-foxxy-bridge server status
+# Or start as background daemon
+foxxy-bridge server start --daemon
 
-# View logs
-foxxy-bridge logs --follow
+# Check status
+foxxy-bridge server server-status
 ```
 
 ### 4. Connect Your Client
 
 Point your MCP client to: `http://localhost:8080/sse`
+
+Test the connection:
+```bash
+curl http://localhost:8080/status
+```
 
 ## Environment Variables
 

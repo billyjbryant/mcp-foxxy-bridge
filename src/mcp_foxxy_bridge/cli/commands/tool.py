@@ -39,7 +39,17 @@ async def handle_tool_list(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Handle tool list command from Click CLI."""
+    """Handle tool listing command from Click CLI.
+
+    Args:
+        args: Click command arguments containing server, format, and tag filters
+        config_path: Path to the configuration file
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Lists available tools from MCP servers with filtering and formatting options.
+    """
     # Convert to argparse-style namespace for compatibility
     argparse_args = argparse.Namespace(
         tool_command="list",
@@ -57,7 +67,17 @@ async def handle_tool_command(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Handle tool discovery and testing commands."""
+    """Handle tool discovery, testing, and management commands.
+
+    Args:
+        args: Command line arguments with tool_command subcommand
+        config_path: Path to the configuration file
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Routes to appropriate tool subcommand handler (list, test, call, search).
+    """
     # Check if no subcommand was provided
     if not hasattr(args, "tool_command") or args.tool_command is None:
         from mcp_foxxy_bridge.cli.main import _setup_argument_parser
@@ -93,6 +113,17 @@ async def _tool_list(
     console: Console,
     logger: logging.Logger,
 ) -> None:
+    """List available tools from MCP servers.
+
+    Args:
+        args: Command line arguments with server, format, and tag filters
+        config_path: Path to the configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Supports filtering by server, tag, or showing all tools.
+    Output formats include table and JSON.
+    """
     """List available tools."""
     try:
         api_client = get_api_client_from_config(str(config_path), console)
@@ -128,6 +159,17 @@ async def _tool_test(
     console: Console,
     logger: logging.Logger,
 ) -> None:
+    """Test connectivity and functionality of MCP server tools.
+
+    Args:
+        args: Command line arguments with server and test options
+        config_path: Path to the configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Tests that tools are available and callable from the specified server.
+    Useful for verifying server configuration and connectivity.
+    """
     """Test tool functionality."""
     try:
         api_client = get_api_client_from_config(str(config_path), console)
@@ -190,6 +232,17 @@ async def _tool_call(
     console: Console,
     logger: logging.Logger,
 ) -> None:
+    """Execute a specific tool with provided arguments.
+
+    Args:
+        args: Command line arguments with server, tool name, and arguments
+        config_path: Path to the configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Calls the specified tool on the given server with provided arguments.
+    Prompts for confirmation if force flag is not used.
+    """
     """Execute a tool with arguments."""
     try:
         api_client = get_api_client_from_config(str(config_path), console)
@@ -259,7 +312,17 @@ async def _tool_search(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Search for tools by name or description."""
+    """Search for tools matching specified criteria.
+
+    Args:
+        args: Command line arguments with search pattern and filters
+        config_path: Path to the configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Searches tool names and descriptions for matching patterns.
+    Supports filtering by server and output formatting options.
+    """
     try:
         api_client = get_api_client_from_config(str(config_path), console)
 

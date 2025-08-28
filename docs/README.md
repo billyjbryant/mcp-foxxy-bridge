@@ -30,7 +30,7 @@ Complete documentation for MCP Foxxy Bridge.
 
 ## Quick Reference
 
-**CLI**: Use `foxxy-bridge` command for all operations
-**Config**: Default location `~/.config/foxxy-bridge/config.json`
-**API**: Bridge runs on `http://localhost:8080/sse` by default
-**Logs**: View with `foxxy-bridge logs --follow`
+- **CLI**: Use `foxxy-bridge` command for all operations
+- **Config**: Default location `~/.config/foxxy-bridge/config.json`
+- **API**: Bridge runs on `http://localhost:8080/sse` by default
+- **Logs**: View with `foxxy-bridge logs --follow`

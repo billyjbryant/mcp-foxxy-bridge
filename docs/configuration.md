@@ -29,9 +29,65 @@ MCP Foxxy Bridge uses JSON configuration files with two main sections:
 
 ### Configuration Methods
 
-1. **📄 Config File** (recommended): `--bridge-config config.json`
-2. **⚡ CLI Arguments**: `--named-server name 'command'`
-3. **🔗 Combined**: Use both for flexibility
+**🎯 Preferred Method - CLI Management:**
+```bash
+# Initialize configuration
+foxxy-bridge config init
+
+# Add servers via CLI
+foxxy-bridge mcp add github "npx" "-y" "@modelcontextprotocol/server-github"
+
+# Modify settings
+foxxy-bridge config set-value bridge.port 9000
+```
+
+**📄 Legacy Method - Direct Config File:**
+```bash
+# Run with config file (still supported)
+mcp-foxxy-bridge --bridge-config config.json
+```
+
+## Quick CLI Configuration
+
+**🚀 The easiest way to configure MCP Foxxy Bridge:**
+
+```bash
+# 1. Initialize default configuration
+foxxy-bridge config init
+
+# 2. Add your first server
+foxxy-bridge mcp add github "npx" "-y" "@modelcontextprotocol/server-github" \
+  --env GITHUB_TOKEN "${GITHUB_TOKEN}" \
+  --tags development git
+
+# 3. View your configuration
+foxxy-bridge config config-show
+
+# 4. Start the bridge
+foxxy-bridge server start
+```
+
+**🔧 Common CLI Configuration Tasks:**
+
+```bash
+# List all servers
+foxxy-bridge mcp mcp-list
+
+# Add filesystem server
+foxxy-bridge mcp add filesystem "npx" "-y" "@modelcontextprotocol/server-filesystem" "./"
+
+# Change bridge port
+foxxy-bridge config set-value bridge.port 9000
+
+# View specific configuration value
+foxxy-bridge config get-value bridge.host
+
+# Validate your configuration
+foxxy-bridge config validate
+
+# Show server details
+foxxy-bridge mcp mcp-show github
+```
 
 ## Server Configuration
 

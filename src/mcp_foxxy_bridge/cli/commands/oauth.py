@@ -41,7 +41,17 @@ async def handle_oauth_status(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Handle OAuth status command from Click CLI."""
+    """Handle OAuth authentication status command from Click CLI.
+
+    Args:
+        args: Click command arguments containing server name and format options
+        config_path: Path to the configuration file
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Shows OAuth authentication status for specified server or all servers.
+    """
     # Convert to argparse-style namespace for compatibility
     argparse_args = argparse.Namespace(
         oauth_command="status", name=getattr(args, "name", None), format=getattr(args, "format", "table")
@@ -56,7 +66,17 @@ async def handle_oauth_command(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Handle OAuth authentication management commands."""
+    """Handle OAuth authentication management commands.
+
+    Args:
+        args: Command line arguments with oauth_command subcommand
+        config_path: Path to the configuration file
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Routes to appropriate OAuth subcommand handler (status, login, logout).
+    """
     # Check if no subcommand was provided
     if not hasattr(args, "oauth_command") or args.oauth_command is None:
         from mcp_foxxy_bridge.cli.main import _setup_argument_parser
@@ -90,6 +110,18 @@ async def _oauth_status(
     console: Console,
     logger: logging.Logger,
 ) -> None:
+    """Display OAuth authentication status for servers.
+
+    Args:
+        args: Command line arguments with server name and format options
+        config_path: Path to the configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Shows authentication status for a specific server if name provided,
+    otherwise shows status for all OAuth-enabled servers.
+    Supports table and JSON output formats.
+    """
     """Show OAuth authentication status."""
     try:
         api_client = get_api_client_from_config(str(config_path), console)
@@ -143,6 +175,17 @@ async def _oauth_login(
     console: Console,
     logger: logging.Logger,
 ) -> None:
+    """Initiate OAuth authentication flow for a server.
+
+    Args:
+        args: Command line arguments containing server name
+        config_path: Path to the configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Note: This is a placeholder implementation. Full OAuth login
+    functionality requires integration with the OAuth authentication system.
+    """
     """Trigger OAuth login flow."""
     try:
         # Check if server is configured for OAuth
@@ -203,7 +246,18 @@ async def _oauth_logout(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Clear OAuth tokens."""
+    """Revoke OAuth authentication for a server.
+
+    Args:
+        args: Command line arguments containing server name
+        config_path: Path to the configuration file
+        config_dir: Configuration directory for OAuth token storage
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Note: This is a placeholder implementation. Full OAuth logout
+    functionality requires integration with the OAuth authentication system.
+    """
     try:
         auth_dir = config_dir / "auth"
 

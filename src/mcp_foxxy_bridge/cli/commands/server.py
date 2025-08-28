@@ -251,7 +251,17 @@ async def _server_status(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Show server status."""
+    """Display detailed server status information via API.
+
+    Args:
+        args: Command line arguments with server name, format, and watch options
+        config_path: Path to configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Shows comprehensive server status including connection state, capabilities,
+    and health metrics. Supports live watching mode for real-time updates.
+    """
     try:
         api_client = get_api_client_from_config(str(config_path), console)
 
@@ -295,9 +305,25 @@ async def _server_status_watch(
     args: argparse.Namespace,
     console: Console,
 ) -> None:
-    """Watch server status with live updates."""
+    """Display real-time server status updates.
+
+    Continuously polls the API and updates the display with current server status.
+    Updates every 2 seconds and handles connection errors gracefully.
+
+    Args:
+        api_client: API client for bridge communication
+        args: Command line arguments with name filter
+        console: Rich console for live output
+
+    Exits on KeyboardInterrupt (Ctrl+C).
+    """
 
     async def update_status() -> dict[str, Any]:
+        """Fetch current status from API client.
+
+        Returns:
+            Dictionary containing status data or error information
+        """
         try:
             if args.name:
                 return await api_client.get_server_status(args.name)  # type: ignore[no-any-return]
@@ -344,7 +370,18 @@ async def _server_logs(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """View server logs."""
+    """Display logs from an MCP server.
+
+    Args:
+        args: Command line arguments with server name, lines count, follow mode, and level filter
+        config_path: Path to configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Note:
+        Currently shows placeholder output. Full log viewing implementation
+        is pending API endpoint availability.
+    """
     console.print("[yellow]Note: Log viewing is not yet implemented via API[/yellow]")
     console.print(f"Server: {args.name}")
     console.print(f"Lines: {args.lines}")
@@ -365,7 +402,16 @@ async def _server_restart(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Restart a server."""
+    """Restart a specific MCP server connection.
+
+    Args:
+        args: Command line arguments with server name and force option
+        config_path: Path to configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Prompts for confirmation unless force is specified.
+    """
     try:
         api_client = get_api_client_from_config(str(config_path), console)
 
@@ -397,7 +443,16 @@ async def _server_health(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Show health status of all servers."""
+    """Display health status information for all MCP servers.
+
+    Args:
+        args: Command line arguments with format option
+        config_path: Path to configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Shows overall health metrics and last check timestamps.
+    """
     try:
         api_client = get_api_client_from_config(str(config_path), console)
 
@@ -430,7 +485,16 @@ async def _server_reconnect(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Force server reconnection."""
+    """Force reconnection to a specific MCP server.
+
+    Args:
+        args: Command line arguments with server name
+        config_path: Path to configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Useful for recovering from connection issues or applying configuration changes.
+    """
     try:
         api_client = get_api_client_from_config(str(config_path), console)
 
@@ -457,7 +521,17 @@ async def _daemon_start(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Start the bridge daemon."""
+    """Start the bridge daemon process.
+
+    Args:
+        args: Command line arguments with start options (detach, config, host, port)
+        config_path: Default path to configuration file
+        daemon_manager: Manager for daemon operations
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Handles both foreground and detached (background) daemon startup.
+    """
     try:
         # Check if already running
         if await daemon_manager.is_running():
@@ -516,7 +590,16 @@ async def _daemon_stop(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Stop the bridge daemon."""
+    """Stop a running bridge daemon process.
+
+    Args:
+        args: Command line arguments with stop options (force)
+        daemon_manager: Manager for daemon operations
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Gracefully stops the daemon unless force is specified.
+    """
     try:
         if not await daemon_manager.is_running():
             console.print("[yellow]Bridge daemon is not running[/yellow]")
@@ -543,7 +626,16 @@ async def _daemon_restart(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Restart the bridge daemon."""
+    """Restart a bridge daemon process with optional new configuration.
+
+    Args:
+        args: Command line arguments with restart options (config, host, port, force)
+        daemon_manager: Manager for daemon operations
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Stops the current daemon and starts a new one with updated settings.
+    """
     try:
         start_kwargs = {}
 
@@ -579,7 +671,19 @@ async def _daemon_status(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Show daemon status without loading config."""
+    """Display bridge daemon status information.
+
+    Shows lightweight daemon status without requiring configuration file access.
+    Can display status for a specific daemon or all daemons.
+
+    Args:
+        args: Command line arguments with name and format options
+        config_dir: Directory containing daemon metadata
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Supports both table and JSON output formats.
+    """
     try:
         daemon_name = getattr(args, "name", None)
 

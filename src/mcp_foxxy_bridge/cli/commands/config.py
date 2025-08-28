@@ -473,7 +473,20 @@ async def _config_unset(
 
 
 def _normalize_bridge_config_key(key: str) -> str:
-    """Normalize a config key to assume bridge prefix unless it's a root-level key."""
+    """Normalize a configuration key by adding 'bridge.' prefix for non-root keys.
+
+    Args:
+        key: The configuration key to normalize
+
+    Returns:
+        The normalized key with 'bridge.' prefix if needed
+
+    Example:
+        >>> _normalize_bridge_config_key('port')
+        'bridge.port'
+        >>> _normalize_bridge_config_key('mcpServers.test')
+        'mcpServers.test'
+    """
     # Root-level keys that should not be prefixed with "bridge."
     root_keys = {"mcpServers"}
 
@@ -491,7 +504,20 @@ def _normalize_bridge_config_key(key: str) -> str:
 
 
 def _get_config_value(config: dict[str, Any], key: str) -> Any:
-    """Get a configuration value by key path (e.g. 'bridge.read_only_mode')."""
+    """Get a configuration value using dot-notation key path.
+
+    Args:
+        config: The configuration dictionary
+        key: Dot-notation key path (e.g. 'bridge.read_only_mode')
+
+    Returns:
+        The value at the specified key path, or None if not found
+
+    Example:
+        >>> config = {'bridge': {'port': 9000}}
+        >>> _get_config_value(config, 'bridge.port')
+        9000
+    """
     keys = key.split(".")
     current = config
 
@@ -505,7 +531,22 @@ def _get_config_value(config: dict[str, Any], key: str) -> Any:
 
 
 def _set_config_value(config: dict[str, Any], key: str, value: Any) -> None:
-    """Set a configuration value by key path."""
+    """Set a configuration value using dot-notation key path.
+
+    Args:
+        config: The configuration dictionary to modify
+        key: Dot-notation key path (e.g. 'bridge.port')
+        value: The value to set
+
+    Raises:
+        ValueError: If trying to set nested value where parent is not a dict
+
+    Example:
+        >>> config = {}
+        >>> _set_config_value(config, 'bridge.port', 9000)
+        >>> config['bridge']['port']
+        9000
+    """
     keys = key.split(".")
     current = config
 
@@ -522,7 +563,18 @@ def _set_config_value(config: dict[str, Any], key: str, value: Any) -> None:
 
 
 def _unset_config_value(config: dict[str, Any], key: str) -> None:
-    """Unset a configuration value by key path."""
+    """Remove a configuration value using dot-notation key path.
+
+    Args:
+        config: The configuration dictionary to modify
+        key: Dot-notation key path (e.g. 'bridge.port')
+
+    Example:
+        >>> config = {'bridge': {'port': 9000}}
+        >>> _unset_config_value(config, 'bridge.port')
+        >>> 'port' in config['bridge']
+        False
+    """
     keys = key.split(".")
     current = config
 
@@ -539,7 +591,30 @@ def _unset_config_value(config: dict[str, Any], key: str) -> None:
 
 
 def _parse_config_value(value: str) -> Any:
-    """Parse a string value into the appropriate Python type."""
+    """Parse a string value into the appropriate Python type.
+
+    Handles automatic type conversion for:
+    - Booleans: 'true'/'false'
+    - None values: 'null'/'none'
+    - Numbers: integers and floats
+    - Arrays: JSON arrays or comma-separated values
+    - Objects: JSON objects
+    - Strings: fallback for unrecognized formats
+
+    Args:
+        value: The string value to parse
+
+    Returns:
+        The parsed value in the appropriate Python type
+
+    Example:
+        >>> _parse_config_value('true')
+        True
+        >>> _parse_config_value('9000')
+        9000
+        >>> _parse_config_value('a,b,c')
+        ['a', 'b', 'c']
+    """
     # Handle boolean values
     if value.lower() in ("true", "false"):
         return value.lower() == "true"
@@ -585,7 +660,17 @@ async def _mcp_config_set(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Set an MCP server configuration value."""
+    """Set a configuration value for a specific MCP server.
+
+    Args:
+        args: Command line arguments containing server_name, key, and value
+        config_path: Path to the configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Example:
+        CLI usage: foxxy-bridge mcp config set filesystem timeout 120
+    """
     try:
         config = _load_config_safe(config_path, logger)
 
@@ -628,7 +713,17 @@ async def _mcp_config_get(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Get an MCP server configuration value."""
+    """Get a configuration value from a specific MCP server.
+
+    Args:
+        args: Command line arguments containing server_name and key
+        config_path: Path to the configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Example:
+        CLI usage: foxxy-bridge mcp config get filesystem timeout
+    """
     try:
         config = _load_config_safe(config_path, logger)
 
@@ -663,7 +758,17 @@ async def _mcp_config_unset(
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Unset an MCP server configuration value."""
+    """Remove a configuration value from a specific MCP server.
+
+    Args:
+        args: Command line arguments containing server_name and key
+        config_path: Path to the configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Example:
+        CLI usage: foxxy-bridge mcp config unset filesystem timeout
+    """
     try:
         config = _load_config_safe(config_path, logger)
 
