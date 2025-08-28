@@ -58,8 +58,8 @@ class AccessController:
             return str(value)  # type: ignore[unreachable]
 
         # Remove dangerous characters and control sequences - be restrictive for security
-        # Allow alphanumeric, hyphens, underscores, dots, and forward slashes for tool/server names
-        sanitized = re.sub(r"[^\w\-_./]", "", value)
+        # Allow alphanumeric, hyphens, underscores, dots, forward/back slashes for tool/server names
+        sanitized = re.sub(r"[^\w\-_./\\]", "", value)
 
         # Limit length to prevent DoS
         if len(sanitized) > MAX_INPUT_LENGTH:
