@@ -51,7 +51,7 @@ async def handle_security_show(
         else:  # yaml
             import yaml
 
-            yaml_str = yaml.dump(security_config, default_flow_style=False, sort_keys=False)
+            yaml_str = yaml.dump(security_config, default_flow_style=False, sort_keys=False)  # type: ignore[no-untyped-call]
             console.print(yaml_str.rstrip())
 
     except Exception as e:

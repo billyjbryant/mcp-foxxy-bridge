@@ -4,6 +4,10 @@
   "description": "Configuration schema for MCP Foxxy Bridge one-to-many server connectivity",
   "type": "object",
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for IDE support and validation"
+    },
     "mcpServers": {
       "type": "object",
       "description": "Collection of MCP servers to bridge",
@@ -69,6 +73,81 @@
                   "type": "number",
                   "default": 5000,
                   "description": "Health check timeout in milliseconds"
+                },
+                "keepAliveInterval": {
+                  "type": "number",
+                  "default": 60000,
+                  "description": "Keep-alive ping interval in milliseconds"
+                },
+                "keepAliveTimeout": {
+                  "type": "number",
+                  "default": 10000,
+                  "description": "Keep-alive ping timeout in milliseconds"
+                },
+                "maxConsecutiveFailures": {
+                  "type": "number",
+                  "default": 3,
+                  "description": "Maximum consecutive failures before marking server as failed"
+                },
+                "autoRestart": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Whether to automatically restart failed servers"
+                },
+                "restartDelay": {
+                  "type": "number",
+                  "default": 5000,
+                  "description": "Delay before restart attempt in milliseconds"
+                },
+                "maxRestartAttempts": {
+                  "type": "number",
+                  "default": 5,
+                  "description": "Maximum restart attempts before giving up"
+                },
+                "operation": {
+                  "type": "string",
+                  "enum": ["list_tools", "list_resources", "list_prompts", "call_tool", "read_resource", "get_prompt", "ping", "health", "status"],
+                  "default": "list_tools",
+                  "description": "MCP operation to use for health checks"
+                },
+                "toolName": {
+                  "type": "string",
+                  "description": "Specific tool name if operation is 'call_tool'"
+                },
+                "toolArguments": {
+                  "type": "object",
+                  "description": "Arguments for tool calls"
+                },
+                "resourceUri": {
+                  "type": "string",
+                  "description": "Resource URI if operation is 'read_resource'"
+                },
+                "promptName": {
+                  "type": "string",
+                  "description": "Prompt name if operation is 'get_prompt'"
+                },
+                "promptArguments": {
+                  "type": "object",
+                  "description": "Arguments for prompt calls"
+                },
+                "httpPath": {
+                  "type": "string",
+                  "description": "Custom HTTP path for health checks"
+                },
+                "httpMethod": {
+                  "type": "string",
+                  "enum": ["GET", "POST", "PUT", "DELETE"],
+                  "default": "GET",
+                  "description": "HTTP method for health checks"
+                },
+                "expectedStatus": {
+                  "type": "number",
+                  "default": 200,
+                  "description": "Expected HTTP status code for health checks"
+                },
+                "expectedContent": {
+                  "type": "string",
+                  "description": "Expected content pattern for health checks"
                 }
               },
               "default": {
@@ -108,6 +187,12 @@
               "default": "stdio",
               "description": "Transport mechanism for server communication"
             },
+            "type": {
+              "type": "string",
+              "enum": ["stdio", "sse", "http"],
+              "default": "stdio",
+              "description": "Legacy alias for transport mechanism"
+            },
             "url": {
               "type": "string",
               "description": "URL for SSE/HTTP transport (required for non-stdio transports)"
@@ -120,28 +205,68 @@
               "default": {},
               "description": "HTTP headers for SSE/HTTP transports"
             },
-            "oauth": {
+            "log_level": {
+              "type": "string",
+              "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+              "default": "ERROR",
+              "description": "Logging level for this server"
+            },
+            "working_directory": {
+              "type": ["string", "null"],
+              "description": "Working directory for the MCP server process"
+            },
+            "verify_ssl": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether to verify SSL/TLS certificates for HTTPS connections"
+            },
+            "authentication": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["bearer", "api_key", "basic"],
+                  "description": "Authentication type"
+                },
+                "token": {
+                  "type": "string",
+                  "description": "Bearer token (for bearer auth)"
+                },
+                "key": {
+                  "type": "string",
+                  "description": "API key (for api_key auth)"
+                },
+                "header": {
+                  "type": "string",
+                  "default": "X-API-Key",
+                  "description": "Header name for API key (for api_key auth)"
+                },
+                "username": {
+                  "type": "string",
+                  "description": "Username (for basic auth)"
+                },
+                "password": {
+                  "type": "string",
+                  "description": "Password (for basic auth)"
+                }
+              },
+              "description": "Authentication configuration"
+            },
+            "oauth_config": {
               "type": "object",
               "properties": {
                 "enabled": {
                   "type": "boolean",
                   "default": false,
-                  "description": "Enable OAuth 2.0 authentication"
+                  "description": "Enable OAuth 2.0 authentication (legacy field)"
                 },
-                "issuer": {
+                "type": {
                   "type": "string",
-                  "description": "OAuth issuer URL"
-                },
-                "verify_ssl": {
-                  "type": "boolean",
-                  "default": true,
-                  "description": "Verify SSL certificates for OAuth endpoints"
+                  "enum": ["dynamic", "static"],
+                  "description": "OAuth flow type (legacy field)"
                 }
               },
-              "default": {
-                "enabled": false,
-                "verify_ssl": true
-              }
+              "description": "Legacy OAuth configuration (use 'oauth' instead)"
             },
             "security": {
               "type": "object",
@@ -207,8 +332,47 @@
               "default": {}
             }
           },
-          "required": ["command"],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "description": "STDIO transport requires command",
+              "properties": {
+                "transport": {
+                  "const": "stdio"
+                }
+              },
+              "required": ["command"]
+            },
+            {
+              "description": "SSE transport requires URL",
+              "properties": {
+                "transport": {
+                  "const": "sse"
+                }
+              },
+              "required": ["url"]
+            },
+            {
+              "description": "HTTP transport requires URL",
+              "properties": {
+                "transport": {
+                  "const": "http"
+                }
+              },
+              "required": ["url"]
+            },
+            {
+              "description": "Default (stdio) transport requires command",
+              "not": {
+                "properties": {
+                  "transport": {
+                    "enum": ["sse", "http"]
+                  }
+                }
+              },
+              "required": ["command"]
+            }
+          ]
         }
       }
     },

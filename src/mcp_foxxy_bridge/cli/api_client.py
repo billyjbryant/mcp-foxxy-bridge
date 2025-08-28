@@ -24,7 +24,7 @@ from typing import Any
 import aiohttp
 from rich.console import Console
 
-from ..config.config_loader import load_bridge_config_from_file
+from mcp_foxxy_bridge.config.config_loader import load_bridge_config_from_file
 
 
 class BridgeAPIClient:
@@ -54,7 +54,7 @@ class BridgeAPIClient:
     async def list_servers(self) -> list[dict[str, Any]]:
         """List all available servers."""
         response = await self._request("GET", "/sse/servers")
-        return response.get("servers", [])
+        return response.get("servers", [])  # type: ignore[no-any-return]
 
     async def list_tags(self) -> dict[str, list[str]]:
         """List all available tags and their servers."""
@@ -67,23 +67,23 @@ class BridgeAPIClient:
     async def list_all_tools(self) -> list[dict[str, Any]]:
         """List all tools from all servers."""
         response = await self._request("GET", "/sse/list_tools")
-        return response.get("tools", [])
+        return response.get("tools", [])  # type: ignore[no-any-return]
 
     async def list_server_tools(self, server_name: str) -> list[dict[str, Any]]:
         """List tools for a specific server."""
         response = await self._request("GET", f"/sse/mcp/{server_name}/list_tools")
-        return response.get("tools", [])
+        return response.get("tools", [])  # type: ignore[no-any-return]
 
-    async def list_tools_by_tag(self, tags: str, union: bool = False) -> list[dict[str, Any]]:
+    async def list_tools_by_tag(self, tags: str, _union: bool = False) -> list[dict[str, Any]]:
         """List tools by tag(s).
 
         Args:
             tags: Tag string (single tag, + for AND, , for OR)
-            union: If True, use union (OR) logic, else intersection (AND)
+            _union: Reserved for future use (union/OR logic)
         """
         endpoint = f"/sse/tag/{tags}/list_tools"
         response = await self._request("GET", endpoint)
-        return response.get("tools", [])
+        return response.get("tools", [])  # type: ignore[no-any-return]
 
     async def reconnect_server(self, server_name: str) -> dict[str, Any]:
         """Force server reconnection."""
@@ -148,7 +148,7 @@ class BridgeAPIClient:
 
                     # Parse JSON response
                     try:
-                        return await response.json()
+                        return await response.json()  # type: ignore[no-any-return]
                     except json.JSONDecodeError:
                         text = await response.text()
                         return {"raw_response": text}

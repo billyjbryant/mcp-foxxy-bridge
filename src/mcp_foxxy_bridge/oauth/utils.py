@@ -4,7 +4,6 @@ import base64
 import contextlib
 import hashlib
 import json
-import logging
 import os
 import re
 import shutil
@@ -16,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp_foxxy_bridge.utils.config_migration import get_auth_dir, get_config_dir
+from mcp_foxxy_bridge.utils.logging import get_logger
 
 try:
     import keyring
@@ -294,8 +294,12 @@ def save_tokens(server_url_hash: str, tokens: dict[str, Any], server_name: str |
                 json.dump(encrypted_wrapper, f, indent=2)
         except Exception as e:
             # Fall back to unencrypted storage if encryption fails
-            logger = logging.getLogger(__name__)
-            logger.warning("Failed to encrypt tokens, falling back to unencrypted storage: %s", e)
+            logger = get_logger(__name__, facility="OAUTH")
+            logger.warning(
+                "Failed to encrypt tokens for server '%s', falling back to unencrypted storage: %s",
+                server_name or "UNKNOWN",
+                e,
+            )
             with tokens_path.open("w") as f:
                 json.dump(tokens_with_timestamp, f, indent=2)
     else:
@@ -332,12 +336,15 @@ def load_tokens(server_url_hash: str, server_name: str | None = None) -> dict[st
         # Check if this is encrypted data
         if isinstance(file_data, dict) and file_data.get("encrypted", False):
             if not ENCRYPTION_AVAILABLE:
-                logger = logging.getLogger(__name__)
-                logger.warning("Encrypted tokens found but encryption dependencies not available")
+                logger = get_logger(__name__, facility="OAUTH")
+                logger.warning(
+                    "Encrypted tokens found for server '%s' but encryption dependencies not available",
+                    server_name or "UNKNOWN",
+                )
                 return None
 
             if not server_name:
-                logger = logging.getLogger(__name__)
+                logger = get_logger(__name__, facility="OAUTH")
                 logger.warning("Encrypted tokens require server name for decryption")
                 return None
 
@@ -347,13 +354,13 @@ def load_tokens(server_url_hash: str, server_name: str | None = None) -> dict[st
                 stored_server_name = file_data.get("server_name")
 
                 if not encrypted_data:
-                    logger = logging.getLogger(__name__)
+                    logger = get_logger(__name__, facility="OAUTH")
                     logger.warning("Malformed encrypted token file")
                     return None
 
                 # Validate server name consistency
                 if stored_server_name and stored_server_name != safe_server_name:
-                    logger = logging.getLogger(__name__)
+                    logger = get_logger(__name__, facility="OAUTH")
                     logger.warning(
                         "Server name mismatch in encrypted tokens: expected '%s', found '%s'",
                         safe_server_name,
@@ -366,11 +373,10 @@ def load_tokens(server_url_hash: str, server_name: str | None = None) -> dict[st
                 parsed_tokens: dict[str, Any] = json.loads(decrypted_data)
                 return parsed_tokens
             except Exception as e:
-                logger = logging.getLogger(__name__)
+                logger = get_logger(__name__, facility="OAUTH")
                 logger.warning(
-                    "Failed to decrypt tokens for server '%s': %s. Token file may be corrupted. "
+                    "Failed to decrypt tokens: %s. Token file may be corrupted. "
                     "Expected server: %s, stored server: %s, tokens path: %s",
-                    server_name or "unknown",
                     type(e).__name__,
                     safe_server_name if "safe_server_name" in locals() else "unknown",
                     stored_server_name if "stored_server_name" in locals() else "unknown",

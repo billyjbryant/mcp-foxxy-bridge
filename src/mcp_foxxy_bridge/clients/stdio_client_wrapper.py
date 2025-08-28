@@ -51,7 +51,6 @@ Example:
 """
 
 import contextlib
-import logging
 import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -64,7 +63,9 @@ from anyio.streams.memory import (
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.types import JSONRPCMessage
 
-logger = logging.getLogger(__name__)
+from mcp_foxxy_bridge.utils.logging import get_logger
+
+logger = get_logger(__name__, facility="CLIENT")
 
 
 class STDIOClientWrapper:

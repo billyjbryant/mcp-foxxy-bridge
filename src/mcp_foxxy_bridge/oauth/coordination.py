@@ -2,7 +2,6 @@
 
 import contextlib
 import json
-import logging
 import os
 import time
 from pathlib import Path
@@ -10,11 +9,13 @@ from typing import Any
 
 import httpx
 
+from mcp_foxxy_bridge.utils.logging import get_logger
+
 from .config import OAUTH_USER_AGENT
 from .events import EventEmitter
 from .utils import FileLock, get_lockfile_path, is_pid_running
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, facility="OAUTH")
 
 
 class LockfileData:

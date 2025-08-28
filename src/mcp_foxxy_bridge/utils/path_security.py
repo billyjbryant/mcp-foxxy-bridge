@@ -4,10 +4,11 @@ This module provides functions to safely validate and sanitize file paths
 to prevent directory traversal and other path-based security vulnerabilities.
 """
 
-import logging
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from mcp_foxxy_bridge.utils.logging import get_logger
+
+logger = get_logger(__name__, facility="SECURITY")
 
 
 class PathTraversalError(ValueError):

@@ -88,11 +88,7 @@ class PatternMatcher:
                 return True
 
         # Check regex patterns
-        for compiled_pattern in self._compiled_patterns:
-            if compiled_pattern.match(text):
-                return True
-
-        return False
+        return any(compiled_pattern.match(text) for compiled_pattern in self._compiled_patterns)
 
     def get_matching_patterns(self, text: str) -> list[str]:
         """Get all patterns that match the given text.
@@ -103,15 +99,13 @@ class PatternMatcher:
         Returns:
             List of patterns that match the text
         """
-        matching_patterns = []
-
         # Check glob patterns
-        for pattern in self._glob_patterns:
-            if fnmatch.fnmatch(text.lower(), pattern.lower()):
-                matching_patterns.append(pattern)
+        matching_patterns = [
+            pattern for pattern in self._glob_patterns if fnmatch.fnmatch(text.lower(), pattern.lower())
+        ]
 
         # Check regex patterns
-        for i, compiled_pattern in enumerate(self._compiled_patterns):
+        for _i, compiled_pattern in enumerate(self._compiled_patterns):
             if compiled_pattern.match(text):
                 # Find the original pattern string
                 for pattern in self.patterns:

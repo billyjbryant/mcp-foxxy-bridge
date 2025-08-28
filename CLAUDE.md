@@ -24,8 +24,9 @@ uv sync                    # Install development dependencies
 
 **Running the application:**
 ```bash
-uv run mcp-foxxy-bridge --bridge-config config.json    # Run with configuration file
-uv run -m mcp_foxxy_bridge                             # Run as module
+uv run foxxy-bridge --bridge-config config.json       # Primary command
+uv run mcp-foxxy-bridge --bridge-config config.json   # Backward compatible alias
+uv run -m mcp_foxxy_bridge                            # Run as module (legacy)
 ```
 
 **Testing:**
@@ -47,11 +48,11 @@ mypy src/                 # Type checking
 
 **Development mode:**
 ```bash
-uv run mcp-foxxy-bridge --bridge-config config.json --debug  # Run with debug logging
+uv run foxxy-bridge --bridge-config config.json --debug  # Run with debug logging
 
 # Security features
-uv run mcp-foxxy-bridge --bridge-config config.json --allow-command-substitution  # Enable command substitution
-uv run mcp-foxxy-bridge --bridge-config config.json --allow-dangerous-commands   # UNSAFE: Allow any command (testing only)
+uv run foxxy-bridge --bridge-config config.json --allow-command-substitution  # Enable command substitution
+uv run foxxy-bridge --bridge-config config.json --allow-dangerous-commands   # UNSAFE: Allow any command (testing only)
 ```
 
 **REST API Endpoints:**

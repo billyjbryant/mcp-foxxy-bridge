@@ -61,10 +61,10 @@ Example:
 """
 
 import json
-import logging
 import os
 import re
 import shlex
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,6 +75,8 @@ if TYPE_CHECKING:
 
 from mcp.client.stdio import StdioServerParameters
 
+from ..utils.config_migration import get_config_dir
+
 try:
     import jsonschema
 
@@ -82,7 +84,9 @@ try:
 except ImportError:
     JSONSCHEMA_AVAILABLE = False
 
-logger = logging.getLogger(__name__)
+from mcp_foxxy_bridge.utils.logging import get_logger
+
+logger = get_logger(__name__, facility="CONFIG")
 
 
 def _sanitize_command_for_logging(command: str) -> str:
@@ -97,6 +101,179 @@ def _sanitize_command_for_logging(command: str) -> str:
 
     # Escape any remaining quotes to prevent log injection
     return sanitized.replace('"', '\\"').replace("'", "\\'")
+
+
+def _migrate_oauth_fields(config_data: dict[str, Any]) -> bool:
+    """Migrate legacy 'oauth' field to 'oauth_config' in server configurations.
+
+    This handles backward compatibility where older configs or CLI commands
+    may have used 'oauth' instead of the expected 'oauth_config' field name.
+
+    Args:
+        config_data: The parsed configuration data
+
+    Returns:
+        True if any migrations were performed, False otherwise
+    """
+    migrated = False
+
+    try:
+        servers = config_data.get("mcpServers", {})
+
+        for server_name, server_config in servers.items():
+            if isinstance(server_config, dict):
+                # Check if server has 'oauth' but not 'oauth_config'
+                if "oauth" in server_config and "oauth_config" not in server_config:
+                    # Migrate oauth to oauth_config
+                    server_config["oauth_config"] = server_config.pop("oauth")
+                    logger.debug(f"Migrated 'oauth' to 'oauth_config' for server '{server_name}'")
+                    migrated = True
+                elif "oauth" in server_config and "oauth_config" in server_config:
+                    # Both exist - prefer oauth_config and remove oauth
+                    server_config.pop("oauth")
+                    logger.debug(f"Removed duplicate 'oauth' field for server '{server_name}' (keeping 'oauth_config')")
+                    migrated = True
+
+    except Exception as e:
+        logger.debug(f"Error during oauth field migration: {e}")
+
+    return migrated
+
+
+def _write_config_to_disk(config_path: str, config_data: dict[str, Any]) -> None:
+    """Write configuration data back to disk with backup.
+
+    Args:
+        config_path: Path to the configuration file
+        config_data: The configuration data to write
+    """
+    try:
+        config_file_path = Path(config_path)
+
+        # Create backup
+        backup_path = config_file_path.with_suffix(".json.backup")
+        try:
+            shutil.copy2(config_file_path, backup_path)
+            logger.debug(f"Created backup at {backup_path}")
+        except Exception as e:
+            logger.debug(f"Could not create backup: {e}")
+
+        # Write updated config
+        with config_file_path.open("w") as f:
+            json.dump(config_data, f, indent=2)
+
+        logger.info("Updated configuration file with migrations")
+
+    except Exception as e:
+        logger.debug(f"Failed to write config to disk: {e}")
+
+
+def _ensure_schema_reference(config_path: str, config_data: dict[str, Any]) -> bool:
+    """Ensure the config file has a $schema reference for IDE support.
+
+    Args:
+        config_path: Path to the configuration file
+        config_data: The parsed configuration data
+
+    Returns:
+        True if the schema reference was added and file was updated, False otherwise
+    """
+    try:
+        # Check if schema reference already exists and is correct
+        current_schema = config_data.get("$schema", "")
+
+        # Get the config directory and build absolute path to schema
+        config_dir = get_config_dir()
+        schema_path = config_dir / "bridge_config_schema.json"
+        correct_schema = str(schema_path)
+
+        if current_schema == correct_schema:
+            logger.debug("Config already has correct schema reference")
+            return False
+
+        # Add or update schema reference, ensuring it's first in the JSON
+        # Create new ordered dict with schema first
+        updated_config = {"$schema": correct_schema}
+
+        # Add all other keys (except existing $schema if present)
+        for key, value in config_data.items():
+            if key != "$schema":
+                updated_config[key] = value
+
+        # Write the updated config back to file
+        config_file_path = Path(config_path)
+
+        # Create backup
+        backup_path = config_file_path.with_suffix(".json.backup")
+        try:
+            shutil.copy2(config_file_path, backup_path)
+            logger.debug(f"Created backup at {backup_path}")
+        except Exception as e:
+            logger.debug(f"Could not create backup: {e}")
+
+        # Write updated config
+        with config_file_path.open("w") as f:
+            json.dump(updated_config, f, indent=2)
+
+        if current_schema:
+            logger.info("Updated schema reference in configuration file for IDE support")
+        else:
+            logger.info("Added schema reference to configuration file for IDE support")
+        return True
+
+    except Exception as e:
+        logger.debug(f"Failed to add schema reference to config: {e}")
+        return False
+
+
+def _ensure_config_schema() -> None:
+    """Copy the JSON schema to the config directory if it doesn't exist or is outdated.
+
+    This ensures users always have access to the current schema for IDE auto-completion
+    and validation, matching the exact version of the bridge they're running.
+    """
+    try:
+        # Get the config directory and schema paths
+        config_dir = get_config_dir()
+        config_schema_path = config_dir / "bridge_config_schema.json"
+
+        # Find the schema file in the package directory
+        # This works whether we're installed via pip or running from source
+        current_file_dir = Path(__file__).parent.parent.parent.parent
+        source_schema_path = current_file_dir / "bridge_config_schema.json"
+
+        if not source_schema_path.exists():
+            logger.debug("Schema file not found in source directory, skipping schema copy")
+            return
+
+        # Check if we need to copy the schema
+        should_copy = False
+
+        if not config_schema_path.exists():
+            logger.debug("Config schema not found, will copy from source")
+            should_copy = True
+        else:
+            # Check if the source is newer
+            try:
+                source_mtime = source_schema_path.stat().st_mtime
+                config_mtime = config_schema_path.stat().st_mtime
+
+                if source_mtime > config_mtime:
+                    logger.debug("Source schema is newer, will update config schema")
+                    should_copy = True
+
+            except OSError:
+                logger.debug("Could not compare schema file times, will copy to be safe")
+                should_copy = True
+
+        if should_copy:
+            logger.info("Copying JSON schema to config directory for IDE support")
+            shutil.copy2(source_schema_path, config_schema_path)
+            logger.debug(f"Schema copied to: {config_schema_path}")
+
+    except Exception as e:
+        # Don't fail configuration loading if schema copy fails
+        logger.debug(f"Failed to copy schema file: {e}")
 
 
 class ConfigLoader:
@@ -1172,6 +1349,9 @@ def load_bridge_config_from_file(
     """
     logger.info(f"Loading bridge configuration from: {config_file_path}")
 
+    # Step 0: Ensure schema is available in config directory for IDE support
+    _ensure_config_schema()
+
     # Step 1: Load and parse JSON file
     try:
         with Path(config_file_path).open() as f:
@@ -1191,6 +1371,16 @@ def load_bridge_config_from_file(
         msg = f"Invalid config file format in {config_file_path}. Missing 'mcpServers' key."
         logger.error(msg)
         raise ValueError(msg)
+
+    # Step 1.5: Ensure config has schema reference for IDE support
+    schema_updated = _ensure_schema_reference(config_file_path, config_data)
+
+    # Step 1.6: Migrate legacy oauth field names
+    oauth_migrated = _migrate_oauth_fields(config_data)
+
+    # Step 1.7: Write config back to disk if oauth migration happened (but schema wasn't updated)
+    if oauth_migrated and not schema_updated:
+        _write_config_to_disk(config_file_path, config_data)
 
     # Step 2: Load bridge configuration first to get settings
     bridge_config = _load_bridge_settings(config_data, allow_command_substitution)

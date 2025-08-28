@@ -60,9 +60,13 @@ async def handle_oauth_command(
         from ..main import _setup_argument_parser
 
         parser = _setup_argument_parser()
+        if parser._subparsers is None:
+            console.print("[yellow]Usage: foxxy-bridge oauth <command>[/yellow]")
+            console.print("Available commands: status, login, logout")
+            return
         for action in parser._subparsers._actions:
-            if hasattr(action, "choices") and "oauth" in action.choices:
-                action.choices["oauth"].print_help()
+            if hasattr(action, "choices") and action.choices and "oauth" in action.choices:
+                action.choices["oauth"].print_help()  # type: ignore[index]
                 return
         console.print("[yellow]Usage: foxxy-bridge oauth <command>[/yellow]")
         console.print("Available commands: status, login, logout")
@@ -150,7 +154,7 @@ async def _oauth_login(
                 console.print(f"[red]Server '{args.name}' not found in configuration[/red]")
                 return
 
-            if not server_config.oauth or not server_config.oauth.enabled:
+            if not server_config.oauth_config or not server_config.oauth_config.get("enabled", False):
                 console.print(f"[red]OAuth is not enabled for server '{args.name}'[/red]")
                 console.print("Enable OAuth in your configuration file first.")
                 return

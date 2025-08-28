@@ -63,9 +63,13 @@ async def handle_tool_command(
         from ..main import _setup_argument_parser
 
         parser = _setup_argument_parser()
+        if parser._subparsers is None:
+            console.print("[yellow]Usage: foxxy-bridge tool <command>[/yellow]")
+            console.print("Available commands: list, test, call, search")
+            return
         for action in parser._subparsers._actions:
-            if hasattr(action, "choices") and "tool" in action.choices:
-                action.choices["tool"].print_help()
+            if hasattr(action, "choices") and action.choices and "tool" in action.choices:
+                action.choices["tool"].print_help()  # type: ignore[index]
                 return
         console.print("[yellow]Usage: foxxy-bridge tool <command>[/yellow]")
         console.print("Available commands: list, test, call, search")

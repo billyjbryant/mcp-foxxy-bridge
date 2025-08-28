@@ -217,9 +217,13 @@ async def handle_server_command(
         from ..main import _setup_argument_parser
 
         parser = _setup_argument_parser()
+        if parser._subparsers is None:
+            console.print("[yellow]Usage: foxxy-bridge server <command>[/yellow]")
+            console.print("Available commands: status, logs, restart, health, reconnect")
+            return
         for action in parser._subparsers._actions:
-            if hasattr(action, "choices") and "server" in action.choices:
-                action.choices["server"].print_help()
+            if hasattr(action, "choices") and action.choices and "server" in action.choices:
+                action.choices["server"].print_help()  # type: ignore[index]
                 return
         console.print("[yellow]Usage: foxxy-bridge server <command>[/yellow]")
         console.print("Available commands: status, logs, restart, health, reconnect")
@@ -285,17 +289,17 @@ async def _server_status(
 
 
 async def _server_status_watch(
-    api_client,
+    api_client: Any,
     args: argparse.Namespace,
     console: Console,
 ) -> None:
     """Watch server status with live updates."""
 
-    async def update_status():
+    async def update_status() -> dict[str, Any]:
         try:
             if args.name:
-                return await api_client.get_server_status(args.name)
-            return await api_client.get_status()
+                return await api_client.get_server_status(args.name)  # type: ignore[no-any-return]
+            return await api_client.get_status()  # type: ignore[no-any-return]
         except Exception as e:
             return {"error": str(e)}
 

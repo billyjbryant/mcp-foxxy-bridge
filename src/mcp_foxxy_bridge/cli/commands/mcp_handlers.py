@@ -90,7 +90,7 @@ async def handle_mcp_add(
             oauth_config = {"enabled": True}
             if args.oauth_issuer:
                 oauth_config["issuer"] = args.oauth_issuer
-            server_config["oauth"] = oauth_config
+            server_config["oauth_config"] = oauth_config
 
         # Additional server configuration options
         if hasattr(args, "enabled") and args.enabled is not None:
@@ -245,7 +245,7 @@ async def handle_mcp_list(
         elif args.format == "yaml":
             import yaml
 
-            console.print(yaml.dump(servers, default_flow_style=False))
+            console.print(yaml.dump(servers, default_flow_style=False))  # type: ignore[no-untyped-call]
         else:
             ConfigFormatter.format_servers_table(servers, console)
 
@@ -330,8 +330,15 @@ async def handle_config_validate(
         console.print(f"Found {len(servers)} MCP server(s) configured")
 
         for name, server_config in servers.items():
-            status_icon = "🔐" if server_config.oauth and server_config.oauth.enabled else "🔓"
-            console.print(f"  {status_icon} {name} ({server_config.transport})")
+            status_icon = (
+                "🔐"
+                if hasattr(server_config, "oauth_config")
+                and server_config.oauth_config
+                and getattr(server_config.oauth_config, "enabled", False)
+                else "🔓"
+            )
+            transport_type = getattr(server_config, "transport_type", "stdio")
+            console.print(f"  {status_icon} {name} ({transport_type})")
 
     except Exception as e:
         console.print(f"[red]✗[/red] Configuration validation failed: {e}")
@@ -408,7 +415,10 @@ async def handle_mcp_restart(
 
         import aiohttp
 
-        config = load_bridge_config_from_file(config_path, os.environ)
+        config = load_bridge_config_from_file(str(config_path), dict(os.environ))
+        if config is None or config.bridge is None:
+            console.print("[red]Error: Invalid or missing bridge configuration[/red]")
+            return
         bridge_port = config.bridge.port
 
         server_name = args.server_name

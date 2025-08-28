@@ -249,7 +249,7 @@ class ConfigFormatter:
     def format_config_yaml(config: dict[str, Any], console: Console) -> None:
         """Format and display configuration as YAML."""
         try:
-            yaml_str = yaml.dump(config, default_flow_style=False, indent=2)
+            yaml_str = yaml.dump(config, default_flow_style=False, indent=2)  # type: ignore[no-untyped-call]
             console.print(yaml_str.rstrip())
         except Exception as e:
             console.print(f"[red]Error formatting YAML: {e}[/red]")

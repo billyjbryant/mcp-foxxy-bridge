@@ -18,7 +18,7 @@ from .oauth_client_provider import OAuthClientProvider
 from .types import OAuthClientInformation, OAuthProviderOptions, OAuthTokens
 from .utils import setup_signal_handlers
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, facility="OAUTH")
 
 
 class OAuthFlow:
@@ -75,7 +75,10 @@ class OAuthFlow:
                 )
                 if response.status_code == 200:
                     config = response.json()
-                    logger.info("Discovered OAuth endpoints via well-known URL")
+                    logger.info(
+                        "Discovered OAuth endpoints via well-known URL for server '%s'",
+                        self.options.server_name or "UNKNOWN",
+                    )
                     return {
                         "authorization_endpoint": config.get("authorization_endpoint"),
                         "token_endpoint": config.get("token_endpoint"),
@@ -86,7 +89,7 @@ class OAuthFlow:
                 continue
 
         # Fallback to common paths (original behavior)
-        logger.debug("Using fallback OAuth endpoints")
+        logger.debug("Using fallback OAuth endpoints for server '%s'", self.options.server_name or "UNKNOWN")
         return {
             "authorization_endpoint": f"{base_url}/oauth/authorize",
             "token_endpoint": f"{base_url}/oauth/token",
@@ -198,10 +201,10 @@ class OAuthFlow:
         # Check for existing valid tokens
         existing_tokens = self.provider.tokens()
         if existing_tokens and not skip_browser:
-            logger.info("Using existing tokens")
+            logger.info("Using existing tokens for server '%s'", self.options.server_name or "UNKNOWN")
             return existing_tokens
 
-        logger.info("Starting OAuth authentication flow...")
+        logger.info("Starting OAuth authentication flow for server '%s'", self.options.server_name or "UNKNOWN")
 
         # Discover OAuth endpoints
         endpoints = self.discover_endpoints()
@@ -236,10 +239,12 @@ class OAuthFlow:
             if not skip_browser:
                 self.provider.redirect_to_authorization(auth_url)
             else:
-                logger.info(f"Visit this URL to authorize: {auth_url}")
+                logger.info(
+                    "Visit this URL to authorize server '%s': %s", self.options.server_name or "UNKNOWN", auth_url
+                )
 
             # Wait for tokens to be saved by bridge server's OAuth callback
-            logger.info("Waiting for authorization callback...")
+            logger.info("Waiting for authorization callback for server '%s'", self.options.server_name or "UNKNOWN")
 
             timeout = 300  # 5 minutes
             start_time = time.time()
@@ -257,7 +262,12 @@ class OAuthFlow:
                 elapsed = current_time - start_time
                 remaining = timeout - elapsed
                 if current_time - last_log_time >= 10:
-                    logger.info("OAuth callback pending (%.1fs elapsed, %.1fs remaining)", elapsed, remaining)
+                    logger.info(
+                        "OAuth callback pending for server '%s' (%.1fs elapsed, %.1fs remaining)",
+                        self.options.server_name or "UNKNOWN",
+                        elapsed,
+                        remaining,
+                    )
                     last_log_time = current_time
 
                 await asyncio.sleep(1.0)
@@ -265,7 +275,7 @@ class OAuthFlow:
             # Provide helpful error message for redirect issues
             elapsed = time.time() - start_time
             error_msg = f"OAuth authentication timed out after {elapsed:.1f} seconds"
-            logger.error("OAuth timeout: %s", error_msg)
+            logger.error("[OAUTH][%s] OAuth timeout: %s", self.options.server_name or "UNKNOWN", error_msg)
             raise RuntimeError(error_msg)
 
         finally:
@@ -278,7 +288,9 @@ class OAuthFlow:
 
         # Check if we have a configured OAuth issuer for refresh operations
         if hasattr(self.options, "oauth_issuer") and self.options.oauth_issuer:
-            logger.debug("Using configured OAuth issuer for token refresh")
+            logger.debug(
+                "[OAUTH][%s] Using configured OAuth issuer for token refresh", self.options.server_name or "UNKNOWN"
+            )
             oauth_issuer = self.options.oauth_issuer
 
             # Try OAuth issuer endpoints for refresh
@@ -297,7 +309,10 @@ class OAuthFlow:
                         config = response.json()
                         token_endpoint = config.get("token_endpoint")
                         if token_endpoint:
-                            logger.debug("Found token endpoint via OAuth issuer discovery")
+                            logger.debug(
+                                "[OAUTH][%s] Found token endpoint via OAuth issuer discovery",
+                                self.options.server_name or "UNKNOWN",
+                            )
                             break
                 except (httpx.HTTPError, json.JSONDecodeError):
                     continue
@@ -305,11 +320,15 @@ class OAuthFlow:
             # If discovery failed, try common OAuth issuer paths
             if not token_endpoint:
                 token_endpoint = f"{oauth_issuer}/oauth/token"
-                logger.debug("Using fallback OAuth issuer token endpoint")
+                logger.debug(
+                    "[OAUTH][%s] Using fallback OAuth issuer token endpoint", self.options.server_name or "UNKNOWN"
+                )
 
         # If no OAuth issuer or it failed, fall back to server endpoints
         if not token_endpoint:
-            logger.debug("Falling back to server endpoints for token refresh")
+            logger.debug(
+                "[OAUTH][%s] Falling back to server endpoints for token refresh", self.options.server_name or "UNKNOWN"
+            )
             endpoints = self.discover_endpoints()
             token_endpoint = endpoints.get("token_endpoint")
 

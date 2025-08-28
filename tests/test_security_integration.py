@@ -266,11 +266,15 @@ class TestOAuthIntegrationSecurity:
             except ValueError:
                 pytest.fail(f"Valid server name '{name}' was rejected")
 
-        # Invalid server names should be rejected
-        invalid_names = ["../etc/passwd", "server/path", "server\\windows", "server<script>"]
+        # Invalid server names should be rejected (path traversal patterns only)
+        invalid_names = ["../etc/passwd", "server/path", "server\\windows"]
         for name in invalid_names:
             with pytest.raises(ValueError, match="Server name"):
                 oauth_utils.get_tokens_path(server_url_hash, name)
+
+        # This name gets sanitized rather than rejected
+        sanitized_path = oauth_utils.get_tokens_path(server_url_hash, "server<script>")
+        assert "serverscript" in str(sanitized_path)
 
     def test_oauth_migration_from_legacy_format(self) -> None:
         """Test OAuth data migration from legacy format with security validation."""

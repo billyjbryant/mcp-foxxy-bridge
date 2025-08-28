@@ -32,10 +32,11 @@ from mcp.shared.exceptions import McpError
 from pydantic import BaseModel
 
 from mcp_foxxy_bridge.config.config_loader import BridgeConfiguration, BridgeServerConfig
+from mcp_foxxy_bridge.utils.logging import get_logger
 
 from .server_manager import ServerManager
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, facility="BRIDGE")
 
 
 class ServerManagerProtocol(Protocol):

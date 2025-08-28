@@ -1,13 +1,9 @@
 {
-  "$schema": "/Users/billybryant/.config/foxxy-bridge/bridge_config_schema.json",
   "mcpServers": {
     "github": {
       "enabled": true,
       "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-github"
-      ],
+      "args": ["-y", "@modelcontextprotocol/server-github"],
       "env": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
       },
@@ -16,20 +12,14 @@
     "filesystem": {
       "enabled": true,
       "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "${HOME}/Documents"
-      ],
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${HOME}/Documents"],
       "toolNamespace": "fs",
       "resourceNamespace": "fs"
     },
     "fetch": {
       "enabled": true,
       "command": "uvx",
-      "args": [
-        "mcp-server-fetch"
-      ],
+      "args": ["mcp-server-fetch"],
       "toolNamespace": "fetch"
     }
   },

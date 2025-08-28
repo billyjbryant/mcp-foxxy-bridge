@@ -1116,15 +1116,36 @@ async def handle_server_reconnect(request: Request) -> Response:
             return JSONResponse({"error": f"Server '{server_name}' not found"}, status_code=404)
 
         # Force reconnection by updating the server's connection
-        await target_manager.reconnect_server(target_server)
+        try:
+            await target_manager.reconnect_server(target_server)
 
-        return JSONResponse(
-            {
-                "message": f"Reconnection initiated for server '{server_name}'",
-                "server": server_name,
-                "status": target_server.health.status.value,
-            }
-        )
+            return JSONResponse(
+                {
+                    "message": f"Server '{server_name}' reconnected successfully",
+                    "server": server_name,
+                    "status": target_server.health.status.value,
+                }
+            )
+        except asyncio.CancelledError:
+            logger.warning("Server reconnection was cancelled for '%s'", server_name)
+            return JSONResponse(
+                {
+                    "error": f"Reconnection of server '{server_name}' was cancelled",
+                    "server": server_name,
+                    "status": target_server.health.status.value,
+                },
+                status_code=408,  # Request Timeout
+            )
+        except Exception as reconnect_error:
+            logger.exception("Failed to reconnect server '%s'", server_name)
+            return JSONResponse(
+                {
+                    "error": f"Failed to reconnect server '{server_name}': {reconnect_error}",
+                    "server": server_name,
+                    "status": target_server.health.status.value,
+                },
+                status_code=500,
+            )
 
     except Exception:
         logger.exception("Error in server reconnect endpoint")
@@ -2224,6 +2245,10 @@ async def run_bridge_server(
         async def handle_shutdown_exceptions(scope: Scope, receive: Receive, send: Send) -> None:
             try:
                 await starlette_app(scope, receive, send)
+            except asyncio.CancelledError:
+                # Handle cancellation gracefully - common during reconnection
+                logger.debug("ASGI operation cancelled - likely due to server reconnection")
+                return
             except RuntimeError as e:
                 if "Expected ASGI message" in str(e) or "response" in str(e).lower():
                     # These are normal during graceful shutdown

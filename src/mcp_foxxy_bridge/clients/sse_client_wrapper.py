@@ -59,7 +59,6 @@ Example:
 import asyncio
 import base64
 import contextlib
-import logging
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -75,8 +74,9 @@ from mcp.types import JSONRPCMessage
 from mcp_foxxy_bridge.oauth import OAuthFlow, OAuthProviderOptions, OAuthTokens, get_oauth_client_config
 from mcp_foxxy_bridge.oauth.utils import get_server_url_hash, load_tokens
 from mcp_foxxy_bridge.utils.bridge_config import get_bridge_server_host, get_oauth_port
+from mcp_foxxy_bridge.utils.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, facility="CLIENT")
 
 
 def _auto_detect_oauth_issuer(server_url: str) -> str | None:
@@ -497,7 +497,9 @@ async def sse_client_with_logging(
 
         if is_shutdown_error or is_cleanup_exception:
             logger.debug("SSE client shutdown: %s", exception_type)
-            # Suppress cleanup exceptions during shutdown
+            # Suppress cleanup exceptions during shutdown but still need to raise
+            # to prevent "generator didn't yield" error
+            raise
         else:
             logger.exception("SSE client failed for server '%s': %s", server_name, e)
             raise

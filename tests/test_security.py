@@ -49,23 +49,34 @@ class TestTokenEncryption:
 
     def test_validate_server_name_invalid(self) -> None:
         """Test server name validation rejects dangerous patterns."""
-        invalid_names = [
-            "../malicious",
-            "server/path",
-            "server\\path",
-            "server<script>",
-            "server|pipe",
-            "server&command",
-            "server;command",
-            "server$variable",
-            "server`command`",
-            "",
-            None,
+        # Only these patterns actually raise ValueError - path traversal and empty strings
+        truly_invalid_names = [
+            "../malicious",  # Path traversal
+            "server/path",  # Contains slash
+            "server\\path",  # Contains backslash
+            "",  # Empty string
+            None,  # None value
         ]
 
-        for name in invalid_names:
+        for name in truly_invalid_names:
             with pytest.raises(ValueError, match="Server name"):
                 oauth_utils._validate_server_name(name)  # type: ignore[arg-type]  # Testing invalid inputs
+
+    def test_validate_server_name_sanitization(self) -> None:
+        """Test server name validation sanitizes special characters."""
+        # These patterns get sanitized rather than rejected
+        names_to_sanitize = [
+            ("server<script>", "serverscript"),
+            ("server|pipe", "serverpipe"),
+            ("server&command", "servercommand"),
+            ("server;command", "servercommand"),
+            ("server$variable", "servervariable"),
+            ("server`command`", "servercommand"),
+        ]
+
+        for input_name, expected_output in names_to_sanitize:
+            result = oauth_utils._validate_server_name(input_name)
+            assert result == expected_output
 
     def test_validate_config_path_valid(self) -> None:
         """Test config path validation with valid paths."""

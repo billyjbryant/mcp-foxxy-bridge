@@ -49,8 +49,9 @@ from mcp_foxxy_bridge.config.config_loader import (
     BridgeServerConfig,
     normalize_server_name,
 )
+from mcp_foxxy_bridge.security.config import BridgeSecurityConfig
 from mcp_foxxy_bridge.security.policy import SecurityPolicy
-from mcp_foxxy_bridge.utils.logging import log_to_file
+from mcp_foxxy_bridge.utils.logging import get_logger, log_to_file
 
 
 def _create_resource_uri(uri_string: str) -> AnyUrl | str:
@@ -76,7 +77,7 @@ def _create_resource_uri(uri_string: str) -> AnyUrl | str:
         raise ValueError(f"Invalid URI format: {uri_string}") from None
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, facility="SERVER")
 
 
 # Import OAuth function (avoid circular import by importing only when needed)
@@ -905,15 +906,15 @@ class ServerManager:
             namespace = server.get_effective_namespace("tools", self.bridge_config.bridge)
 
             # Create security policy for this server using bridge-level read_only_mode
-            from mcp_foxxy_bridge.security.config import BridgeSecurityConfig
-
-            bridge_security = None
+            # Always create a BridgeSecurityConfig, using defaults if bridge config is None
             if self.bridge_config.bridge:
-                # Create a minimal BridgeSecurityConfig using the bridge-level read_only_mode
                 bridge_security = BridgeSecurityConfig(
                     read_only_mode=self.bridge_config.bridge.read_only_mode,
                     tools=self.bridge_config.bridge.security.tools if self.bridge_config.bridge.security else None,
                 )
+            else:
+                # Create default bridge security config
+                bridge_security = BridgeSecurityConfig()
 
             security_policy = SecurityPolicy(
                 bridge_config=bridge_security,
@@ -1135,15 +1136,15 @@ class ServerManager:
             raise ValueError(msg)
 
         # Apply security check for tool execution using bridge-level read_only_mode
-        from mcp_foxxy_bridge.security.config import BridgeSecurityConfig
-
-        bridge_security = None
+        # Always create a BridgeSecurityConfig, using defaults if bridge config is None
         if self.bridge_config.bridge:
-            # Create a minimal BridgeSecurityConfig using the bridge-level read_only_mode
             bridge_security = BridgeSecurityConfig(
                 read_only_mode=self.bridge_config.bridge.read_only_mode,
                 tools=self.bridge_config.bridge.security.tools if self.bridge_config.bridge.security else None,
             )
+        else:
+            # Create default bridge security config
+            bridge_security = BridgeSecurityConfig()
 
         security_policy = SecurityPolicy(
             bridge_config=bridge_security,
@@ -1636,7 +1637,28 @@ class ServerManager:
             server: The server to reconnect
         """
         logger.info("Forcing reconnection for server '%s'", server.name)
-        await self._connect_server(server)
+
+        try:
+            # First disconnect cleanly if connected
+            if server.health.status in (ServerStatus.CONNECTED, ServerStatus.CONNECTING):
+                logger.debug("Disconnecting server '%s' before reconnecting", server.name)
+                await self._disconnect_server(server)
+
+            # Small delay to ensure cleanup completes
+            await asyncio.sleep(0.1)
+
+            # Now reconnect
+            await self._connect_server(server)
+            logger.info("Server '%s' reconnected successfully", server.name)
+
+        except asyncio.CancelledError:
+            logger.warning("Reconnection of server '%s' was cancelled", server.name)
+            server.health.status = ServerStatus.FAILED
+            raise
+        except Exception:
+            logger.exception("Failed to reconnect server '%s'", server.name)
+            server.health.status = ServerStatus.FAILED
+            raise
 
     async def update_servers(self, new_server_configs: dict[str, BridgeServerConfig]) -> None:
         """Update server configurations dynamically.

@@ -18,23 +18,50 @@
 #
 """Click-based CLI for MCP Foxxy Bridge management."""
 
+import argparse
 import asyncio
+import builtins
+from importlib.metadata import version
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import click
-import rich_click as click  # Use rich-click for better formatting
+import rich_click
 from rich.console import Console
 
-from ..utils.config_migration import get_config_dir
-from ..utils.logging import setup_logging
+from mcp_foxxy_bridge.cli.commands import config as config_commands
+from mcp_foxxy_bridge.cli.commands import mcp_handlers
+from mcp_foxxy_bridge.cli.commands.config import _mcp_config_get, _mcp_config_set, _mcp_config_unset
+from mcp_foxxy_bridge.cli.commands.logs import handle_mcp_logs
+from mcp_foxxy_bridge.cli.commands.mcp_handlers import (
+    handle_mcp_add,
+    handle_mcp_list,
+    handle_mcp_remove,
+    handle_mcp_restart,
+    handle_mcp_show,
+)
+from mcp_foxxy_bridge.cli.commands.oauth import handle_oauth_status
+from mcp_foxxy_bridge.cli.commands.security_handlers import handle_security_set, handle_security_show
+from mcp_foxxy_bridge.cli.commands.server import (
+    handle_server_list,
+    handle_server_restart,
+    handle_server_start,
+    handle_server_status,
+    handle_server_stop,
+)
+from mcp_foxxy_bridge.cli.commands.tool import handle_tool_list
+from mcp_foxxy_bridge.oauth.utils import _validate_server_name
+from mcp_foxxy_bridge.utils.config_migration import get_config_dir
+from mcp_foxxy_bridge.utils.logging import setup_logging
+from mcp_foxxy_bridge.utils.path_security import validate_config_dir, validate_config_path
 
 
-def print_version(ctx, param, value):
+def print_version(ctx: click.Context, param: Any, value: bool) -> None:
+    """Print version callback for CLI."""
     if not value or ctx.resilient_parsing:
         return
     try:
-        from importlib.metadata import version
-
         ver = version("mcp-foxxy-bridge")
     except ImportError:
         ver = "1.5.0"
@@ -43,10 +70,10 @@ def print_version(ctx, param, value):
 
 
 # Configure rich-click for better help output
-click.rich_click.USE_RICH_MARKUP = True
-click.rich_click.USE_MARKDOWN = True
-click.rich_click.SHOW_ARGUMENTS = True
-click.rich_click.GROUP_ARGUMENTS_OPTIONS = True
+rich_click.USE_RICH_MARKUP = True
+rich_click.USE_MARKDOWN = True
+rich_click.SHOW_ARGUMENTS = True
+rich_click.GROUP_ARGUMENTS_OPTIONS = True
 
 console = Console()
 
@@ -88,25 +115,21 @@ def cli(ctx: click.Context, config_dir: Path | None, config: Path | None, debug:
 
     # Get config directory and config path
     if config_dir:
-        from ..utils.path_security import validate_config_dir
-
         try:
             config_dir = validate_config_dir(config_dir)
         except Exception as e:
             console.print(f"[red]Error: Invalid config directory: {e}[/red]")
-            raise click.Abort()
+            raise click.Abort from None
     else:
         config_dir = get_config_dir()
 
     # Determine config file path with priority: CLI arg > ENV var > default
     if config:
-        from ..utils.path_security import validate_config_path
-
         try:
             config_path = validate_config_path(config)
         except Exception as e:
             console.print(f"[red]Error: Invalid config file path: {e}[/red]")
-            raise click.Abort()
+            raise click.Abort from None
     else:
         config_path = config_dir / "config.json"
 
@@ -126,73 +149,61 @@ def config(ctx: click.Context) -> None:
 
 
 @config.command()
-@click.option("--format", "-f", type=click.Choice(["json", "yaml"]), default="yaml", help="Output format")
+@click.option("--output-format", "-f", type=click.Choice(["json", "yaml"]), default="yaml", help="Output format")
 @click.pass_context
-def show(ctx: click.Context, format: str) -> None:
+def config_show(ctx: click.Context, output_format: str) -> None:
     """Show bridge configuration."""
-    # Create a namespace-like object for compatibility
-    from types import SimpleNamespace
-
-    from .commands.mcp_handlers import handle_config_show
-
-    args = SimpleNamespace(format=format, name=None)
+    args = SimpleNamespace(format=output_format, name=None)
 
     asyncio.run(
-        handle_config_show(args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"])
+        mcp_handlers.handle_config_show(
+            args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"]
+        )
     )
 
 
-@config.command()
+@config.command("set-value")
 @click.argument("key")
 @click.argument("value")
 @click.pass_context
-def set(ctx: click.Context, key: str, value: str) -> None:
+def config_set_value(ctx: click.Context, key: str, value: str) -> None:
     """Set bridge configuration option.
 
     Examples:
-      foxxy-bridge config set bridge.port 9000
-      foxxy-bridge config set bridge.host 0.0.0.0
+      foxxy-bridge config set-value bridge.port 9000
+      foxxy-bridge config set-value bridge.host 0.0.0.0
     """
-    from types import SimpleNamespace
+    # Convert SimpleNamespace to argparse.Namespace for compatibility
+    args = argparse.Namespace(key=key, value=value)
 
-    from .commands.config import _config_set
-
-    args = SimpleNamespace(key=key, value=value)
-
-    asyncio.run(_config_set(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
+    asyncio.run(config_commands._config_set(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
 
 
-@config.command()
+@config.command("get-value")
 @click.argument("key")
 @click.pass_context
-def get(ctx: click.Context, key: str) -> None:
+def config_get_value(ctx: click.Context, key: str) -> None:
     """Get bridge configuration value."""
-    from types import SimpleNamespace
+    # Convert SimpleNamespace to argparse.Namespace for compatibility
+    args = argparse.Namespace(key=key)
 
-    from .commands.config import _config_get
-
-    args = SimpleNamespace(key=key)
-
-    asyncio.run(_config_get(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
+    asyncio.run(config_commands._config_get(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
 
 
-@config.command()
+@config.command("unset-value")
 @click.argument("key")
 @click.pass_context
-def unset(ctx: click.Context, key: str) -> None:
+def config_unset_value(ctx: click.Context, key: str) -> None:
     """Unset bridge configuration option.
 
     Examples:
-      foxxy-bridge config unset security.tools.block_patterns
-      foxxy-bridge config unset port
+      foxxy-bridge config unset-value security.tools.block_patterns
+      foxxy-bridge config unset-value port
     """
-    from types import SimpleNamespace
+    # Convert SimpleNamespace to argparse.Namespace for compatibility
+    args = argparse.Namespace(key=key)
 
-    from .commands.config import _config_unset
-
-    args = SimpleNamespace(key=key)
-
-    asyncio.run(_config_unset(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
+    asyncio.run(config_commands._config_unset(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
 
 
 @config.command()
@@ -200,14 +211,10 @@ def unset(ctx: click.Context, key: str) -> None:
 @click.pass_context
 def validate(ctx: click.Context, fix: bool) -> None:
     """Validate configuration."""
-    from types import SimpleNamespace
-
-    from .commands.mcp_handlers import handle_config_validate
-
     args = SimpleNamespace(fix=fix)
 
     asyncio.run(
-        handle_config_validate(
+        mcp_handlers.handle_config_validate(
             args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"]
         )
     )
@@ -218,14 +225,12 @@ def validate(ctx: click.Context, fix: bool) -> None:
 @click.pass_context
 def init(ctx: click.Context, force: bool) -> None:
     """Initialize configuration with defaults."""
-    from types import SimpleNamespace
-
-    from .commands.mcp_handlers import handle_config_init
-
     args = SimpleNamespace(force=force)
 
     asyncio.run(
-        handle_config_init(args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"])
+        mcp_handlers.handle_config_init(
+            args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"]
+        )
     )
 
 
@@ -240,10 +245,6 @@ def security(ctx: click.Context) -> None:
 @click.pass_context
 def security_show(ctx: click.Context, format: str) -> None:
     """Show bridge security configuration."""
-    from types import SimpleNamespace
-
-    from .commands.security_handlers import handle_security_show
-
     args = SimpleNamespace(format=format)
 
     asyncio.run(
@@ -268,18 +269,13 @@ def security_show(ctx: click.Context, format: str) -> None:
 def security_set(
     ctx: click.Context,
     read_only: bool,
-    allow_pattern: tuple,
-    block_pattern: tuple,
-    allow_tool: tuple,
-    block_tool: tuple,
-    classify_tool: tuple,
+    allow_pattern: tuple[str, ...],
+    block_pattern: tuple[str, ...],
+    allow_tool: tuple[str, ...],
+    block_tool: tuple[str, ...],
+    classify_tool: tuple[tuple[str, str], ...],
 ) -> None:
     """Set bridge security configuration."""
-    import builtins
-    from types import SimpleNamespace
-
-    from .commands.security_handlers import handle_security_set
-
     args = SimpleNamespace(
         read_only=read_only,
         allow_patterns=builtins.list(allow_pattern),
@@ -359,10 +355,10 @@ def add(
     ctx: click.Context,
     name: str,
     server_command: str | None,
-    server_args: tuple,
-    env: tuple,
+    server_args: tuple[str, ...],
+    env: tuple[tuple[str, str], ...],
     cwd: str | None,
-    tags: tuple,
+    tags: tuple[str, ...],
     oauth: bool,
     oauth_issuer: str | None,
     transport: str,
@@ -376,23 +372,16 @@ def add(
     resource_namespace: str | None,
     priority: int | None,
     log_level: str | None,
-    header: tuple,
+    header: tuple[tuple[str, str], ...],
     read_only: bool | None,
-    allow_pattern: tuple,
-    block_pattern: tuple,
-    allow_tool: tuple,
-    block_tool: tuple,
-    classify_tool: tuple,
+    allow_pattern: tuple[str, ...],
+    block_pattern: tuple[str, ...],
+    allow_tool: tuple[str, ...],
+    block_tool: tuple[str, ...],
+    classify_tool: tuple[tuple[str, str], ...],
 ) -> None:
     """Add new MCP server."""
-    import builtins
-    from types import SimpleNamespace
-
     # Normalize server name for consistency with OAuth token storage
-    from mcp_foxxy_bridge.oauth.utils import _validate_server_name
-
-    from .commands.mcp_handlers import handle_mcp_add
-
     normalized_name = _validate_server_name(name)
     if normalized_name != name:
         ctx.obj["console"].print(f"[yellow]Server name normalized: '{name}' → '{normalized_name}'[/yellow]")
@@ -404,7 +393,8 @@ def add(
             raise click.Abort()
         if server_command is not None and server_command != "":
             ctx.obj["console"].print(
-                f"[yellow]Warning: server_command '{server_command}' ignored for {transport} transport (using URL)[/yellow]"
+                f"[yellow]Warning: server_command '{server_command}' ignored for {transport} transport "
+                f"(using URL)[/yellow]"
             )
     else:
         # stdio transport
@@ -454,10 +444,6 @@ def add(
 @click.pass_context
 def remove(ctx: click.Context, name: str, force: bool) -> None:
     """Remove MCP server."""
-    from types import SimpleNamespace
-
-    from .commands.mcp_handlers import handle_mcp_remove
-
     args = SimpleNamespace(name=name, force=force)
 
     asyncio.run(
@@ -468,12 +454,8 @@ def remove(ctx: click.Context, name: str, force: bool) -> None:
 @mcp.command()
 @click.option("--format", "-f", type=click.Choice(["table", "json", "yaml"]), default="table", help="Output format")
 @click.pass_context
-def list(ctx: click.Context, format: str) -> None:
+def mcp_list(ctx: click.Context, format: str) -> None:
     """List configured MCP servers."""
-    from types import SimpleNamespace
-
-    from .commands.mcp_handlers import handle_mcp_list
-
     args = SimpleNamespace(format=format)
 
     asyncio.run(
@@ -485,12 +467,8 @@ def list(ctx: click.Context, format: str) -> None:
 @click.argument("name", required=False)
 @click.option("--format", type=click.Choice(["json", "yaml"]), default="yaml", help="Output format")
 @click.pass_context
-def show(ctx: click.Context, name: str | None, format: str) -> None:
+def mcp_show(ctx: click.Context, name: str | None, format: str) -> None:
     """Show MCP server details."""
-    from types import SimpleNamespace
-
-    from .commands.mcp_handlers import handle_mcp_show
-
     args = SimpleNamespace(name=name, format=format)
 
     asyncio.run(
@@ -519,17 +497,13 @@ def disable(ctx: click.Context, name: str) -> None:
 @mcp.command()
 @click.argument("server_name")
 @click.pass_context
-def restart(ctx: click.Context, server_name: str) -> None:
+def mcp_restart(ctx: click.Context, server_name: str) -> None:
     """Restart/reconnect MCP server.
 
     Examples:
       foxxy-bridge mcp restart filesystem
       foxxy-bridge mcp restart github
     """
-    from types import SimpleNamespace
-
-    from .commands.mcp_handlers import handle_mcp_restart
-
     args = SimpleNamespace(server_name=server_name)
 
     asyncio.run(
@@ -537,13 +511,33 @@ def restart(ctx: click.Context, server_name: str) -> None:
     )
 
 
+@mcp.command()
+@click.argument("server_name")
+@click.option("--follow", "-f", is_flag=True, help="Follow log output (tail mode)")
+@click.option("--lines", "-n", default=50, type=int, help="Number of lines to show (default: 50)")
+@click.pass_context
+def logs(ctx: click.Context, server_name: str, follow: bool, lines: int) -> None:
+    """View or tail logs for an MCP server.
+
+    Examples:
+      foxxy-bridge mcp logs filesystem
+      foxxy-bridge mcp logs github --follow
+      foxxy-bridge mcp logs filesystem -n 100
+    """
+    args = SimpleNamespace(server_name=server_name, follow=follow, lines=lines)
+
+    asyncio.run(
+        handle_mcp_logs(args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"])
+    )
+
+
 @mcp.group()
 @click.pass_context
-def config(ctx: click.Context) -> None:
+def mcp_config(ctx: click.Context) -> None:
     """Manage MCP server configurations."""
 
 
-@config.command()
+@mcp_config.command()
 @click.argument("server_name")
 @click.argument("key")
 @click.argument("value")
@@ -555,31 +549,23 @@ def set(ctx: click.Context, server_name: str, key: str, value: str) -> None:
       foxxy-bridge mcp config set filesystem timeout 120
       foxxy-bridge mcp config set github enabled true
     """
-    from types import SimpleNamespace
-
-    from .commands.config import _mcp_config_set
-
-    args = SimpleNamespace(server_name=server_name, key=key, value=value)
+    args = argparse.Namespace(server_name=server_name, key=key, value=value)
 
     asyncio.run(_mcp_config_set(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
 
 
-@config.command()
+@mcp_config.command()
 @click.argument("server_name")
 @click.argument("key")
 @click.pass_context
 def get(ctx: click.Context, server_name: str, key: str) -> None:
     """Get MCP server configuration value."""
-    from types import SimpleNamespace
-
-    from .commands.config import _mcp_config_get
-
-    args = SimpleNamespace(server_name=server_name, key=key)
+    args = argparse.Namespace(server_name=server_name, key=key)
 
     asyncio.run(_mcp_config_get(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
 
 
-@config.command()
+@mcp_config.command()
 @click.argument("server_name")
 @click.argument("key")
 @click.pass_context
@@ -590,11 +576,7 @@ def unset(ctx: click.Context, server_name: str, key: str) -> None:
       foxxy-bridge mcp config unset filesystem timeout
       foxxy-bridge mcp config unset github enabled
     """
-    from types import SimpleNamespace
-
-    from .commands.config import _mcp_config_unset
-
-    args = SimpleNamespace(server_name=server_name, key=key)
+    args = argparse.Namespace(server_name=server_name, key=key)
 
     asyncio.run(_mcp_config_unset(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
 
@@ -611,16 +593,12 @@ def server(ctx: click.Context) -> None:
 @click.option("--watch", "-w", is_flag=True, help="Watch for status changes (requires full API)")
 @click.option("--api", "-a", is_flag=True, help="Show full API status (loads config, slower)")
 @click.pass_context
-def status(ctx: click.Context, name: str | None, format: str, watch: bool, api: bool) -> None:
+def server_status(ctx: click.Context, name: str | None, format: str, watch: bool, api: bool) -> None:
     """Show server status.
 
     By default shows fast daemon-only status without loading configuration.
     Use --api for full server status including tool counts and health details.
     """
-    from types import SimpleNamespace
-
-    from .commands.server import handle_server_status
-
     args = SimpleNamespace(server_command="status", name=name, format=format, watch=watch, api=api)
 
     asyncio.run(
@@ -639,10 +617,6 @@ def start(
     ctx: click.Context, config_file: str | None, port: int | None, host: str | None, name: str | None, detach: bool
 ) -> None:
     """Start bridge server."""
-    from types import SimpleNamespace
-
-    from .commands.server import handle_server_start
-
     args = SimpleNamespace(daemon_command="start", config=config_file, port=port, host=host, name=name, detach=detach)
 
     asyncio.run(
@@ -655,10 +629,6 @@ def start(
 @click.pass_context
 def list_daemons(ctx: click.Context, format: str) -> None:
     """List running bridge daemons."""
-    from types import SimpleNamespace
-
-    from .commands.server import handle_server_list
-
     args = SimpleNamespace(format=format)
 
     asyncio.run(
@@ -672,10 +642,6 @@ def list_daemons(ctx: click.Context, format: str) -> None:
 @click.pass_context
 def stop(ctx: click.Context, force: bool, name: str | None) -> None:
     """Stop bridge server."""
-    from types import SimpleNamespace
-
-    from .commands.server import handle_server_stop
-
     args = SimpleNamespace(daemon_command="stop", force=force, name=name)
 
     asyncio.run(
@@ -690,14 +656,10 @@ def stop(ctx: click.Context, force: bool, name: str | None) -> None:
 @click.option("--host", help="Server host")
 @click.option("--name", "-n", help="Daemon name to restart")
 @click.pass_context
-def restart(
+def server_restart(
     ctx: click.Context, force: bool, config_file: str | None, port: int | None, host: str | None, name: str | None
 ) -> None:
     """Restart bridge server."""
-    from types import SimpleNamespace
-
-    from .commands.server import handle_server_restart
-
     args = SimpleNamespace(daemon_command="restart", force=force, config=config_file, port=port, host=host, name=name)
 
     asyncio.run(
@@ -718,12 +680,8 @@ def tool(ctx: click.Context) -> None:
 @click.option("--format", type=click.Choice(["table", "json"]), default="table", help="Output format")
 @click.option("--tag", help="Filter by server tag")
 @click.pass_context
-def list(ctx: click.Context, server: str | None, format: str, tag: str | None) -> None:
+def tool_list(ctx: click.Context, server: str | None, format: str, tag: str | None) -> None:
     """List available tools."""
-    from types import SimpleNamespace
-
-    from .commands.tool import handle_tool_list
-
     args = SimpleNamespace(tool_command="list", server=server, format=format, tag=tag)
 
     asyncio.run(
@@ -741,12 +699,8 @@ def oauth(ctx: click.Context) -> None:
 @click.argument("name", required=False)
 @click.option("--format", type=click.Choice(["table", "json"]), default="table", help="Output format")
 @click.pass_context
-def status(ctx: click.Context, name: str | None, format: str) -> None:
+def oauth_status(ctx: click.Context, name: str | None, format: str) -> None:
     """Show OAuth status."""
-    from types import SimpleNamespace
-
-    from .commands.oauth import handle_oauth_status
-
     args = SimpleNamespace(oauth_command="status", name=name, format=format)
 
     asyncio.run(

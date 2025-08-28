@@ -63,7 +63,7 @@ class DaemonManager:
         running_processes = []
 
         try:
-            for proc in psutil.process_iter(["pid", "name", "cmdline", "create_time"]):
+            for proc in psutil.process_iter(["pid", "name", "cmdline", "create_time"]):  # type: ignore[no-untyped-call]
                 try:
                     cmdline = proc.info["cmdline"]
                     if not cmdline:
@@ -152,7 +152,7 @@ class DaemonManager:
 
                 # Check if process is still running
                 pid = daemon_info.get("pid")
-                if pid and psutil.pid_exists(pid):
+                if pid and psutil.pid_exists(pid):  # type: ignore[no-untyped-call]
                     daemon_info["status"] = "running"
                     daemon_info["type"] = "daemon"
                     daemons.append(daemon_info)
@@ -186,7 +186,7 @@ class DaemonManager:
 
                 # Check if process is still running
                 pid = daemon_info.get("pid")
-                if pid and psutil.pid_exists(pid):
+                if pid and psutil.pid_exists(pid):  # type: ignore[no-untyped-call]
                     daemon_info["status"] = "running"
                     daemon_info["type"] = "daemon"
                     daemons.append(daemon_info)
@@ -209,9 +209,11 @@ class DaemonManager:
                 pass
 
         # Find running foreground processes not already tracked as daemons
-        for process_info in DaemonManager.find_running_bridge_processes():
-            if process_info["pid"] not in daemon_pids:
-                daemons.append(process_info)
+        daemons.extend(
+            process_info
+            for process_info in DaemonManager.find_running_bridge_processes()
+            if process_info["pid"] not in daemon_pids
+        )
 
         return daemons
 
@@ -239,14 +241,14 @@ class DaemonManager:
 
                 # Check if process is still running
                 pid = daemon_info.get("pid")
-                if pid and psutil.pid_exists(pid):
+                if pid and psutil.pid_exists(pid):  # type: ignore[no-untyped-call]
                     daemon_info["status"] = "running"
                     daemon_info["type"] = "daemon"
                     try:
-                        process = psutil.Process(pid)
+                        process = psutil.Process(pid)  # type: ignore[no-untyped-call]
                         daemon_info["memory_info"] = process.memory_info()._asdict()
-                        daemon_info["cpu_percent"] = process.cpu_percent()
-                        daemon_info["create_time"] = process.create_time()
+                        daemon_info["cpu_percent"] = process.cpu_percent()  # type: ignore[no-untyped-call]
+                        daemon_info["create_time"] = process.create_time()  # type: ignore[no-untyped-call]
                     except psutil.NoSuchProcess:
                         daemon_info["status"] = "stopped"
                         # Clean up stale daemon files
@@ -256,7 +258,7 @@ class DaemonManager:
                     # Clean up stale daemon files
                     _cleanup_stale_daemon_files(config_dir, daemon_name)
 
-                return daemon_info
+                return daemon_info  # type: ignore[no-any-return]
             except (json.JSONDecodeError, FileNotFoundError, PermissionError):
                 pass
 
@@ -367,7 +369,7 @@ class DaemonManager:
 
                 # Detach from the process - don't maintain reference
                 pid = process.pid
-                process = None  # Release the process reference
+                process = None  # type: ignore[assignment] # Release the process reference
 
                 # Quick check if process exists without blocking
                 if await self._is_process_running(pid):
@@ -401,22 +403,22 @@ class DaemonManager:
             return True
 
         try:
-            process = psutil.Process(pid)
+            process = psutil.Process(pid)  # type: ignore[no-untyped-call]
 
             if force:
-                process.kill()
+                process.kill()  # type: ignore[no-untyped-call]
                 self.console.print(f"[red]Forcibly killed[/red] daemon (PID: {pid})")
             else:
-                process.terminate()
+                process.terminate()  # type: ignore[no-untyped-call]
 
                 # Wait for graceful shutdown
                 try:
-                    process.wait(timeout=10)
+                    process.wait(timeout=10)  # type: ignore[no-untyped-call]
                     self.console.print(f"[green]✓[/green] Stopped daemon (PID: {pid})")
                 except psutil.TimeoutExpired:
                     self.console.print("[yellow]Daemon didn't stop gracefully, forcing...[/yellow]")
-                    process.kill()
-                    process.wait(timeout=5)
+                    process.kill()  # type: ignore[no-untyped-call]
+                    process.wait(timeout=5)  # type: ignore[no-untyped-call]
                     self.console.print(f"[red]Forcibly stopped[/red] daemon (PID: {pid})")
 
             # Clean up PID file
@@ -434,7 +436,7 @@ class DaemonManager:
             self.console.print(f"[red]Failed to stop daemon: {e}[/red]")
             return False
 
-    async def restart_daemon(self, force: bool = False, **start_kwargs) -> bool:
+    async def restart_daemon(self, force: bool = False, **start_kwargs: Any) -> bool:
         """Restart the bridge daemon.
 
         Args:
@@ -464,16 +466,16 @@ class DaemonManager:
             return {"status": "stopped", "pid": None}
 
         try:
-            process = psutil.Process(pid)
+            process = psutil.Process(pid)  # type: ignore[no-untyped-call]
 
             # Get process info
             info = {
                 "status": "running",
                 "pid": pid,
-                "name": process.name(),
-                "create_time": process.create_time(),
+                "name": process.name(),  # type: ignore[no-untyped-call]
+                "create_time": process.create_time(),  # type: ignore[no-untyped-call]
                 "memory_info": process.memory_info()._asdict(),
-                "cpu_percent": process.cpu_percent(),
+                "cpu_percent": process.cpu_percent(),  # type: ignore[no-untyped-call]
             }
 
             # Try to get connection info if available
@@ -583,7 +585,7 @@ class DaemonManager:
             True if process is running
         """
         try:
-            return psutil.pid_exists(pid)
+            return psutil.pid_exists(pid)  # type: ignore[no-untyped-call, no-any-return]
         except Exception:
             return False
 

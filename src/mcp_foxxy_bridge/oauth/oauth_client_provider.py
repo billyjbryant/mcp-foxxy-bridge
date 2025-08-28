@@ -2,12 +2,13 @@
 
 import base64
 import hashlib
-import logging
 import secrets
 import time
 import uuid
 import webbrowser
 from urllib.parse import urlencode
+
+from mcp_foxxy_bridge.utils.logging import get_logger
 
 from .types import (
     OAuthClientInformation,
@@ -26,7 +27,7 @@ from .utils import (
     save_tokens,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, facility="OAUTH")
 
 
 class OAuthClientProvider:
@@ -197,7 +198,7 @@ class OAuthClientProvider:
 
     def redirect_to_authorization(self, authorization_url: str) -> None:
         """Open the authorization URL in the default browser."""
-        logger.info("Opening authorization URL in browser")
+        logger.info("[OAUTH][%s] Opening authorization URL in browser", self.server_name or "UNKNOWN")
         webbrowser.open(authorization_url)
 
     def invalidate_credentials(self) -> None:

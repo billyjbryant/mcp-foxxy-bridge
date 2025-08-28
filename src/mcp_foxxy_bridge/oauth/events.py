@@ -1,11 +1,12 @@
 """Simple event emitter implementation for Python."""
 
-import logging
 import threading
 from collections.abc import Callable
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from mcp_foxxy_bridge.utils.logging import get_logger
+
+logger = get_logger(__name__, facility="OAUTH")
 
 
 class EventEmitter:

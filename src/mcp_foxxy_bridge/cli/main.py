@@ -115,7 +115,7 @@ def _setup_argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _setup_config_commands(subparsers: argparse._SubParsersAction) -> None:
+def _setup_config_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Set up bridge configuration management subcommands."""
     config_parser = subparsers.add_parser(
         "config",
@@ -152,7 +152,7 @@ def _setup_config_commands(subparsers: argparse._SubParsersAction) -> None:
     init_parser.add_argument("--force", action="store_true", help="Overwrite existing configuration")
 
 
-def _setup_mcp_commands(subparsers: argparse._SubParsersAction) -> None:
+def _setup_mcp_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Set up MCP server management subcommands."""
     mcp_parser = subparsers.add_parser(
         "mcp",
@@ -206,7 +206,7 @@ def _setup_mcp_commands(subparsers: argparse._SubParsersAction) -> None:
     disable_parser.add_argument("name", help="Server name")
 
 
-def _setup_server_commands(subparsers: argparse._SubParsersAction) -> None:
+def _setup_server_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Set up server management subcommands."""
     server_parser = subparsers.add_parser(
         "server",
@@ -247,7 +247,7 @@ def _setup_server_commands(subparsers: argparse._SubParsersAction) -> None:
     reconnect_parser.add_argument("name", help="Server name")
 
 
-def _setup_tool_commands(subparsers: argparse._SubParsersAction) -> None:
+def _setup_tool_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Set up tool discovery and testing subcommands."""
     tool_parser = subparsers.add_parser(
         "tool",
@@ -287,7 +287,7 @@ def _setup_tool_commands(subparsers: argparse._SubParsersAction) -> None:
     search_parser.add_argument("--description", action="store_true", help="Search in descriptions too")
 
 
-def _setup_daemon_commands(subparsers: argparse._SubParsersAction) -> None:
+def _setup_daemon_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Set up daemon management subcommands."""
     daemon_parser = subparsers.add_parser(
         "daemon",
@@ -326,7 +326,7 @@ def _setup_daemon_commands(subparsers: argparse._SubParsersAction) -> None:
     logs_parser.add_argument("--lines", "-n", type=int, default=50, help="Number of lines to show")
 
 
-def _setup_oauth_commands(subparsers: argparse._SubParsersAction) -> None:
+def _setup_oauth_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Set up OAuth management subcommands."""
     oauth_parser = subparsers.add_parser(
         "oauth",
@@ -411,9 +411,9 @@ async def main() -> None:
 
             await handle_tool_command(args, config_path, config_dir, console, logger)
         elif args.command == "daemon":
-            from .commands.daemon import handle_daemon_command
-
-            await handle_daemon_command(args, config_path, config_dir, console, logger)
+            # TODO: Daemon commands are not yet implemented
+            console.print("[red]Error: Daemon commands are not yet implemented[/red]")
+            return
         elif args.command == "oauth":
             from .commands.oauth import handle_oauth_command
 

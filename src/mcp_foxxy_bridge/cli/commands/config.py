@@ -23,7 +23,7 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from rich.console import Console
 from rich.prompt import Confirm
@@ -48,10 +48,11 @@ async def handle_config_command(
 
         parser = _setup_argument_parser()
         # Get the config subparser to show its help
-        for action in parser._subparsers._actions:
-            if hasattr(action, "choices") and "config" in action.choices:
-                action.choices["config"].print_help()
-                return
+        if parser._subparsers is not None:
+            for action in parser._subparsers._actions:
+                if hasattr(action, "choices") and action.choices is not None and "config" in action.choices:
+                    action.choices["config"].print_help()  # type: ignore[index]
+                    return
         # Fallback if we can't find the subparser
         console.print("[yellow]Usage: foxxy-bridge config <command>[/yellow]")
         console.print("Available commands: add, remove, list, show, validate, init, get, set")
@@ -124,7 +125,7 @@ async def _config_add(
             oauth_config = {"enabled": True}
             if args.oauth_issuer:
                 oauth_config["issuer"] = args.oauth_issuer
-            server_config["oauth"] = oauth_config
+            server_config["oauth_config"] = oauth_config
 
         # Add server to configuration
         servers[args.name] = server_config
@@ -198,7 +199,7 @@ async def _config_list(
         elif args.format == "yaml":
             import yaml
 
-            console.print(yaml.dump(servers, default_flow_style=False))
+            console.print(yaml.dump(servers, default_flow_style=False))  # type: ignore[no-untyped-call]
         else:
             ConfigFormatter.format_servers_table(servers, console)
 
@@ -257,8 +258,15 @@ async def _config_validate(
         console.print(f"Found {len(servers)} server(s) configured")
 
         for name, server_config in servers.items():
-            status_icon = "🔐" if server_config.oauth and server_config.oauth.enabled else "🔓"
-            console.print(f"  {status_icon} {name} ({server_config.transport})")
+            status_icon = (
+                "🔐"
+                if hasattr(server_config, "oauth_config")
+                and server_config.oauth_config
+                and getattr(server_config.oauth_config, "enabled", False)
+                else "🔓"
+            )
+            transport_type = getattr(server_config, "transport_type", "stdio")
+            console.print(f"  {status_icon} {name} ({transport_type})")
 
     except Exception as e:
         console.print(f"[red]✗[/red] Configuration validation failed: {e}")
@@ -287,8 +295,14 @@ async def _config_init(
                 )
                 return
 
-        # Create default configuration
+        # Create default configuration with absolute schema path
+        from ...utils.config_migration import get_config_dir
+
+        config_dir = get_config_dir()
+        schema_path = config_dir / "bridge_config_schema.json"
+
         default_config = {
+            "$schema": str(schema_path),
             "mcpServers": {
                 "filesystem": {
                     "transport": "stdio",
@@ -328,7 +342,7 @@ def _load_config_safe(config_path: Path, logger: logging.Logger) -> dict[str, An
 
     try:
         with config_path.open("r", encoding="utf-8") as f:
-            return json.load(f)
+            return cast("dict[str, Any]", json.load(f))
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON in configuration file: {e}") from e
     except Exception as e:

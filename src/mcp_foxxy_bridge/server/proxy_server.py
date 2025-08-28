@@ -25,12 +25,12 @@
 This server is created independent of any transport mechanism.
 """
 
-import logging
-
 from mcp import server, types
 from mcp.client.session import ClientSession
 
-logger = logging.getLogger(__name__)
+from mcp_foxxy_bridge.utils.logging import get_logger
+
+logger = get_logger(__name__, facility="SERVER")
 
 
 async def create_proxy_server(remote_app: ClientSession) -> server.Server[object]:

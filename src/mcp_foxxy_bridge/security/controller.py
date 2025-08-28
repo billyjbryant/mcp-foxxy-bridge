@@ -18,14 +18,15 @@
 #
 """Central access control system for MCP tools and resources."""
 
-import logging
 import re
 from typing import Any
+
+from mcp_foxxy_bridge.utils.logging import get_logger
 
 from .config import BridgeSecurityConfig, ServerSecurityConfig
 from .policy import SecurityPolicy
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, facility="SECURITY")
 
 
 class AccessController:
@@ -89,8 +90,8 @@ class AccessController:
 
     def _sanitize_bridge_config(self) -> None:
         """Sanitize bridge configuration patterns."""
-        if self.bridge_config.tool_security:
-            tool_security = self.bridge_config.tool_security
+        if self.bridge_config.tools:
+            tool_security = self.bridge_config.tools
 
             # Sanitize patterns
             tool_security.allow_patterns = self._sanitize_pattern_list(tool_security.allow_patterns)
@@ -139,8 +140,8 @@ class AccessController:
         Args:
             server_config: Server configuration to sanitize
         """
-        if server_config.tool_security:
-            tool_security = server_config.tool_security
+        if server_config.tools:
+            tool_security = server_config.tools
 
             # Sanitize patterns
             tool_security.allow_patterns = self._sanitize_pattern_list(tool_security.allow_patterns)

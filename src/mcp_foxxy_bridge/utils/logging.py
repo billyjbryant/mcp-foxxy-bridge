@@ -60,7 +60,24 @@ class MCPRichHandler(RichHandler):
         formatted_message = self._add_emoji(record, message)
         message_text = Text(formatted_message)
 
-        if hasattr(record, "name") and record.name:
+        # Check for explicit facility first
+        facility = getattr(logging.getLogger(record.name), "_facility", None) if hasattr(record, "name") else None
+
+        if facility:
+            # Use explicit facility with appropriate color
+            facility_colors = {
+                "OAUTH": "bold orange3",
+                "BRIDGE": "bold blue",
+                "SERVER": "bold magenta",
+                "CLIENT": "bold cyan",
+                "CONFIG": "bold green",
+                "SECURITY": "bold red",
+                "UTILS": "bold white",
+            }
+            color = facility_colors.get(facility, "bold white")
+            message_text = Text.from_markup(f"[{color}]\\[{facility}][/{color}] {formatted_message}")
+
+        elif hasattr(record, "name") and record.name:
             logger_name = record.name
 
             if "mcp.server." in logger_name:
@@ -85,6 +102,9 @@ class MCPRichHandler(RichHandler):
 
             elif "bridge_server" in logger_name:
                 message_text = Text.from_markup(f"[bold magenta]\\[BRIDGE][/bold magenta] {formatted_message}")
+
+            elif "oauth" in logger_name:
+                message_text = Text.from_markup(f"[bold orange3]\\[OAUTH][/bold orange3] {formatted_message}")
 
         return message_text
 
@@ -316,10 +336,23 @@ def setup_logging(*, debug: bool = False, quiet: bool = False) -> logging.Logger
     return logging.getLogger(__name__)
 
 
-def get_logger(name: str) -> logging.Logger:
-    """Get a logger with success method added."""
+def get_logger(name: str, facility: str | None = None) -> logging.Logger:
+    """Get a logger with success method added and optional facility.
+
+    Args:
+        name: Logger name
+        facility: Optional facility name (e.g., "OAUTH", "BRIDGE") for styled output
+
+    Returns:
+        Logger instance with facility support
+    """
     logger = logging.getLogger(name)
     _add_success_method(logger)
+
+    # Store facility information for the render_message method
+    if facility:
+        logger._facility = facility  # type: ignore[attr-defined] # noqa: SLF001
+
     return logger
 
 
