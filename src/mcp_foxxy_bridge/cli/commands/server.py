@@ -37,7 +37,6 @@ from rich.table import Table
 from mcp_foxxy_bridge.cli.api_client import get_api_client_from_config
 from mcp_foxxy_bridge.cli.daemon_manager import DaemonManager
 from mcp_foxxy_bridge.cli.formatters import StatusFormatter
-from mcp_foxxy_bridge.cli.main import _setup_argument_parser
 
 
 async def handle_server_start(
@@ -217,6 +216,8 @@ async def handle_server_command(
     """Handle server management commands."""
     # Check if no subcommand was provided
     if not hasattr(args, "server_command") or args.server_command is None:
+        from mcp_foxxy_bridge.cli.main import _setup_argument_parser
+
         parser = _setup_argument_parser()
         if parser._subparsers is None:  # noqa: SLF001
             console.print("[yellow]Usage: foxxy-bridge server <command>[/yellow]")

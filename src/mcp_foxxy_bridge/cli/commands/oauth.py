@@ -31,7 +31,6 @@ from rich.prompt import Confirm
 
 from mcp_foxxy_bridge.cli.api_client import get_api_client_from_config
 from mcp_foxxy_bridge.cli.formatters import OAuthFormatter
-from mcp_foxxy_bridge.cli.main import _setup_argument_parser
 from mcp_foxxy_bridge.config.config_loader import load_bridge_config_from_file
 
 
@@ -60,6 +59,8 @@ async def handle_oauth_command(
     """Handle OAuth authentication management commands."""
     # Check if no subcommand was provided
     if not hasattr(args, "oauth_command") or args.oauth_command is None:
+        from mcp_foxxy_bridge.cli.main import _setup_argument_parser
+
         parser = _setup_argument_parser()
         if parser._subparsers is None:  # noqa: SLF001
             console.print("[yellow]Usage: foxxy-bridge oauth <command>[/yellow]")

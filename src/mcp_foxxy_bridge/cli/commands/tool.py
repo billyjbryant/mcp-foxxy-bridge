@@ -30,7 +30,6 @@ from rich.prompt import Confirm
 
 from mcp_foxxy_bridge.cli.api_client import get_api_client_from_config
 from mcp_foxxy_bridge.cli.formatters import ToolFormatter
-from mcp_foxxy_bridge.cli.main import _setup_argument_parser
 
 
 async def handle_tool_list(
@@ -61,6 +60,8 @@ async def handle_tool_command(
     """Handle tool discovery and testing commands."""
     # Check if no subcommand was provided
     if not hasattr(args, "tool_command") or args.tool_command is None:
+        from mcp_foxxy_bridge.cli.main import _setup_argument_parser
+
         parser = _setup_argument_parser()
         if parser._subparsers is None:  # noqa: SLF001
             console.print("[yellow]Usage: foxxy-bridge tool <command>[/yellow]")

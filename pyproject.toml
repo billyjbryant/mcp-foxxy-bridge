@@ -197,6 +197,15 @@ ignore = [
 "src/mcp_foxxy_bridge/utils/bridge_config.py" = [
     "PLC0415", # Import should be at the top-level (intentional to avoid circular imports)
 ]
+"src/mcp_foxxy_bridge/cli/commands/oauth.py" = [
+    "PLC0415", # Import should be at the top-level (intentional to avoid circular imports)
+]
+"src/mcp_foxxy_bridge/cli/commands/server.py" = [
+    "PLC0415", # Import should be at the top-level (intentional to avoid circular imports)
+]
+"src/mcp_foxxy_bridge/cli/commands/tool.py" = [
+    "PLC0415", # Import should be at the top-level (intentional to avoid circular imports)
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
