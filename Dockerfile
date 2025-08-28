@@ -1,6 +1,9 @@
 # Build stage with explicit platform specification
 FROM ghcr.io/astral-sh/uv:python3.12-alpine AS uv
 
+# Install build dependencies for psutil compilation
+RUN apk add --no-cache gcc python3-dev musl-dev linux-headers
+
 # Install the project into /app
 WORKDIR /app
 
