@@ -451,28 +451,15 @@ def remove(ctx: click.Context, name: str, force: bool) -> None:
     )
 
 
-@mcp.command()
+@mcp.command("list")
 @click.option("--format", "-f", type=click.Choice(["table", "json", "yaml"]), default="table", help="Output format")
 @click.pass_context
-def mcp_list(ctx: click.Context, format: str) -> None:  # noqa: A002
+def list_servers(ctx: click.Context, format: str) -> None:  # noqa: A002
     """List configured MCP servers."""
     args = SimpleNamespace(format=format)
 
     asyncio.run(
         handle_mcp_list(args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"])
-    )
-
-
-@mcp.command()
-@click.argument("name", required=False)
-@click.option("--format", type=click.Choice(["json", "yaml"]), default="yaml", help="Output format")
-@click.pass_context
-def mcp_show(ctx: click.Context, name: str | None, format: str) -> None:  # noqa: A002
-    """Show MCP server details."""
-    args = SimpleNamespace(name=name, format=format)
-
-    asyncio.run(
-        handle_mcp_show(args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"])
     )
 
 
@@ -494,10 +481,10 @@ def disable(ctx: click.Context, name: str) -> None:
     console.print("[yellow]Disable command not yet implemented[/yellow]")
 
 
-@mcp.command()
+@mcp.command("restart")
 @click.argument("server_name")
 @click.pass_context
-def mcp_restart(ctx: click.Context, server_name: str) -> None:
+def restart_server(ctx: click.Context, server_name: str) -> None:
     """Restart/reconnect MCP server.
 
     Examples:
@@ -531,18 +518,18 @@ def logs(ctx: click.Context, server_name: str, follow: bool, lines: int) -> None
     )
 
 
-@mcp.group()
+@mcp.group("config")
 @click.pass_context
-def mcp_config(ctx: click.Context) -> None:
+def server_config(ctx: click.Context) -> None:
     """Manage MCP server configurations."""
 
 
-@mcp_config.command()
+@server_config.command("set")
 @click.argument("server_name")
 @click.argument("key")
 @click.argument("value")
 @click.pass_context
-def set(ctx: click.Context, server_name: str, key: str, value: str) -> None:  # noqa: A001
+def set_server_config(ctx: click.Context, server_name: str, key: str, value: str) -> None:
     """Set MCP server configuration option.
 
     Examples:
@@ -554,22 +541,22 @@ def set(ctx: click.Context, server_name: str, key: str, value: str) -> None:  # 
     asyncio.run(_mcp_config_set(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
 
 
-@mcp_config.command()
+@server_config.command("get")
 @click.argument("server_name")
 @click.argument("key")
 @click.pass_context
-def get(ctx: click.Context, server_name: str, key: str) -> None:
+def get_server_config(ctx: click.Context, server_name: str, key: str) -> None:
     """Get MCP server configuration value."""
     args = argparse.Namespace(server_name=server_name, key=key)
 
     asyncio.run(_mcp_config_get(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
 
 
-@mcp_config.command()
+@server_config.command("unset")
 @click.argument("server_name")
 @click.argument("key")
 @click.pass_context
-def unset(ctx: click.Context, server_name: str, key: str) -> None:
+def unset_server_config(ctx: click.Context, server_name: str, key: str) -> None:
     """Unset MCP server configuration option.
 
     Examples:
@@ -581,19 +568,32 @@ def unset(ctx: click.Context, server_name: str, key: str) -> None:
     asyncio.run(_mcp_config_unset(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
 
 
+@server_config.command("show")
+@click.argument("name", required=False)
+@click.option("--format", type=click.Choice(["json", "yaml"]), default="yaml", help="Output format")
+@click.pass_context
+def show_server_config(ctx: click.Context, name: str | None, format: str) -> None:  # noqa: A002
+    """Show MCP server details."""
+    args = SimpleNamespace(name=name, format=format)
+
+    asyncio.run(
+        handle_mcp_show(args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"])
+    )
+
+
 @cli.group()
 @click.pass_context
 def server(ctx: click.Context) -> None:
     """Manage bridge server and MCP server monitoring."""
 
 
-@server.command()
+@server.command("status")
 @click.argument("name", required=False)
 @click.option("--format", type=click.Choice(["table", "json"]), default="table", help="Output format")
 @click.option("--watch", "-w", is_flag=True, help="Watch for status changes (requires full API)")
 @click.option("--api", "-a", is_flag=True, help="Show full API status (loads config, slower)")
 @click.pass_context
-def server_status(ctx: click.Context, name: str | None, format: str, watch: bool, api: bool) -> None:  # noqa: A002
+def status(ctx: click.Context, name: str | None, format: str, watch: bool, api: bool) -> None:  # noqa: A002
     """Show server status.
 
     By default shows fast daemon-only status without loading configuration.
@@ -606,7 +606,7 @@ def server_status(ctx: click.Context, name: str | None, format: str, watch: bool
     )
 
 
-@server.command()
+@server.command("start")
 @click.option("--config-file", help="Configuration file path")
 @click.option("--port", "-p", type=int, help="Server port")
 @click.option("--host", help="Server host")
@@ -636,7 +636,7 @@ def list_daemons(ctx: click.Context, format: str) -> None:  # noqa: A002
     )
 
 
-@server.command()
+@server.command("stop")
 @click.option("--force", "-F", is_flag=True, help="Force stop")
 @click.option("--name", "-n", help="Daemon name to stop (stop all if not provided)")
 @click.pass_context
@@ -649,14 +649,14 @@ def stop(ctx: click.Context, force: bool, name: str | None) -> None:
     )
 
 
-@server.command()
+@server.command("restart")
 @click.option("--force", "-F", is_flag=True, help="Force restart")
 @click.option("--config-file", help="Configuration file path")
 @click.option("--port", "-p", type=int, help="Server port")
 @click.option("--host", help="Server host")
 @click.option("--name", "-n", help="Daemon name to restart")
 @click.pass_context
-def server_restart(
+def restart(
     ctx: click.Context, force: bool, config_file: str | None, port: int | None, host: str | None, name: str | None
 ) -> None:
     """Restart bridge server."""
@@ -675,12 +675,12 @@ def tool(ctx: click.Context) -> None:
     """Discover and test MCP tools."""
 
 
-@tool.command()
+@tool.command("list")
 @click.argument("server", required=False)
 @click.option("--format", type=click.Choice(["table", "json"]), default="table", help="Output format")
 @click.option("--tag", help="Filter by server tag")
 @click.pass_context
-def tool_list(ctx: click.Context, server: str | None, format: str, tag: str | None) -> None:  # noqa: A002
+def list_tools(ctx: click.Context, server: str | None, format: str, tag: str | None) -> None:  # noqa: A002
     """List available tools."""
     args = SimpleNamespace(tool_command="list", server=server, format=format, tag=tag)
 
@@ -695,11 +695,11 @@ def oauth(ctx: click.Context) -> None:
     """Manage OAuth authentication."""
 
 
-@oauth.command()
+@oauth.command("status")
 @click.argument("name", required=False)
 @click.option("--format", type=click.Choice(["table", "json"]), default="table", help="Output format")
 @click.pass_context
-def oauth_status(ctx: click.Context, name: str | None, format: str) -> None:  # noqa: A002
+def status_oauth(ctx: click.Context, name: str | None, format: str) -> None:  # noqa: A002
     """Show OAuth status."""
     args = SimpleNamespace(oauth_command="status", name=name, format=format)
 
