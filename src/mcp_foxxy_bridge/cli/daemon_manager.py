@@ -296,14 +296,16 @@ class DaemonManager:
         host: str | None = None,
         port: int | None = None,
         detach: bool = True,
+        debug: bool = False,
     ) -> bool:
         """Start the bridge daemon.
 
         Args:
             config_file: Configuration file path
-            host: Server host
-            port: Server port
-            detach: Run in background
+            host: Server host override
+            port: Server port override
+            detach: Whether to run in background (daemon mode)
+            debug: Whether to enable debug logging
 
         Returns:
             True if started successfully
@@ -314,6 +316,9 @@ class DaemonManager:
 
         # Build command
         cmd = [sys.executable, "-m", "mcp_foxxy_bridge"]
+
+        if debug:
+            cmd.append("--debug")
 
         if config_file:
             cmd.extend(["--bridge-config", config_file])

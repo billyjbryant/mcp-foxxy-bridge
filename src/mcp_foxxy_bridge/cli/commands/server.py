@@ -64,6 +64,7 @@ async def handle_server_start(
         port=getattr(args, "port", None),
         host=getattr(args, "host", None),
         detach=getattr(args, "detach", False),
+        debug=getattr(args, "debug", False),
     )
     await _daemon_start(argparse_args, config_path, daemon_manager, console, logger)
 
@@ -556,6 +557,9 @@ async def _daemon_start(
 
         if args.port:
             start_kwargs["port"] = args.port
+
+        if hasattr(args, "debug") and args.debug:
+            start_kwargs["debug"] = args.debug
 
         # Start daemon
         if args.detach:

@@ -140,6 +140,7 @@ def cli(ctx: click.Context, config_dir: Path | None, config: Path | None, debug:
     ctx.obj["config_path"] = config_path
     ctx.obj["console"] = console
     ctx.obj["logger"] = logger
+    ctx.obj["debug"] = debug
 
 
 # Configuration management group
@@ -635,7 +636,15 @@ def start(
     ctx: click.Context, config_file: str | None, port: int | None, host: str | None, name: str | None, detach: bool
 ) -> None:
     """Start bridge server."""
-    args = SimpleNamespace(daemon_command="start", config=config_file, port=port, host=host, name=name, detach=detach)
+    args = SimpleNamespace(
+        daemon_command="start",
+        config=config_file,
+        port=port,
+        host=host,
+        name=name,
+        detach=detach,
+        debug=ctx.obj["debug"],
+    )
 
     asyncio.run(
         handle_server_start(args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"])
