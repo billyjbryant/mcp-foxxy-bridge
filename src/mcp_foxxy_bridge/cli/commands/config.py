@@ -31,6 +31,7 @@ from rich.prompt import Confirm
 
 from mcp_foxxy_bridge.cli.formatters import ConfigFormatter
 from mcp_foxxy_bridge.config.config_loader import load_bridge_config_from_file
+from mcp_foxxy_bridge.oauth.utils import _validate_server_name
 from mcp_foxxy_bridge.utils.config_migration import get_config_dir
 from mcp_foxxy_bridge.utils.path_security import validate_config_path
 
@@ -674,8 +675,8 @@ async def _mcp_config_set(
     try:
         config = _load_config_safe(config_path, logger)
 
-        # Get server name, key, and value from CLI args
-        server_name = args.server_name
+        # Get and normalize server name, key, and value from CLI args
+        server_name = _validate_server_name(args.server_name)
         key = args.key
         value = args.value
 
@@ -727,8 +728,8 @@ async def _mcp_config_get(
     try:
         config = _load_config_safe(config_path, logger)
 
-        # Get server name and key from CLI args
-        server_name = args.server_name
+        # Get and normalize server name and key from CLI args
+        server_name = _validate_server_name(args.server_name)
         key = args.key
 
         # Check if server exists
@@ -772,8 +773,8 @@ async def _mcp_config_unset(
     try:
         config = _load_config_safe(config_path, logger)
 
-        # Get server name and key from CLI args
-        server_name = args.server_name
+        # Get and normalize server name and key from CLI args
+        server_name = _validate_server_name(args.server_name)
         key = args.key
 
         # Check if server exists

@@ -28,9 +28,11 @@ import aiohttp
 import yaml
 from rich.console import Console
 from rich.prompt import Confirm
+from rich.table import Table
 
 from mcp_foxxy_bridge.cli.formatters import ConfigFormatter
 from mcp_foxxy_bridge.config.config_loader import load_bridge_config_from_file
+from mcp_foxxy_bridge.oauth.utils import _validate_server_name
 
 from .config import _load_config_safe, _save_config
 
@@ -507,15 +509,10 @@ async def handle_mcp_restart(
             return
         bridge_port = config.bridge.port
 
-        server_name = args.server_name
+        # Normalize server name for case-insensitive matching
+        server_name = _validate_server_name(args.server_name)
 
-        # Check if server exists in configuration
-        if server_name not in config.servers:
-            console.print(f"[red]Error: Server '{server_name}' not found in configuration[/red]")
-            console.print(f"Available servers: {', '.join(config.servers.keys())}")
-            return
-
-        # Make API call to restart the server
+        # Make API call to restart the server (config-agnostic)
         url = f"http://127.0.0.1:{bridge_port}/sse/mcp/{server_name}/reconnect"
 
         console.print(f"[blue]Restarting MCP server '[cyan]{server_name}[/cyan]'...[/blue]")
@@ -528,7 +525,23 @@ async def handle_mcp_restart(
                     console.print(f"[green]✓[/green] {result.get('message', 'Server restart initiated')}")
                     console.print(f"Server status: [cyan]{result.get('status', 'unknown')}[/cyan]")
                 elif response.status == 404:
-                    console.print(f"[red]Error: Server '{server_name}' not found or not running[/red]")
+                    # Try to get list of running servers for better error message
+                    try:
+                        servers_url = f"http://127.0.0.1:{bridge_port}/sse/servers"
+                        async with session.get(servers_url) as servers_response:
+                            if servers_response.status == 200:
+                                servers_data = await servers_response.json()
+                                available_servers = [s.get("name", "unknown") for s in servers_data.get("servers", [])]
+                                if available_servers:
+                                    console.print(f"[red]Error: Server '{server_name}' not found or not running[/red]")
+                                    console.print(f"Available running servers: {', '.join(available_servers)}")
+                                else:
+                                    console.print(f"[red]Error: Server '{server_name}' not found[/red]")
+                                    console.print("[yellow]No servers are currently running[/yellow]")
+                            else:
+                                console.print(f"[red]Error: Server '{server_name}' not found or not running[/red]")
+                    except Exception:
+                        console.print(f"[red]Error: Server '{server_name}' not found or not running[/red]")
                 else:
                     error_text = await response.text()
                     console.print(f"[red]Error restarting server: HTTP {response.status}[/red]")
@@ -544,3 +557,173 @@ async def handle_mcp_restart(
     except Exception as e:
         console.print(f"[red]Error restarting MCP server: {e}[/red]")
         logger.exception("Failed to restart MCP server")
+
+
+async def handle_mcp_status(
+    args: Any,
+    config_path: Path,
+    config_dir: Path,
+    console: Console,
+    logger: logging.Logger,
+) -> None:
+    """Show MCP server status, connection state, and discovered tools.
+
+    Args:
+        args: Command line arguments containing optional server name and format
+        config_path: Path to the configuration file
+        config_dir: Configuration directory (unused)
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Shows detailed status information including connection state, tool counts,
+    and security information about suppressed tools.
+    """
+    try:
+        # Load configuration to get bridge port
+        config = load_bridge_config_from_file(str(config_path), dict(os.environ))
+        if config is None or config.bridge is None:
+            console.print("[red]Error: Invalid or missing bridge configuration[/red]")
+            return
+        bridge_port = config.bridge.port
+
+        # Normalize server name if provided
+        server_name = _validate_server_name(args.name) if args.name else None
+
+        # Get server status from bridge API
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            # Get servers list
+            servers_url = f"http://127.0.0.1:{bridge_port}/sse/servers"
+            try:
+                async with session.get(servers_url) as response:
+                    if response.status != 200:
+                        console.print(f"[red]Error getting server status: HTTP {response.status}[/red]")
+                        return
+                    servers_data = await response.json()
+
+            except aiohttp.ClientError as e:
+                console.print(f"[red]Error connecting to bridge server on port {bridge_port}: {e}[/red]")
+                console.print("[yellow]Make sure the bridge server is running[/yellow]")
+                return
+
+            servers = servers_data.get("servers", [])
+
+            # Filter by server name if specified
+            if server_name:
+                servers = [s for s in servers if s.get("name") == server_name]
+                if not servers:
+                    console.print(f"[red]Server '{server_name}' not found or not running[/red]")
+                    available_servers = [s.get("name", "unknown") for s in servers_data.get("servers", [])]
+                    if available_servers:
+                        console.print(f"Available servers: {', '.join(available_servers)}")
+                    return
+
+            if not servers:
+                console.print("[yellow]No servers are currently running[/yellow]")
+                return
+
+            # Get detailed information for each server
+            detailed_servers = []
+            for server in servers:
+                name = server.get("name", "unknown")
+                try:
+                    # Get tools list for this server
+                    tools_url = f"http://127.0.0.1:{bridge_port}/sse/mcp/{name}/list_tools"
+                    async with session.get(tools_url) as tools_response:
+                        if tools_response.status == 200:
+                            tools_data = await tools_response.json()
+                            tools = tools_data.get("tools", [])
+                            tool_count = len(tools)
+                            tool_names = [t.get("name", "") for t in tools]
+                        else:
+                            tool_count = 0
+                            tool_names = []
+
+                    # Get server health status
+                    status_url = f"http://127.0.0.1:{bridge_port}/sse/mcp/{name}/status"
+                    async with session.get(status_url) as status_response:
+                        if status_response.status == 200:
+                            status_data = await status_response.json()
+                            connection_state = status_data.get("connection_status", "unknown")
+                            last_connected = status_data.get("last_connected", "never")
+                            error_count = status_data.get("error_count", 0)
+                        else:
+                            connection_state = "error"
+                            last_connected = "unknown"
+                            error_count = 0
+
+                    detailed_servers.append(
+                        {
+                            "name": name,
+                            "connection_state": connection_state,
+                            "last_connected": last_connected,
+                            "error_count": error_count,
+                            "tool_count": tool_count,
+                            "tools": tool_names,
+                            "tags": server.get("tags", []),
+                            "transport": server.get("transport", "stdio"),
+                        }
+                    )
+
+                except Exception as e:
+                    logger.debug(f"Error getting details for server {name}: {e}")
+                    detailed_servers.append(
+                        {
+                            "name": name,
+                            "connection_state": "error",
+                            "last_connected": "unknown",
+                            "error_count": 0,
+                            "tool_count": 0,
+                            "tools": [],
+                            "tags": server.get("tags", []),
+                            "transport": server.get("transport", "stdio"),
+                        }
+                    )
+
+            # Output the results
+            if args.format == "json":
+                console.print(json.dumps(detailed_servers, indent=2))
+            elif args.format == "yaml":
+                console.print(yaml.dump(detailed_servers, default_flow_style=False))  # type: ignore[no-untyped-call]
+            else:
+                # Table format
+                table = Table(title="MCP Server Status")
+                table.add_column("Server", style="cyan")
+                table.add_column("State", style="green")
+                table.add_column("Transport", style="blue")
+                table.add_column("Tools", justify="right", style="yellow")
+                table.add_column("Errors", justify="right", style="red")
+                table.add_column("Last Connected", style="dim")
+
+                for server in detailed_servers:
+                    state_style = "green" if server["connection_state"] == "connected" else "red"
+                    state = f"[{state_style}]{server['connection_state']}[/{state_style}]"
+
+                    error_style = "red" if server["error_count"] > 0 else "dim"
+                    errors = f"[{error_style}]{server['error_count']}[/{error_style}]"
+
+                    table.add_row(
+                        server["name"],
+                        state,
+                        server["transport"],
+                        str(server["tool_count"]),
+                        errors,
+                        server["last_connected"],
+                    )
+
+                console.print(table)
+
+                # Show tool details if single server
+                if len(detailed_servers) == 1:
+                    server = detailed_servers[0]
+                    if server["tools"]:
+                        console.print(f"\n[cyan]Available tools for {server['name']}:[/cyan]")
+                        for tool in server["tools"]:
+                            console.print(f"  • {tool}")
+
+                    if server["tags"]:
+                        console.print(f"\n[blue]Tags:[/blue] {', '.join(server['tags'])}")
+
+    except Exception as e:
+        console.print(f"[red]Error getting MCP server status: {e}[/red]")
+        logger.exception("Failed to get MCP server status")

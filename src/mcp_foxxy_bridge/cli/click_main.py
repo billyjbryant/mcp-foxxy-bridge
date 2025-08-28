@@ -40,6 +40,7 @@ from mcp_foxxy_bridge.cli.commands.mcp_handlers import (
     handle_mcp_remove,
     handle_mcp_restart,
     handle_mcp_show,
+    handle_mcp_status,
 )
 from mcp_foxxy_bridge.cli.commands.oauth import handle_oauth_status
 from mcp_foxxy_bridge.cli.commands.security_handlers import handle_security_set, handle_security_show
@@ -460,6 +461,23 @@ def list_servers(ctx: click.Context, format: str) -> None:  # noqa: A002
 
     asyncio.run(
         handle_mcp_list(args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"])
+    )
+
+
+@mcp.command("status")
+@click.argument("name", required=False)
+@click.option("--format", type=click.Choice(["table", "json", "yaml"]), default="table", help="Output format")
+@click.pass_context
+def status_mcp(ctx: click.Context, name: str | None, format: str) -> None:  # noqa: A002
+    """Show MCP server status, connection state, and discovered tools.
+
+    Shows running servers with their connection status, tool counts,
+    and security information including suppressed tools.
+    """
+    args = SimpleNamespace(name=name, format=format)
+
+    asyncio.run(
+        handle_mcp_status(args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"])
     )
 
 

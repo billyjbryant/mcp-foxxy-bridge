@@ -26,6 +26,7 @@ from typing import Any
 
 from rich.console import Console
 
+from mcp_foxxy_bridge.oauth.utils import _validate_server_name
 from mcp_foxxy_bridge.utils.config_migration import get_server_logs_dir
 
 
@@ -45,7 +46,7 @@ async def handle_mcp_logs(
     of recent entries and live tailing mode. Uses the system 'tail' command for
     efficient log following.
     """
-    server_name = args.server_name
+    server_name = _validate_server_name(args.server_name)
     follow = args.follow if hasattr(args, "follow") else False
     lines = args.lines if hasattr(args, "lines") else 50
 
