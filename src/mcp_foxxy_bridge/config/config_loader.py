@@ -75,7 +75,7 @@ if TYPE_CHECKING:
 
 from mcp.client.stdio import StdioServerParameters
 
-from ..utils.config_migration import get_config_dir
+from mcp_foxxy_bridge.utils.config_migration import get_config_dir
 
 try:
     import jsonschema
@@ -196,9 +196,7 @@ def _ensure_schema_reference(config_path: str, config_data: dict[str, Any]) -> b
         updated_config = {"$schema": correct_schema}
 
         # Add all other keys (except existing $schema if present)
-        for key, value in config_data.items():
-            if key != "$schema":
-                updated_config[key] = value
+        updated_config.update({key: value for key, value in config_data.items() if key != "$schema"})
 
         # Write the updated config back to file
         config_file_path = Path(config_path)
@@ -1492,7 +1490,7 @@ def _load_bridge_security_config(security_data: dict[str, Any]) -> "BridgeSecuri
     if not security_data:
         return None
 
-    from mcp_foxxy_bridge.security.config import BridgeSecurityConfig, ToolSecurityConfig
+    from mcp_foxxy_bridge.security.config import BridgeSecurityConfig, ToolSecurityConfig  # noqa: PLC0415
 
     # Load tool security config if present
     tool_config = None
@@ -1567,7 +1565,7 @@ def _load_server_configurations(
         server_env.update(server_config.get("env", {}))
 
         # Normalize server name for consistency with OAuth token storage
-        from mcp_foxxy_bridge.oauth.utils import _validate_server_name
+        from mcp_foxxy_bridge.oauth.utils import _validate_server_name  # noqa: PLC0415
 
         normalized_name = _validate_server_name(name)
 

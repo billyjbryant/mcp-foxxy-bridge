@@ -28,8 +28,9 @@ import aiohttp
 from rich.console import Console
 from rich.prompt import Confirm
 
-from ..api_client import get_api_client_from_config
-from ..formatters import ToolFormatter
+from mcp_foxxy_bridge.cli.api_client import get_api_client_from_config
+from mcp_foxxy_bridge.cli.formatters import ToolFormatter
+from mcp_foxxy_bridge.cli.main import _setup_argument_parser
 
 
 async def handle_tool_list(
@@ -60,14 +61,12 @@ async def handle_tool_command(
     """Handle tool discovery and testing commands."""
     # Check if no subcommand was provided
     if not hasattr(args, "tool_command") or args.tool_command is None:
-        from ..main import _setup_argument_parser
-
         parser = _setup_argument_parser()
-        if parser._subparsers is None:
+        if parser._subparsers is None:  # noqa: SLF001
             console.print("[yellow]Usage: foxxy-bridge tool <command>[/yellow]")
             console.print("Available commands: list, test, call, search")
             return
-        for action in parser._subparsers._actions:
+        for action in parser._subparsers._actions:  # noqa: SLF001
             if hasattr(action, "choices") and action.choices and "tool" in action.choices:
                 action.choices["tool"].print_help()  # type: ignore[index]
                 return
@@ -204,8 +203,8 @@ async def _tool_call(
                 return
         elif args.input_file:
             try:
-                with Path(args.input_file).open("r") as f:
-                    arguments = json.load(f)
+                # Read file content
+                arguments = json.loads(Path(args.input_file).read_text())
             except (FileNotFoundError, json.JSONDecodeError) as e:
                 console.print(f"[red]Error reading input file: {e}[/red]")
                 return

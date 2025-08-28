@@ -276,7 +276,7 @@ class DaemonFormatter:
             return
 
         # Main status panel
-        status_text = f"Daemon Status: {StatusFormatter._format_status(status.get('status', 'unknown'))}"
+        status_text = f"Daemon Status: {StatusFormatter._format_status(status.get('status', 'unknown'))}"  # noqa: SLF001
         console.print(Panel(status_text, title="🔧 Bridge Daemon", expand=False))
 
         # Details table
@@ -293,7 +293,7 @@ class DaemonFormatter:
             table.add_row("Started", start_time.strftime("%Y-%m-%d %H:%M:%S"))
 
         if "uptime" in status:
-            table.add_row("Uptime", StatusFormatter._format_uptime(status["uptime"]))
+            table.add_row("Uptime", StatusFormatter._format_uptime(status["uptime"]))  # noqa: SLF001
 
         console.print(table)
 

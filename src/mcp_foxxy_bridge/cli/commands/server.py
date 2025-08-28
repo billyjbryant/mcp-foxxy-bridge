@@ -22,17 +22,22 @@ import argparse
 import asyncio
 import json
 import logging
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import aiohttp
 from rich.console import Console
+from rich.console import Console as TempConsole
 from rich.live import Live
 from rich.panel import Panel
+from rich.prompt import Confirm
+from rich.table import Table
 
-from ..api_client import get_api_client_from_config
-from ..daemon_manager import DaemonManager
-from ..formatters import StatusFormatter
+from mcp_foxxy_bridge.cli.api_client import get_api_client_from_config
+from mcp_foxxy_bridge.cli.daemon_manager import DaemonManager
+from mcp_foxxy_bridge.cli.formatters import StatusFormatter
+from mcp_foxxy_bridge.cli.main import _setup_argument_parser
 
 
 async def handle_server_start(
@@ -142,8 +147,6 @@ async def handle_server_list(
                 console.print("No bridge instances found")
                 return
 
-            from rich.table import Table
-
             table = Table(title="Bridge Instances")
             table.add_column("Name", style="cyan")
             table.add_column("PID", style="green")
@@ -214,14 +217,12 @@ async def handle_server_command(
     """Handle server management commands."""
     # Check if no subcommand was provided
     if not hasattr(args, "server_command") or args.server_command is None:
-        from ..main import _setup_argument_parser
-
         parser = _setup_argument_parser()
-        if parser._subparsers is None:
+        if parser._subparsers is None:  # noqa: SLF001
             console.print("[yellow]Usage: foxxy-bridge server <command>[/yellow]")
             console.print("Available commands: status, logs, restart, health, reconnect")
             return
-        for action in parser._subparsers._actions:
+        for action in parser._subparsers._actions:  # noqa: SLF001
             if hasattr(action, "choices") and action.choices and "server" in action.choices:
                 action.choices["server"].print_help()  # type: ignore[index]
                 return
@@ -315,10 +316,6 @@ async def _server_status_watch(
                     live.update(panel)
                 else:
                     # Create a fresh console for capturing output
-                    from io import StringIO
-
-                    from rich.console import Console as TempConsole
-
                     temp_output = StringIO()
                     temp_console = TempConsole(file=temp_output, width=console.size.width)
 
@@ -372,8 +369,6 @@ async def _server_restart(
         api_client = get_api_client_from_config(str(config_path), console)
 
         if not args.force:
-            from rich.prompt import Confirm
-
             if not Confirm.ask(f"Restart server '[cyan]{args.name}[/cyan]'?"):
                 console.print("[yellow]Operation cancelled[/yellow]")
                 return
@@ -649,8 +644,6 @@ async def _daemon_status(
                 console.print(
                     f"[yellow]Found {len(daemons)} bridge daemons. Please specify a daemon by name:[/yellow]\n"
                 )
-
-                from rich.table import Table
 
                 table = Table(show_header=True, header_style="bold cyan")
                 table.add_column("Name", style="cyan")

@@ -20,6 +20,7 @@
 
 import re
 from enum import Enum
+from typing import ClassVar
 
 
 class ToolType(Enum):
@@ -34,7 +35,7 @@ class ToolClassifier:
     """Classifies tools as read or write operations based on name patterns."""
 
     # Patterns for read operations
-    READ_PATTERNS: list[str] = [
+    READ_PATTERNS: ClassVar[list[str]] = [
         r"^read_.*",
         r"^get_.*",
         r"^list_.*",
@@ -61,7 +62,7 @@ class ToolClassifier:
     ]
 
     # Patterns for write operations
-    WRITE_PATTERNS: list[str] = [
+    WRITE_PATTERNS: ClassVar[list[str]] = [
         r"^write_.*",
         r"^create_.*",
         r"^add_.*",

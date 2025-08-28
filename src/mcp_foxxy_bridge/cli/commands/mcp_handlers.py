@@ -18,15 +18,20 @@
 #
 """MCP server management command handlers."""
 
+import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
+import aiohttp
+import yaml
 from rich.console import Console
 from rich.prompt import Confirm
 
-from ...config.config_loader import load_bridge_config_from_file
-from ..formatters import ConfigFormatter
+from mcp_foxxy_bridge.cli.formatters import ConfigFormatter
+from mcp_foxxy_bridge.config.config_loader import load_bridge_config_from_file
+
 from .config import _load_config_safe, _save_config
 
 
@@ -77,7 +82,7 @@ async def handle_mcp_add(
 
         # Add common configuration
         if args.env:
-            server_config["env"] = {key: value for key, value in args.env}
+            server_config["env"] = dict(args.env)
 
         if args.cwd:
             server_config["cwd"] = args.cwd
@@ -122,7 +127,7 @@ async def handle_mcp_add(
 
         # Headers for HTTP/SSE transports
         if hasattr(args, "headers") and args.headers and args.transport in ("sse", "http", "streamablehttp"):
-            server_config["headers"] = {key: value for key, value in args.headers}
+            server_config["headers"] = dict(args.headers)
 
         # Security configuration
         security_config = {}
@@ -239,12 +244,8 @@ async def handle_mcp_list(
         servers = config.get("mcpServers", {})
 
         if args.format == "json":
-            import json
-
             console.print(json.dumps(servers, indent=2))
         elif args.format == "yaml":
-            import yaml
-
             console.print(yaml.dump(servers, default_flow_style=False))  # type: ignore[no-untyped-call]
         else:
             ConfigFormatter.format_servers_table(servers, console)
@@ -411,10 +412,6 @@ async def handle_mcp_restart(
     """Handle MCP server restart/reconnect command."""
     try:
         # Load configuration to get bridge port
-        import os
-
-        import aiohttp
-
         config = load_bridge_config_from_file(str(config_path), dict(os.environ))
         if config is None or config.bridge is None:
             console.print("[red]Error: Invalid or missing bridge configuration[/red]")
@@ -436,18 +433,17 @@ async def handle_mcp_restart(
 
         try:
             timeout = aiohttp.ClientTimeout(total=30)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        console.print(f"[green]✓[/green] {result.get('message', 'Server restart initiated')}")
-                        console.print(f"Server status: [cyan]{result.get('status', 'unknown')}[/cyan]")
-                    elif response.status == 404:
-                        console.print(f"[red]Error: Server '{server_name}' not found or not running[/red]")
-                    else:
-                        error_text = await response.text()
-                        console.print(f"[red]Error restarting server: HTTP {response.status}[/red]")
-                        console.print(f"[red]{error_text}[/red]")
+            async with aiohttp.ClientSession(timeout=timeout) as session, session.post(url) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    console.print(f"[green]✓[/green] {result.get('message', 'Server restart initiated')}")
+                    console.print(f"Server status: [cyan]{result.get('status', 'unknown')}[/cyan]")
+                elif response.status == 404:
+                    console.print(f"[red]Error: Server '{server_name}' not found or not running[/red]")
+                else:
+                    error_text = await response.text()
+                    console.print(f"[red]Error restarting server: HTTP {response.status}[/red]")
+                    console.print(f"[red]{error_text}[/red]")
 
         except aiohttp.ClientError as e:
             console.print(f"[red]Error connecting to bridge server on port {bridge_port}: {e}[/red]")

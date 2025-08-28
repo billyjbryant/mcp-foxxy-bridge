@@ -18,10 +18,12 @@
 #
 """Security configuration management command handlers."""
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
 
+import yaml
 from rich.console import Console
 
 from .config import _load_config_safe, _save_config
@@ -45,12 +47,8 @@ async def handle_security_show(
             security_config = {"read_only_mode": True}
 
         if args.format == "json":
-            import json
-
             console.print(json.dumps(security_config, indent=2))
         else:  # yaml
-            import yaml
-
             yaml_str = yaml.dump(security_config, default_flow_style=False, sort_keys=False)  # type: ignore[no-untyped-call]
             console.print(yaml_str.rstrip())
 

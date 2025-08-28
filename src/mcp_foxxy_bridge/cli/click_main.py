@@ -109,7 +109,7 @@ def cli(ctx: click.Context, config_dir: Path | None, config: Path | None, debug:
     """CLI for managing MCP Foxxy Bridge configuration and operations."""
     # Configure console and logging
     if no_color:
-        console._color_system = None
+        console._color_system = None  # noqa: SLF001
 
     logger = setup_logging(debug=debug)
 
@@ -176,7 +176,7 @@ def config_set_value(ctx: click.Context, key: str, value: str) -> None:
     # Convert SimpleNamespace to argparse.Namespace for compatibility
     args = argparse.Namespace(key=key, value=value)
 
-    asyncio.run(config_commands._config_set(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
+    asyncio.run(config_commands._config_set(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))  # noqa: SLF001
 
 
 @config.command("get-value")
@@ -187,7 +187,7 @@ def config_get_value(ctx: click.Context, key: str) -> None:
     # Convert SimpleNamespace to argparse.Namespace for compatibility
     args = argparse.Namespace(key=key)
 
-    asyncio.run(config_commands._config_get(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
+    asyncio.run(config_commands._config_get(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))  # noqa: SLF001
 
 
 @config.command("unset-value")
@@ -203,7 +203,7 @@ def config_unset_value(ctx: click.Context, key: str) -> None:
     # Convert SimpleNamespace to argparse.Namespace for compatibility
     args = argparse.Namespace(key=key)
 
-    asyncio.run(config_commands._config_unset(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))
+    asyncio.run(config_commands._config_unset(args, ctx.obj["config_path"], ctx.obj["console"], ctx.obj["logger"]))  # noqa: SLF001
 
 
 @config.command()
@@ -243,7 +243,7 @@ def security(ctx: click.Context) -> None:
 @security.command("show")
 @click.option("--format", "-f", type=click.Choice(["json", "yaml"]), default="yaml", help="Output format")
 @click.pass_context
-def security_show(ctx: click.Context, format: str) -> None:
+def security_show(ctx: click.Context, format: str) -> None:  # noqa: A002
     """Show bridge security configuration."""
     args = SimpleNamespace(format=format)
 
@@ -390,7 +390,7 @@ def add(
     if transport in ("sse", "http", "streamablehttp"):
         if not url:
             ctx.obj["console"].print(f"[red]Error: --url is required for {transport} transport[/red]")
-            raise click.Abort()
+            raise click.Abort
         if server_command is not None and server_command != "":
             ctx.obj["console"].print(
                 f"[yellow]Warning: server_command '{server_command}' ignored for {transport} transport "
@@ -400,7 +400,7 @@ def add(
         # stdio transport
         if not server_command:
             ctx.obj["console"].print("[red]Error: server_command is required for stdio transport[/red]")
-            raise click.Abort()
+            raise click.Abort
         if url:
             ctx.obj["console"].print("[yellow]Warning: --url ignored for stdio transport[/yellow]")
 
@@ -454,7 +454,7 @@ def remove(ctx: click.Context, name: str, force: bool) -> None:
 @mcp.command()
 @click.option("--format", "-f", type=click.Choice(["table", "json", "yaml"]), default="table", help="Output format")
 @click.pass_context
-def mcp_list(ctx: click.Context, format: str) -> None:
+def mcp_list(ctx: click.Context, format: str) -> None:  # noqa: A002
     """List configured MCP servers."""
     args = SimpleNamespace(format=format)
 
@@ -467,7 +467,7 @@ def mcp_list(ctx: click.Context, format: str) -> None:
 @click.argument("name", required=False)
 @click.option("--format", type=click.Choice(["json", "yaml"]), default="yaml", help="Output format")
 @click.pass_context
-def mcp_show(ctx: click.Context, name: str | None, format: str) -> None:
+def mcp_show(ctx: click.Context, name: str | None, format: str) -> None:  # noqa: A002
     """Show MCP server details."""
     args = SimpleNamespace(name=name, format=format)
 
@@ -542,7 +542,7 @@ def mcp_config(ctx: click.Context) -> None:
 @click.argument("key")
 @click.argument("value")
 @click.pass_context
-def set(ctx: click.Context, server_name: str, key: str, value: str) -> None:
+def set(ctx: click.Context, server_name: str, key: str, value: str) -> None:  # noqa: A001
     """Set MCP server configuration option.
 
     Examples:
@@ -593,7 +593,7 @@ def server(ctx: click.Context) -> None:
 @click.option("--watch", "-w", is_flag=True, help="Watch for status changes (requires full API)")
 @click.option("--api", "-a", is_flag=True, help="Show full API status (loads config, slower)")
 @click.pass_context
-def server_status(ctx: click.Context, name: str | None, format: str, watch: bool, api: bool) -> None:
+def server_status(ctx: click.Context, name: str | None, format: str, watch: bool, api: bool) -> None:  # noqa: A002
     """Show server status.
 
     By default shows fast daemon-only status without loading configuration.
@@ -627,7 +627,7 @@ def start(
 @server.command("list")
 @click.option("--format", type=click.Choice(["table", "json"]), default="table", help="Output format")
 @click.pass_context
-def list_daemons(ctx: click.Context, format: str) -> None:
+def list_daemons(ctx: click.Context, format: str) -> None:  # noqa: A002
     """List running bridge daemons."""
     args = SimpleNamespace(format=format)
 
@@ -680,7 +680,7 @@ def tool(ctx: click.Context) -> None:
 @click.option("--format", type=click.Choice(["table", "json"]), default="table", help="Output format")
 @click.option("--tag", help="Filter by server tag")
 @click.pass_context
-def tool_list(ctx: click.Context, server: str | None, format: str, tag: str | None) -> None:
+def tool_list(ctx: click.Context, server: str | None, format: str, tag: str | None) -> None:  # noqa: A002
     """List available tools."""
     args = SimpleNamespace(tool_command="list", server=server, format=format, tag=tag)
 
@@ -699,7 +699,7 @@ def oauth(ctx: click.Context) -> None:
 @click.argument("name", required=False)
 @click.option("--format", type=click.Choice(["table", "json"]), default="table", help="Output format")
 @click.pass_context
-def oauth_status(ctx: click.Context, name: str | None, format: str) -> None:
+def oauth_status(ctx: click.Context, name: str | None, format: str) -> None:  # noqa: A002
     """Show OAuth status."""
     args = SimpleNamespace(oauth_command="status", name=name, format=format)
 

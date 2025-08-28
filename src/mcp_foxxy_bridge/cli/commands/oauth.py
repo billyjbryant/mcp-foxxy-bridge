@@ -21,6 +21,7 @@
 import argparse
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -28,8 +29,10 @@ import aiohttp
 from rich.console import Console
 from rich.prompt import Confirm
 
-from ..api_client import get_api_client_from_config
-from ..formatters import OAuthFormatter
+from mcp_foxxy_bridge.cli.api_client import get_api_client_from_config
+from mcp_foxxy_bridge.cli.formatters import OAuthFormatter
+from mcp_foxxy_bridge.cli.main import _setup_argument_parser
+from mcp_foxxy_bridge.config.config_loader import load_bridge_config_from_file
 
 
 async def handle_oauth_status(
@@ -57,14 +60,12 @@ async def handle_oauth_command(
     """Handle OAuth authentication management commands."""
     # Check if no subcommand was provided
     if not hasattr(args, "oauth_command") or args.oauth_command is None:
-        from ..main import _setup_argument_parser
-
         parser = _setup_argument_parser()
-        if parser._subparsers is None:
+        if parser._subparsers is None:  # noqa: SLF001
             console.print("[yellow]Usage: foxxy-bridge oauth <command>[/yellow]")
             console.print("Available commands: status, login, logout")
             return
-        for action in parser._subparsers._actions:
+        for action in parser._subparsers._actions:  # noqa: SLF001
             if hasattr(action, "choices") and action.choices and "oauth" in action.choices:
                 action.choices["oauth"].print_help()  # type: ignore[index]
                 return
@@ -144,8 +145,6 @@ async def _oauth_login(
     """Trigger OAuth login flow."""
     try:
         # Check if server is configured for OAuth
-        from ...config.config_loader import load_bridge_config_from_file
-
         try:
             bridge_config = load_bridge_config_from_file(str(config_path), {})
             server_config = bridge_config.servers.get(args.name)
@@ -214,8 +213,6 @@ async def _oauth_logout(
                 return
 
             if auth_dir.exists():
-                import shutil
-
                 shutil.rmtree(auth_dir)
                 auth_dir.mkdir(parents=True, exist_ok=True)
                 console.print("[green]✓[/green] Cleared all OAuth tokens")

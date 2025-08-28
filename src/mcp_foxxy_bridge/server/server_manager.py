@@ -1024,10 +1024,7 @@ class ServerManager:
                         if namespace and "://" in original_uri:
                             scheme, rest = original_uri.split("://", 1)
                             # Namespace the path part while keeping the scheme intact
-                            if rest:
-                                namespaced_uri = f"{scheme}://{namespace}/{rest}"
-                            else:
-                                namespaced_uri = f"{scheme}://{namespace}"
+                            namespaced_uri = f"{scheme}://{namespace}/{rest}" if rest else f"{scheme}://{namespace}"
                         else:
                             namespaced_uri = original_uri
 

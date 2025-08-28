@@ -19,6 +19,7 @@
 """Daemon process management utilities."""
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import subprocess
@@ -79,10 +80,10 @@ class DaemonManager:
                     is_bridge = False
 
                     # Direct invocation of bridge commands
-                    if executable.endswith("foxxy-bridge") or executable.endswith("mcp-foxxy-bridge"):
+                    if executable.endswith(("foxxy-bridge", "mcp-foxxy-bridge")):
                         is_bridge = True
                     # Python module invocation
-                    elif executable.endswith("python") or executable.endswith("python3"):
+                    elif executable.endswith(("python", "python3")):
                         if len(cmdline) > 2 and cmdline[1] == "-m" and "mcp_foxxy_bridge" in cmdline[2]:
                             is_bridge = True
 
@@ -98,10 +99,8 @@ class DaemonManager:
                             if arg in ["--bridge-config", "-c"] and i + 1 < len(cmdline):
                                 config_file = cmdline[i + 1]
                             elif arg in ["--port", "-p"] and i + 1 < len(cmdline):
-                                try:
+                                with contextlib.suppress(ValueError):
                                     port = int(cmdline[i + 1])
-                                except ValueError:
-                                    pass
                             elif arg in ["--host"] and i + 1 < len(cmdline):
                                 host = cmdline[i + 1]
                             elif arg in ["--name", "-n"] and i + 1 < len(cmdline):
@@ -372,9 +371,7 @@ class DaemonManager:
                 process = None  # type: ignore[assignment] # Release the process reference
 
                 # Quick check if process exists without blocking
-                if await self._is_process_running(pid):
-                    return True
-                return False
+                return bool(await self._is_process_running(pid))
 
             except Exception as e:
                 self.console.print(f"[red]Failed to start daemon: {e}[/red]")

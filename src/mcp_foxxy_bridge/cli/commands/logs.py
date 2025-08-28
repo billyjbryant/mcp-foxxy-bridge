@@ -26,7 +26,7 @@ from typing import Any
 
 from rich.console import Console
 
-from ...utils.config_migration import get_server_logs_dir
+from mcp_foxxy_bridge.utils.config_migration import get_server_logs_dir
 
 
 async def handle_mcp_logs(

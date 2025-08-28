@@ -27,8 +27,14 @@ from pathlib import Path
 
 from rich.console import Console
 
-from ..utils.config_migration import get_config_dir
-from ..utils.logging import setup_logging
+from mcp_foxxy_bridge.utils.config_migration import get_config_dir
+from mcp_foxxy_bridge.utils.logging import setup_logging
+from mcp_foxxy_bridge.utils.path_security import validate_config_dir, validate_config_path
+
+from .commands.config import handle_config_command
+from .commands.oauth import handle_oauth_command
+from .commands.server import handle_server_command
+from .commands.tool import handle_tool_command
 
 console = Console()
 
@@ -363,14 +369,12 @@ async def main() -> None:
 
     # Configure console and logging
     if args.no_color:
-        console._color_system = None
+        console._color_system = None  # noqa: SLF001
 
     logger = setup_logging(debug=args.debug)
 
     # Get config directory and config path
     if args.config_dir:
-        from ..utils.path_security import validate_config_dir
-
         try:
             config_dir = validate_config_dir(args.config_dir)
         except Exception as e:
@@ -381,8 +385,6 @@ async def main() -> None:
 
     # Determine config file path with priority: CLI arg > ENV var > default
     if args.config:
-        from ..utils.path_security import validate_config_path
-
         try:
             config_path = validate_config_path(args.config)
         except Exception as e:
@@ -399,24 +401,16 @@ async def main() -> None:
     try:
         # Import and dispatch to command handlers
         if args.command == "config":
-            from .commands.config import handle_config_command
-
             await handle_config_command(args, config_path, config_dir, console, logger)
         elif args.command == "server":
-            from .commands.server import handle_server_command
-
             await handle_server_command(args, config_path, config_dir, console, logger)
         elif args.command == "tool":
-            from .commands.tool import handle_tool_command
-
             await handle_tool_command(args, config_path, config_dir, console, logger)
         elif args.command == "daemon":
             # TODO: Daemon commands are not yet implemented
             console.print("[red]Error: Daemon commands are not yet implemented[/red]")
             return
         elif args.command == "oauth":
-            from .commands.oauth import handle_oauth_command
-
             await handle_oauth_command(args, config_path, config_dir, console, logger)
         else:
             console.print(f"[red]Unknown command: {args.command}[/red]")

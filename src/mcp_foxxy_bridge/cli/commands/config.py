@@ -25,12 +25,14 @@ import shutil
 from pathlib import Path
 from typing import Any, cast
 
+import yaml
 from rich.console import Console
 from rich.prompt import Confirm
 
-from ...config.config_loader import load_bridge_config_from_file
-from ...utils.path_security import validate_config_path
-from ..formatters import ConfigFormatter
+from mcp_foxxy_bridge.cli.formatters import ConfigFormatter
+from mcp_foxxy_bridge.config.config_loader import load_bridge_config_from_file
+from mcp_foxxy_bridge.utils.config_migration import get_config_dir
+from mcp_foxxy_bridge.utils.path_security import validate_config_path
 
 
 async def handle_config_command(
@@ -44,12 +46,12 @@ async def handle_config_command(
     # Check if no subcommand was provided
     if not hasattr(args, "config_command") or args.config_command is None:
         # Import the parser to show help
-        from ..main import _setup_argument_parser
+        from mcp_foxxy_bridge.cli.main import _setup_argument_parser  # noqa: PLC0415
 
         parser = _setup_argument_parser()
         # Get the config subparser to show its help
-        if parser._subparsers is not None:
-            for action in parser._subparsers._actions:
+        if parser._subparsers is not None:  # noqa: SLF001
+            for action in parser._subparsers._actions:  # noqa: SLF001
                 if hasattr(action, "choices") and action.choices is not None and "config" in action.choices:
                     action.choices["config"].print_help()  # type: ignore[index]
                     return
@@ -112,7 +114,7 @@ async def _config_add(
             server_config["args"] = args.server_args
 
         if args.env:
-            server_config["env"] = {key: value for key, value in args.env}
+            server_config["env"] = dict(args.env)
 
         if args.cwd:
             server_config["cwd"] = args.cwd
@@ -197,8 +199,6 @@ async def _config_list(
         if args.format == "json":
             console.print(json.dumps(servers, indent=2))
         elif args.format == "yaml":
-            import yaml
-
             console.print(yaml.dump(servers, default_flow_style=False))  # type: ignore[no-untyped-call]
         else:
             ConfigFormatter.format_servers_table(servers, console)
@@ -296,8 +296,6 @@ async def _config_init(
                 return
 
         # Create default configuration with absolute schema path
-        from ...utils.config_migration import get_config_dir
-
         config_dir = get_config_dir()
         schema_path = config_dir / "bridge_config_schema.json"
 
