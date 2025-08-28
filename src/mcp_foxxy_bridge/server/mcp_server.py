@@ -1447,7 +1447,9 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                 bridge_host = request.url.hostname or "127.0.0.1"
 
                 # Create OAuth flow instance for this server
-                oauth_config = server_config.oauth_config or {}
+                oauth_config: dict[str, Any] = (
+                    server_config.oauth_config.to_dict() if server_config.oauth_config else {}
+                )
                 oauth_options = OAuthProviderOptionsImpl(
                     client_name=oauth_config.get("client_name", f"{server_id}-client"),
                     server_url=oauth_config.get("issuer", ""),
@@ -2357,7 +2359,7 @@ async def _exchange_atlassian_oauth_code(
         Dictionary with access_token, refresh_token, etc. or None if failed
     """
     try:
-        oauth_config = server_config.oauth_config or {}
+        oauth_config = server_config.oauth_config.to_dict() if server_config.oauth_config else {}
         token_url = "https://auth.atlassian.com/oauth/token"  # noqa: S105 # URL not a password
 
         # Prepare token exchange request

@@ -354,6 +354,49 @@ class ConfigLoader:
 
 
 @dataclass
+class OAuthConfig:
+    """OAuth configuration for MCP servers.
+
+    Attributes:
+        enabled: Whether OAuth is enabled for this server
+        issuer: OAuth issuer URL (e.g., https://auth.atlassian.com)
+        verify_ssl: Whether to verify SSL/TLS certificates
+        keep_alive_interval: Keep-alive ping interval for OAuth servers in milliseconds
+        token_refresh_interval: Proactive token refresh interval in milliseconds
+        connection_check_interval: Connection health check interval in milliseconds
+    """
+
+    enabled: bool = False
+    issuer: str | None = None
+    verify_ssl: bool = True
+    keep_alive_interval: int = 20000  # 20 seconds - more frequent for OAuth
+    token_refresh_interval: int = 1800000  # 30 minutes - proactive token refresh
+    connection_check_interval: int = 10000  # 10 seconds - frequent connection checks
+
+    # Additional fields for backward compatibility with existing configurations
+    client_id: str | None = None
+    authorization_url: str | None = None
+    token_url: str | None = None
+    type: str | None = None
+
+    def __getitem__(self, key: str) -> Any:
+        """Allow dictionary-style access for backward compatibility."""
+        return getattr(self, key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Allow dictionary-style get method for backward compatibility."""
+        return getattr(self, key, default)
+
+    def __contains__(self, key: str) -> bool:
+        """Allow 'key in oauth_config' checks."""
+        return hasattr(self, key)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for backward compatibility with legacy APIs."""
+        return {field_name: field_value for field_name, field_value in self.__dict__.items() if field_value is not None}
+
+
+@dataclass
 class HealthCheckConfig:
     """Configuration for server health checks and monitoring.
 
@@ -465,7 +508,7 @@ class BridgeServerConfig:
     priority: int = 100
     tags: list[str] | None = None
     log_level: str = "ERROR"  # Default to quiet (only errors)
-    oauth_config: dict[str, Any] | None = None  # OAuth configuration
+    oauth_config: OAuthConfig | None = None  # OAuth configuration
     authentication: dict[str, Any] | None = None  # General authentication config
     headers: dict[str, str] | None = None  # Custom headers for HTTP requests
     verify_ssl: bool = True  # SSL/TLS verification for HTTPS connections
@@ -495,16 +538,7 @@ class BridgeServerConfig:
         if self.oauth_config is None:
             return False
 
-        enabled_value = self.oauth_config.get("enabled", False)
-
-        # Handle both string and boolean values
-        if isinstance(enabled_value, bool):
-            return enabled_value
-
-        if isinstance(enabled_value, str):
-            return enabled_value.lower() in ("true", "1", "yes", "on")
-
-        return False
+        return self.oauth_config.enabled
 
     def needs_oauth_proxy(self) -> bool:
         """Check if this server needs OAuth proxy routes (not passthrough).
@@ -1599,6 +1633,23 @@ def _load_server_configurations(
 
         normalized_name = _validate_server_name(name)
 
+        # Create OAuth configuration
+        oauth_data = server_config.get("oauth_config", {})
+        oauth_config = None
+        if oauth_data:
+            oauth_config = OAuthConfig(
+                enabled=oauth_data.get("enabled", False),
+                issuer=oauth_data.get("issuer"),
+                verify_ssl=oauth_data.get("verify_ssl", True),
+                keep_alive_interval=oauth_data.get("keepAliveInterval", 20000),
+                token_refresh_interval=oauth_data.get("tokenRefreshInterval", 1800000),
+                connection_check_interval=oauth_data.get("connectionCheckInterval", 10000),
+                client_id=oauth_data.get("client_id"),
+                authorization_url=oauth_data.get("authorization_url"),
+                token_url=oauth_data.get("token_url"),
+                type=oauth_data.get("type"),
+            )
+
         # Create server configuration
         server = BridgeServerConfig(
             name=normalized_name,
@@ -1618,7 +1669,7 @@ def _load_server_configurations(
             priority=server_config.get("priority", 100),
             tags=server_config.get("tags", []),
             log_level=server_config.get("log_level", "ERROR"),
-            oauth_config=server_config.get("oauth_config"),
+            oauth_config=oauth_config,
             authentication=server_config.get("authentication"),
             headers=server_config.get("headers"),
             verify_ssl=server_config.get("verify_ssl", True),

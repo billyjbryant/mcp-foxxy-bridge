@@ -157,9 +157,11 @@ class ServerManager:
         self.servers: dict[str, ManagedServer] = {}
         self.health_check_task: asyncio.Task[None] | None = None
         self.keep_alive_task: asyncio.Task[None] | None = None
+        self.oauth_token_refresh_task: asyncio.Task[None] | None = None
         self._shutdown_event = asyncio.Event()
         self._server_contexts: dict[str, contextlib.AsyncExitStack] = {}
         self._restart_locks: dict[str, asyncio.Lock] = {}
+        self._oauth_token_refresh_times: dict[str, float] = {}  # Track last token refresh per server
 
         # Track filtered tools for visibility
         self._filtered_tools: list[dict[str, str]] = []
@@ -232,6 +234,10 @@ class ServerManager:
         if any(server.config.health_check and server.config.health_check.enabled for server in self.servers.values()):
             self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
 
+        # Start OAuth token refresh task for OAuth servers
+        if any(self._is_oauth_sse_endpoint(server) for server in self.servers.values()):
+            self.oauth_token_refresh_task = asyncio.create_task(self._oauth_token_refresh_loop())
+
         logger.info(
             "Server manager started with %d active servers",
             len(self.get_active_servers()),
@@ -263,6 +269,11 @@ class ServerManager:
             self.keep_alive_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.keep_alive_task
+
+        if self.oauth_token_refresh_task:
+            self.oauth_token_refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.oauth_token_refresh_task
 
         # Close all server context stacks to cleanup managed connections
         cleanup_tasks = []
@@ -383,7 +394,7 @@ class ServerManager:
                             server.name,
                             headers=headers or None,
                             oauth_enabled=server.config.is_oauth_enabled(),
-                            oauth_config=server.config.oauth_config,
+                            oauth_config=server.config.oauth_config.to_dict() if server.config.oauth_config else None,
                             authentication=server.config.authentication,
                             verify_ssl=server.config.verify_ssl,
                         ),
@@ -692,10 +703,14 @@ class ServerManager:
         while not self._shutdown_event.is_set():
             try:
                 await self._perform_keep_alive_checks()
-                # Use the minimum keep-alive interval from all servers
+                # Use the minimum keep-alive interval from all servers, with OAuth-specific intervals
                 min_interval = min(
                     (
-                        server.config.health_check.keep_alive_interval / 1000.0
+                        (
+                            server.config.oauth_config.keep_alive_interval / 1000.0
+                            if self._is_oauth_sse_endpoint(server) and server.config.oauth_config
+                            else server.config.health_check.keep_alive_interval / 1000.0
+                        )
                         for server in self.servers.values()
                         if server.config.health_check and server.config.health_check.enabled
                     ),
@@ -707,6 +722,19 @@ class ServerManager:
             except Exception:
                 logger.exception("Error in keep-alive loop")
                 await asyncio.sleep(5)  # Brief pause before retrying
+
+    async def _oauth_token_refresh_loop(self) -> None:
+        """Proactive OAuth token refresh loop for OAuth servers."""
+        while not self._shutdown_event.is_set():
+            try:
+                await self._perform_oauth_token_refresh()
+                # Check every 5 minutes for tokens that need refreshing
+                await asyncio.sleep(300)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("Error in OAuth token refresh loop")
+                await asyncio.sleep(60)  # Brief pause before retrying
 
     async def _perform_health_checks(self) -> None:
         """Perform health checks on all servers."""
@@ -1522,9 +1550,13 @@ class ServerManager:
             ):
                 continue
 
-            # Check if it's time for a keep-alive ping
+            # Check if it's time for a keep-alive ping (use OAuth-specific interval for OAuth servers)
             time_since_last_keep_alive = current_time - server.health.last_keep_alive
-            keep_alive_interval = server.config.health_check.keep_alive_interval / 1000.0
+            keep_alive_interval = (
+                server.config.oauth_config.keep_alive_interval / 1000.0
+                if self._is_oauth_sse_endpoint(server) and server.config.oauth_config
+                else server.config.health_check.keep_alive_interval / 1000.0
+            )
 
             if time_since_last_keep_alive >= keep_alive_interval:
                 # Start keep-alive task and store reference to prevent GC
@@ -2019,3 +2051,32 @@ class ServerManager:
             logger.warning("OAuth SSE reconnection network error: %s", type(e).__name__)
         except Exception:
             logger.exception("Unexpected OAuth SSE reconnection error for server '%s'", server.name)
+
+    async def _perform_oauth_token_refresh(self) -> None:
+        """Proactively refresh OAuth tokens before they expire."""
+        current_time = time.time()
+
+        for server in self.servers.values():
+            if not self._is_oauth_sse_endpoint(server):
+                continue
+
+            if not server.config.oauth_config:
+                continue
+
+            # Check if it's time to refresh the token
+            last_refresh = self._oauth_token_refresh_times.get(server.name, 0)
+            refresh_interval = server.config.oauth_config.token_refresh_interval / 1000.0
+
+            if current_time - last_refresh >= refresh_interval:
+                logger.debug("Proactively refreshing OAuth token for server '%s'", server.name)
+                await self._refresh_oauth_token(server)
+                self._oauth_token_refresh_times[server.name] = current_time
+
+    async def _refresh_oauth_token(self, server: ManagedServer) -> None:
+        """Refresh OAuth token for a specific server."""
+        # TODO: Implement proactive OAuth token refresh
+        # For now, we rely on the existing OAuth error handling and reconnection logic
+        # which will refresh tokens when they expire during normal operations
+        logger.debug(
+            "Token refresh requested for server '%s', relying on connection-based refresh for now", server.name
+        )

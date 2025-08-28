@@ -19,6 +19,15 @@ repos:
           - id: ruff-format
     - repo: local
       hooks:
+          # Re-stage files after formatters modify them
+          - id: re-stage-formatted
+            name: re-stage formatted files
+            entry: git add -u
+            language: system
+            pass_filenames: false
+            always_run: true
+    - repo: local
+      hooks:
           # Run tests
           - id: pytest
             name: pytest
