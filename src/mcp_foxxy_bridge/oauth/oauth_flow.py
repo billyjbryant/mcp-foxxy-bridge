@@ -296,7 +296,7 @@ class OAuthFlow:
             # Provide helpful error message for redirect issues
             elapsed = time.time() - start_time
             error_msg = f"OAuth authentication timed out after {elapsed:.1f} seconds"
-            logger.error("[OAUTH][%s] OAuth timeout: %s", self.options.server_name or "UNKNOWN", error_msg)
+            logger.error("[%s] OAuth timeout: %s", self.options.server_name or "UNKNOWN", error_msg)
             raise RuntimeError(error_msg)
 
         finally:
@@ -309,9 +309,7 @@ class OAuthFlow:
 
         # Check if we have a configured OAuth issuer for refresh operations
         if hasattr(self.options, "oauth_issuer") and self.options.oauth_issuer:
-            logger.debug(
-                "[OAUTH][%s] Using configured OAuth issuer for token refresh", self.options.server_name or "UNKNOWN"
-            )
+            logger.debug("[%s] Using configured OAuth issuer for token refresh", self.options.server_name or "UNKNOWN")
             oauth_issuer = self.options.oauth_issuer
 
             # Try OAuth issuer endpoints for refresh
@@ -330,10 +328,8 @@ class OAuthFlow:
                         config = response.json()
                         token_endpoint = config.get("token_endpoint")
                         if token_endpoint:
-                            logger.debug(
-                                "[OAUTH][%s] Found token endpoint via OAuth issuer discovery",
-                                self.options.server_name or "UNKNOWN",
-                            )
+                            server_name = self.options.server_name or "UNKNOWN"
+                            logger.debug("[%s] Found token endpoint via OAuth issuer discovery", server_name)
                             break
                 except (httpx.HTTPError, json.JSONDecodeError):
                     continue
@@ -341,15 +337,12 @@ class OAuthFlow:
             # If discovery failed, try common OAuth issuer paths
             if not token_endpoint:
                 token_endpoint = f"{oauth_issuer}/oauth/token"
-                logger.debug(
-                    "[OAUTH][%s] Using fallback OAuth issuer token endpoint", self.options.server_name or "UNKNOWN"
-                )
+                logger.debug("[%s] Using fallback OAuth issuer token endpoint", self.options.server_name or "UNKNOWN")
 
         # If no OAuth issuer or it failed, fall back to server endpoints
         if not token_endpoint:
-            logger.debug(
-                "[OAUTH][%s] Falling back to server endpoints for token refresh", self.options.server_name or "UNKNOWN"
-            )
+            server_name = self.options.server_name or "UNKNOWN"
+            logger.debug("[%s] Falling back to server endpoints for token refresh", server_name)
             endpoints = self.discover_endpoints()
             token_endpoint = endpoints.get("token_endpoint")
 

@@ -68,7 +68,7 @@ class PatternMatcher:
             "\\d" in pattern,
             "\\w" in pattern,
             "\\s" in pattern,
-            ".*" in pattern and not pattern.replace("*", "").replace(".*", ""),
+            pattern == ".*" or (pattern.startswith(".*") and len(pattern) > 2),
         ]
 
         return any(regex_indicators)

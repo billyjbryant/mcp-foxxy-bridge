@@ -154,7 +154,7 @@ def _write_config_to_disk(config_path: str, config_data: dict[str, Any]) -> None
         backup_path = config_file_path.with_suffix(".json.backup")
         try:
             shutil.copy2(config_file_path, backup_path)
-            logger.debug(f"Created backup at {backup_path}")
+            logger.debug("Created configuration backup")
         except Exception as e:
             logger.debug(f"Could not create backup: {e}")
 
@@ -205,7 +205,7 @@ def _ensure_schema_reference(config_path: str, config_data: dict[str, Any]) -> b
         backup_path = config_file_path.with_suffix(".json.backup")
         try:
             shutil.copy2(config_file_path, backup_path)
-            logger.debug(f"Created backup at {backup_path}")
+            logger.debug("Created configuration backup")
         except Exception as e:
             logger.debug(f"Could not create backup: {e}")
 

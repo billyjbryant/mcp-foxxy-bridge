@@ -219,7 +219,7 @@ class OAuthClientProvider:
 
     def redirect_to_authorization(self, authorization_url: str) -> None:
         """Open the authorization URL in the default browser."""
-        logger.info("[OAUTH][%s] Opening authorization URL in browser", self.server_name or "UNKNOWN")
+        logger.info("[%s] Opening authorization URL in browser", self.server_name or "UNKNOWN")
         webbrowser.open(authorization_url)
 
     def invalidate_credentials(self) -> None:

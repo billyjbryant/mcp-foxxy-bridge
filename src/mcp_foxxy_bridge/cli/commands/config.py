@@ -359,7 +359,7 @@ def _save_config(
         backup_path = config_path.with_suffix(".json.backup")
         try:
             shutil.copy2(config_path, backup_path)
-            logger.debug(f"Created backup at {backup_path}")
+            logger.debug("Created configuration backup")
         except Exception as e:
             logger.warning(f"Failed to create backup: {e}")
 
