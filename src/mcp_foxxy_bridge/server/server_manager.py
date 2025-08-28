@@ -234,8 +234,8 @@ class ServerManager:
         if any(server.config.health_check and server.config.health_check.enabled for server in self.servers.values()):
             self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
 
-        # Start OAuth token refresh task for OAuth servers
-        if any(self._is_oauth_sse_endpoint(server) for server in self.servers.values()):
+        # Start OAuth token refresh task for OAuth servers (both SSE and HTTP)
+        if any(self._is_oauth_endpoint(server) for server in self.servers.values()):
             self.oauth_token_refresh_task = asyncio.create_task(self._oauth_token_refresh_loop())
 
         logger.info(
@@ -708,7 +708,7 @@ class ServerManager:
                     (
                         (
                             server.config.oauth_config.keep_alive_interval / 1000.0
-                            if self._is_oauth_sse_endpoint(server) and server.config.oauth_config
+                            if self._is_oauth_endpoint(server) and server.config.oauth_config
                             else server.config.health_check.keep_alive_interval / 1000.0
                         )
                         for server in self.servers.values()
@@ -759,7 +759,7 @@ class ServerManager:
                 except Exception as e:
                     health_elapsed = time.time() - health_start_time
 
-                    # Handle OAuth SSE endpoints with special logic
+                    # Handle OAuth endpoints (SSE and HTTP) with special logic
                     if await self._handle_oauth_health_check_failure(server, e):
                         # OAuth recovery was attempted, continue to next server
                         continue
@@ -781,11 +781,11 @@ class ServerManager:
                     elif server.config.health_check:
                         max_failures = server.config.health_check.max_consecutive_failures
 
-                    # OAuth SSE endpoints get more tolerance for connection issues
-                    if self._is_oauth_sse_endpoint(server):
+                    # OAuth endpoints get more tolerance for connection issues
+                    if self._is_oauth_endpoint(server):
                         max_failures = max(max_failures * 2, 6)  # Double the tolerance
                         logger.debug(
-                            "OAuth SSE endpoint '%s' gets increased failure tolerance: %d",
+                            "OAuth endpoint '%s' gets increased failure tolerance: %d",
                             server.name,
                             max_failures,
                         )
@@ -1554,7 +1554,7 @@ class ServerManager:
             time_since_last_keep_alive = current_time - server.health.last_keep_alive
             keep_alive_interval = (
                 server.config.oauth_config.keep_alive_interval / 1000.0
-                if self._is_oauth_sse_endpoint(server) and server.config.oauth_config
+                if self._is_oauth_endpoint(server) and server.config.oauth_config
                 else server.config.health_check.keep_alive_interval / 1000.0
             )
 
@@ -1956,14 +1956,18 @@ class ServerManager:
         """Check if server is an OAuth-enabled SSE endpoint."""
         return server.config.transport_type == "sse" and server.config.is_oauth_enabled()
 
+    def _is_oauth_endpoint(self, server: ManagedServer) -> bool:
+        """Check if server is an OAuth-enabled endpoint (SSE or HTTP)."""
+        return server.config.is_oauth_enabled() and server.config.transport_type in ("sse", "http")
+
     async def _handle_oauth_health_check_failure(self, server: ManagedServer, error: Exception) -> bool:
-        """Handle health check failures for OAuth SSE endpoints.
+        """Handle health check failures for OAuth endpoints (both SSE and HTTP).
 
         Returns:
             True if OAuth recovery was attempted (skip normal failure handling)
             False if normal failure handling should proceed
         """
-        if not self._is_oauth_sse_endpoint(server):
+        if not self._is_oauth_endpoint(server):
             return False
 
         error_str = str(error).lower()
@@ -2057,7 +2061,7 @@ class ServerManager:
         current_time = time.time()
 
         for server in self.servers.values():
-            if not self._is_oauth_sse_endpoint(server):
+            if not self._is_oauth_endpoint(server):
                 continue
 
             if not server.config.oauth_config:
