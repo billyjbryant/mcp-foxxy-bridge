@@ -2074,9 +2074,55 @@ class ServerManager:
 
     async def _refresh_oauth_token(self, server: ManagedServer) -> None:
         """Refresh OAuth token for a specific server."""
-        # TODO: Implement proactive OAuth token refresh
-        # For now, we rely on the existing OAuth error handling and reconnection logic
-        # which will refresh tokens when they expire during normal operations
-        logger.debug(
-            "Token refresh requested for server '%s', relying on connection-based refresh for now", server.name
-        )
+        if not server.config.oauth_config or not server.config.oauth_config.enabled:
+            logger.debug("OAuth not enabled for server '%s', skipping token refresh", server.name)
+            return
+
+        try:
+            # Import OAuth components when needed to avoid circular dependencies
+            from mcp_foxxy_bridge.oauth import get_oauth_client_config  # noqa: PLC0415
+            from mcp_foxxy_bridge.oauth.oauth_flow import OAuthFlow  # noqa: PLC0415
+            from mcp_foxxy_bridge.oauth.types import OAuthProviderOptions  # noqa: PLC0415
+
+            # Get client config for OAuth
+            client_config = get_oauth_client_config()
+
+            # Create OAuth provider options
+            oauth_options = OAuthProviderOptions(
+                server_url=server.config.url or "",
+                host="localhost",
+                callback_port=self.bridge_config.bridge.oauth_port if self.bridge_config.bridge else 8080,
+                callback_path="/oauth/callback",
+                client_name=client_config["client_name"],
+                client_uri=client_config["client_uri"],
+                software_id=client_config["software_id"],
+                software_version=client_config["software_version"],
+                server_name=server.name,
+                oauth_issuer=server.config.oauth_config.issuer,
+                verify_ssl=server.config.oauth_config.verify_ssl,
+            )
+
+            oauth_flow = OAuthFlow(oauth_options)
+
+            # Check if we have existing tokens with refresh capability
+            existing_tokens = oauth_flow.provider.tokens_including_expired()
+            if not existing_tokens or not existing_tokens.refresh_token:
+                logger.debug("No refresh token available for server '%s', cannot proactively refresh", server.name)
+                return
+
+            # Attempt to refresh the token
+            logger.debug("Proactively refreshing OAuth token for server '%s'", server.name)
+            refreshed_tokens = oauth_flow.refresh_tokens(existing_tokens.refresh_token)
+
+            if refreshed_tokens and refreshed_tokens.access_token:
+                logger.info("OAuth token successfully refreshed for server '%s'", server.name)
+                # Token is automatically saved by the OAuth flow
+            else:
+                logger.warning("OAuth token refresh returned invalid tokens for server '%s'", server.name)
+
+        except Exception as e:
+            logger.warning(
+                "Failed to proactively refresh OAuth token for server '%s': %s",
+                server.name,
+                str(e),
+            )
