@@ -88,6 +88,11 @@ from mcp_foxxy_bridge.utils.logging import get_logger
 
 logger = get_logger(__name__, facility="CONFIG")
 
+# Security constants for command validation
+MAX_COMMAND_LENGTH = 1000  # Maximum allowed command string length
+MAX_ARG_LENGTH = 500  # Maximum allowed individual argument length
+COMMAND_TIMEOUT = 30  # Timeout in seconds for command execution
+
 
 def _sanitize_command_for_logging(command: str) -> str:
     """Sanitize command string for safe logging by removing/escaping potentially dangerous characters."""
@@ -762,6 +767,16 @@ def validate_command_security(
     if not cmd_parts:
         return
 
+    # Validate command length to prevent resource exhaustion
+    full_command_string = " ".join(cmd_parts)
+    if len(full_command_string) > MAX_COMMAND_LENGTH:
+        raise ValueError("Command too long")
+
+    # Validate individual argument lengths
+    for arg in cmd_parts:
+        if len(arg) > MAX_ARG_LENGTH:
+            raise ValueError("Command validation failed")
+
     # Check for dangerous commands bypass (UNSAFE MODE)
     if allow_dangerous is None:
         allow_dangerous = os.getenv("MCP_ALLOW_DANGEROUS_COMMANDS", "false").lower() in ("true", "1", "yes", "on")
@@ -787,14 +802,7 @@ def validate_command_security(
         allowed_commands = allowed_commands.union(additional_commands)
 
     if command not in allowed_commands:
-        error_msg = (
-            f"SECURITY: Command '{command}' is not allowed for security reasons. "
-            f"Only pre-approved read-only commands are permitted in command substitution. "
-            "To allow additional commands, configure 'allowed_commands' in your bridge config "
-            "or set MCP_ALLOWED_COMMANDS env var. "
-            f"Currently allowed: {', '.join(sorted(allowed_commands))}"
-        )
-        raise ValueError(error_msg)
+        raise ValueError(f"Command '{command}' not in allow list")
 
     # Enhanced validation: check for dangerous arguments
     if command in ["vault", "op"]:
@@ -802,36 +810,54 @@ def validate_command_security(
         if "write" in " ".join(cmd_parts).lower() or "delete" in " ".join(cmd_parts).lower():
             raise ValueError(f"Write operations not allowed for {command}")
 
-    # Additional validation: check for shell metacharacters that could enable command injection
     full_command_string = " ".join(cmd_parts)
 
-    # These patterns are dangerous even with whitelisted commands
     dangerous_patterns = ["|", "||", "&", "&&", ";", "`", ">", ">>", "<", "$()"]
+    fork_bomb_patterns = [
+        ":()",
+        ":bomb:",
+        "while true",
+        "for((;;))",
+        "while(1)",
+        "while :;",
+        "while :",
+        "exec",
+        "ulimit -u unlimited",
+    ]
+    resource_exhaustion_patterns = [
+        "dd if=/dev/zero",
+        "dd if=/dev/urandom",
+        "yes",
+        "cat /dev/zero",
+        ">/dev/random",
+        "mkfifo",
+        "nohup",
+        "disown",
+        "setsid",
+        "tail -f /dev/null",
+    ]
 
     for pattern in dangerous_patterns:
         if pattern in full_command_string:
-            error_msg = (
-                f"SECURITY: Command contains shell operator '{pattern}' which could enable command chaining, "
-                f"piping, or injection attacks. Each command substitution must run exactly one safe command. "
-                f"Use separate $(command) blocks instead."
-            )
-            raise ValueError(error_msg)
+            raise ValueError("Command validation failed")
 
-    # Check for suspicious argument patterns
-    suspicious_exact = ["sudo", "su"]  # Must be exact matches
-    suspicious_substring = ["/bin/", "/usr/bin/", "$(", "`"]  # Can be substrings
+    for pattern in fork_bomb_patterns:
+        if pattern.lower() in full_command_string.lower():
+            raise ValueError("Command validation failed")
+
+    for pattern in resource_exhaustion_patterns:
+        if pattern.lower() in full_command_string.lower():
+            raise ValueError("Command validation failed")
+
+    suspicious_exact = ["sudo", "su", "chmod", "chown"]
+    suspicious_substring = ["/bin/", "/usr/bin/", "$(", "`", "/dev/zero", "/dev/random", ">/tmp/", ">>/tmp/"]
 
     for arg in cmd_parts:
-        # Check for exact matches (like sudo, su)
         if arg.lower() in suspicious_exact:
-            error_msg = f"Command contains suspicious argument pattern '{arg}'"
-            raise ValueError(error_msg)
-
-        # Check for dangerous substrings
+            raise ValueError("Command validation failed")
         for suspicious in suspicious_substring:
             if suspicious in arg.lower():
-                error_msg = f"Command contains suspicious argument pattern '{suspicious}'"
-                raise ValueError(error_msg)
+                raise ValueError("Command validation failed")
 
     # Validate specific commands for read-only operations
     _validate_command_args(command, cmd_parts)
@@ -1006,6 +1032,10 @@ def execute_command_substitution(
         )
 
     try:
+        # Validate command length before parsing
+        if len(command) > MAX_COMMAND_LENGTH:
+            raise ValueError("Command too long")
+
         # Parse command safely using shlex
         cmd_parts = shlex.split(command)
         if not cmd_parts:
@@ -1021,7 +1051,7 @@ def execute_command_substitution(
             cmd_parts,
             capture_output=True,
             text=True,
-            timeout=30,  # 30 second timeout
+            timeout=COMMAND_TIMEOUT,  # 30 second timeout
             check=True,
             shell=False,  # Explicitly disable shell for security
             env=os.environ.copy(),  # Inherit current environment

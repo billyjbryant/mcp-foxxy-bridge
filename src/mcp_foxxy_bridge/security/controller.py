@@ -28,6 +28,9 @@ from .policy import SecurityPolicy
 
 logger = get_logger(__name__, facility="SECURITY")
 
+# Security constants
+MAX_INPUT_LENGTH = 255  # Maximum allowed input string length
+
 
 class AccessController:
     """Central access control system for managing tool and resource access."""
@@ -59,9 +62,9 @@ class AccessController:
         sanitized = re.sub(r"[^\w\-_./]", "", value)
 
         # Limit length to prevent DoS
-        if len(sanitized) > 255:
-            logger.warning(f"Pattern truncated from {len(sanitized)} to 255 characters")
-            sanitized = sanitized[:255]
+        if len(sanitized) > MAX_INPUT_LENGTH:
+            logger.warning(f"Pattern truncated from {len(sanitized)} to {MAX_INPUT_LENGTH} characters")
+            sanitized = sanitized[:MAX_INPUT_LENGTH]
 
         return sanitized
 

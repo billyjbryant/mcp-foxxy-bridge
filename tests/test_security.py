@@ -267,7 +267,7 @@ class TestCommandInjectionPrevention:
         ]
 
         for cmd in forbidden_commands:
-            with pytest.raises(ValueError, match="SECURITY: Command.*not allowed for security reasons"):
+            with pytest.raises(ValueError, match="Command.*not in allow list"):
                 validate_command_security([cmd, "test"])
 
     def test_validate_dangerous_patterns(self) -> None:
@@ -281,7 +281,7 @@ class TestCommandInjectionPrevention:
         ]
 
         for cmd_parts in dangerous_patterns:
-            with pytest.raises(ValueError, match="SECURITY: Command contains shell operator"):
+            with pytest.raises(ValueError, match="Command validation failed"):
                 validate_command_security(cmd_parts)
 
     def test_validate_suspicious_arguments(self) -> None:
@@ -295,7 +295,7 @@ class TestCommandInjectionPrevention:
         ]
 
         for cmd_parts in suspicious_argument_commands:
-            with pytest.raises(ValueError, match="Command contains suspicious argument pattern"):
+            with pytest.raises(ValueError, match="Command validation failed"):
                 validate_command_security(cmd_parts)
 
         # Test shell operators (caught by shell operator validation)
@@ -307,7 +307,7 @@ class TestCommandInjectionPrevention:
         ]
 
         for cmd_parts in shell_operator_commands:
-            with pytest.raises(ValueError, match="SECURITY: Command contains shell operator"):
+            with pytest.raises(ValueError, match="Command validation failed"):
                 validate_command_security(cmd_parts)
 
         # Test safe commands that don't contain suspicious patterns
