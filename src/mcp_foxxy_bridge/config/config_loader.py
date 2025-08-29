@@ -480,6 +480,7 @@ class BridgeServerConfig:
         authentication: General authentication configuration
         headers: Custom HTTP headers
         verify_ssl: Whether to verify SSL/TLS certificates
+        working_directory: Working directory for server process
 
     Example:
         >>> config = BridgeServerConfig(
@@ -512,6 +513,7 @@ class BridgeServerConfig:
     authentication: dict[str, Any] | None = None  # General authentication config
     headers: dict[str, str] | None = None  # Custom headers for HTTP requests
     verify_ssl: bool = True  # SSL/TLS verification for HTTPS connections
+    working_directory: str | None = None  # Working directory for server process
     security: "ServerSecurityConfig | None" = None  # Security configuration for this server
 
     def __post_init__(self) -> None:
@@ -1673,6 +1675,7 @@ def _load_server_configurations(
             authentication=server_config.get("authentication"),
             headers=server_config.get("headers"),
             verify_ssl=server_config.get("verify_ssl", True),
+            working_directory=server_config.get("working_directory") or server_config.get("cwd"),
         )
 
         # Validate required fields based on transport type

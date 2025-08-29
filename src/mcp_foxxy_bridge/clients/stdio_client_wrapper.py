@@ -63,7 +63,7 @@ from anyio.streams.memory import (
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.types import JSONRPCMessage
 
-from mcp_foxxy_bridge.utils.logging import get_logger
+from mcp_foxxy_bridge.utils.logging import get_logger, server_context
 
 logger = get_logger(__name__, facility="CLIENT")
 
@@ -152,22 +152,23 @@ class STDIOClientWrapper:
             ...     await write_stream.send(initialize_request)
             ...     response = await read_stream.receive()
         """
-        logger.debug(f"Starting STDIO client for server: {self.server_name}")
+        with server_context(self.server_name):
+            logger.debug(f"Starting STDIO client for server: {self.server_name}")
 
-        try:
-            async with stdio_client_with_logging(
-                command=self.command,
-                args=self.args,
-                server_name=self.server_name,
-                cwd=str(self.cwd),
-                env=self.env,
-                timeout=self.timeout,
-            ) as streams:
-                yield streams
+            try:
+                async with stdio_client_with_logging(
+                    command=self.command,
+                    args=self.args,
+                    server_name=self.server_name,
+                    cwd=str(self.cwd),
+                    env=self.env,
+                    timeout=self.timeout,
+                ) as streams:
+                    yield streams
 
-        except Exception as e:
-            logger.exception(f"STDIO client failed for server '{self.server_name}': {e}")
-            raise
+            except Exception as e:
+                logger.exception(f"STDIO client failed for server '{self.server_name}': {e}")
+                raise
 
 
 @contextlib.asynccontextmanager
@@ -225,107 +226,108 @@ async def stdio_client_with_logging(
         ... ) as streams:
         ...     # Server process with custom environment
     """
-    full_command = [command] + (args or [])
-    logger.debug(f"Starting STDIO server process: {' '.join(full_command)}")
-    logger.debug(f"Server name: {server_name}")
-    logger.debug(f"Working directory: {cwd or 'current'}")
+    with server_context(server_name):
+        full_command = [command] + (args or [])
+        logger.debug(f"Starting STDIO server process: {' '.join(full_command)}")
+        logger.debug(f"Server name: {server_name}")
+        logger.debug(f"Working directory: {cwd or 'current'}")
 
-    if env:
-        # Log only custom environment variables (not the full environment)
-        custom_env = {k: v for k, v in env.items() if k not in os.environ or os.environ[k] != v}
-        if custom_env:
-            logger.debug(f"Custom environment variables: {list(custom_env.keys())}")
+        if env:
+            # Log only custom environment variables (not the full environment)
+            custom_env = {k: v for k, v in env.items() if k not in os.environ or os.environ[k] != v}
+            if custom_env:
+                logger.debug(f"Custom environment variables: {list(custom_env.keys())}")
 
-    try:
-        # Validate command and working directory
-        await _validate_stdio_configuration(command, cwd, server_name)
+        try:
+            # Validate command and working directory
+            await _validate_stdio_configuration(command, cwd, server_name)
 
-        # Prepare environment to suppress child process output and integrate with bridge logging
-        clean_env = env.copy() if env else {}
+            # Prepare environment to suppress child process output and integrate with bridge logging
+            clean_env = env.copy() if env else {}
 
-        # Get effective log level (this should come from server config)
-        effective_log_level = clean_env.get("MCP_SERVER_LOG_LEVEL", "ERROR")
+            # Get effective log level (this should come from server config)
+            effective_log_level = clean_env.get("MCP_SERVER_LOG_LEVEL", "ERROR")
 
-        # Add logging configuration for common frameworks used by MCP servers
-        clean_env.update(
-            {
-                "PYTHONUNBUFFERED": "1",  # Enable unbuffered output for real-time logging
-                "MCP_LOG_LEVEL": effective_log_level,
-                "UVICORN_LOG_LEVEL": effective_log_level.lower(),
-                "FASTAPI_LOG_LEVEL": effective_log_level.lower(),
-                "LOGURU_LEVEL": effective_log_level,
-                "LOG_LEVEL": effective_log_level,
-                # Specifically target MCP server library logging
-                "MCP_SERVER_LOG_LEVEL": effective_log_level,
-                "MCP_LOWLEVEL_LOG_LEVEL": "ERROR",  # Always suppress lowlevel processing logs
-                "PYTHON_LOG_LEVEL": effective_log_level,
-                "PYTHONWARNINGS": "ignore",  # Suppress Python warnings unless DEBUG
-                # Add server identification for logging
-                "MCP_SERVER_NAME": server_name,
-                "MCP_BRIDGE_CHILD": "1",  # Identify as bridge child process
-                # Additional environment variables to suppress common server startup logs
-                "FASTMCP_QUIET": "1" if effective_log_level.upper() != "DEBUG" else "0",
-                "FASTMCP_NO_BANNER": "1" if effective_log_level.upper() != "DEBUG" else "0",
-                "MCP_QUIET": "1" if effective_log_level.upper() != "DEBUG" else "0",
-                "MCP_NO_BANNER": "1" if effective_log_level.upper() != "DEBUG" else "0",
-                "SLACK_LOG_LEVEL": effective_log_level,
-                "NODE_ENV": "production" if effective_log_level.upper() != "DEBUG" else "development",
-                # Suppress various server framework startup messages
-                "UVICORN_QUIET": "1" if effective_log_level.upper() != "DEBUG" else "0",
-                "SUPPRESS_STARTUP_LOGS": "1" if effective_log_level.upper() != "DEBUG" else "0",
-                # Suppress npm/node package manager logs
-                "NPM_CONFIG_LOGLEVEL": "error" if effective_log_level.upper() != "DEBUG" else "info",
-                # Don't use --quiet in NODE_OPTIONS as it's not allowed, use other options instead
-                "NODE_NO_WARNINGS": "1" if effective_log_level.upper() != "DEBUG" else "0",
-                # Suppress UV package manager output
-                "UV_NO_PROGRESS": "1" if effective_log_level.upper() != "DEBUG" else "0",
-                # Set signals to handle graceful shutdown
-                "PYTHONDONTWRITEBYTECODE": "1",  # Prevent .pyc files from being created
-                "PYTHONIOENCODING": "utf-8",  # Ensure consistent encoding
-            }
-        )
+            # Add logging configuration for common frameworks used by MCP servers
+            clean_env.update(
+                {
+                    "PYTHONUNBUFFERED": "1",  # Enable unbuffered output for real-time logging
+                    "MCP_LOG_LEVEL": effective_log_level,
+                    "UVICORN_LOG_LEVEL": effective_log_level.lower(),
+                    "FASTAPI_LOG_LEVEL": effective_log_level.lower(),
+                    "LOGURU_LEVEL": effective_log_level,
+                    "LOG_LEVEL": effective_log_level,
+                    # Specifically target MCP server library logging
+                    "MCP_SERVER_LOG_LEVEL": effective_log_level,
+                    "MCP_LOWLEVEL_LOG_LEVEL": "ERROR",  # Always suppress lowlevel processing logs
+                    "PYTHON_LOG_LEVEL": effective_log_level,
+                    "PYTHONWARNINGS": "ignore",  # Suppress Python warnings unless DEBUG
+                    # Add server identification for logging
+                    "MCP_SERVER_NAME": server_name,
+                    "MCP_BRIDGE_CHILD": "1",  # Identify as bridge child process
+                    # Additional environment variables to suppress common server startup logs
+                    "FASTMCP_QUIET": "1" if effective_log_level.upper() != "DEBUG" else "0",
+                    "FASTMCP_NO_BANNER": "1" if effective_log_level.upper() != "DEBUG" else "0",
+                    "MCP_QUIET": "1" if effective_log_level.upper() != "DEBUG" else "0",
+                    "MCP_NO_BANNER": "1" if effective_log_level.upper() != "DEBUG" else "0",
+                    "SLACK_LOG_LEVEL": effective_log_level,
+                    "NODE_ENV": "production" if effective_log_level.upper() != "DEBUG" else "development",
+                    # Suppress various server framework startup messages
+                    "UVICORN_QUIET": "1" if effective_log_level.upper() != "DEBUG" else "0",
+                    "SUPPRESS_STARTUP_LOGS": "1" if effective_log_level.upper() != "DEBUG" else "0",
+                    # Suppress npm/node package manager logs
+                    "NPM_CONFIG_LOGLEVEL": "error" if effective_log_level.upper() != "DEBUG" else "info",
+                    # Don't use --quiet in NODE_OPTIONS as it's not allowed, use other options instead
+                    "NODE_NO_WARNINGS": "1" if effective_log_level.upper() != "DEBUG" else "0",
+                    # Suppress UV package manager output
+                    "UV_NO_PROGRESS": "1" if effective_log_level.upper() != "DEBUG" else "0",
+                    # Set signals to handle graceful shutdown
+                    "PYTHONDONTWRITEBYTECODE": "1",  # Prevent .pyc files from being created
+                    "PYTHONIOENCODING": "utf-8",  # Ensure consistent encoding
+                }
+            )
 
-        # Enable more verbose logging for DEBUG level
-        if effective_log_level.upper() == "DEBUG":
-            clean_env["PYTHONWARNINGS"] = "default"
+            # Enable more verbose logging for DEBUG level
+            if effective_log_level.upper() == "DEBUG":
+                clean_env["PYTHONWARNINGS"] = "default"
 
-        # Create StdioServerParameters and start the server process
-        server_params = StdioServerParameters(command=command, args=args or [], env=clean_env, cwd=cwd)
+            # Create StdioServerParameters and start the server process
+            server_params = StdioServerParameters(command=command, args=args or [], env=clean_env, cwd=cwd)
 
-        async with stdio_client(server_params) as (read_stream, write_stream):
-            logger.debug(f"STDIO server process started successfully: {server_name}")
-            logger.debug(f"Process streams established for server: {server_name}")
+            async with stdio_client(server_params) as (read_stream, write_stream):
+                logger.debug(f"STDIO server process started successfully: {server_name}")
+                logger.debug(f"Process streams established for server: {server_name}")
 
-            try:
-                yield (read_stream, write_stream)
-            finally:
-                logger.debug(f"STDIO streams closed for server: {server_name}")
+                try:
+                    yield (read_stream, write_stream)
+                finally:
+                    logger.debug(f"STDIO streams closed for server: {server_name}")
 
-    except FileNotFoundError as e:
-        error_msg = f"Command not found: {command}"
-        logger.exception(f"STDIO server startup failed for '{server_name}': {error_msg}")
-        msg = f"Server process startup failed: {error_msg}"
-        raise ProcessError(msg) from e
+        except FileNotFoundError as e:
+            error_msg = f"Command not found: {command}"
+            logger.exception(f"STDIO server startup failed for '{server_name}': {error_msg}")
+            msg = f"Server process startup failed: {error_msg}"
+            raise ProcessError(msg) from e
 
-    except PermissionError as e:
-        error_msg = f"Permission denied executing: {command}"
-        logger.exception(f"STDIO server startup failed for '{server_name}': {error_msg}")
-        msg = f"Server process startup failed: {error_msg}"
-        raise ProcessError(msg) from e
+        except PermissionError as e:
+            error_msg = f"Permission denied executing: {command}"
+            logger.exception(f"STDIO server startup failed for '{server_name}': {error_msg}")
+            msg = f"Server process startup failed: {error_msg}"
+            raise ProcessError(msg) from e
 
-    except TimeoutError as e:
-        error_msg = f"Process startup timeout after {timeout} seconds"
-        logger.exception(f"STDIO server startup failed for '{server_name}': {error_msg}")
-        msg = f"Server process startup timeout: {error_msg}"
-        raise TimeoutError(msg) from e
+        except TimeoutError as e:
+            error_msg = f"Process startup timeout after {timeout} seconds"
+            logger.exception(f"STDIO server startup failed for '{server_name}': {error_msg}")
+            msg = f"Server process startup timeout: {error_msg}"
+            raise TimeoutError(msg) from e
 
-    except Exception as e:
-        logger.exception(f"STDIO server failed for '{server_name}': {e}")
-        msg = f"Server process failed: {e}"
-        raise ProcessError(msg) from e
+        except Exception as e:
+            logger.exception(f"STDIO server failed for '{server_name}': {e}")
+            msg = f"Server process failed: {e}"
+            raise ProcessError(msg) from e
 
-    finally:
-        logger.debug(f"STDIO client cleanup completed for server: {server_name}")
+        finally:
+            logger.debug(f"STDIO client cleanup completed for server: {server_name}")
 
 
 # Helper functions and validation

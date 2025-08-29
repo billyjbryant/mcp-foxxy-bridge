@@ -80,6 +80,37 @@ def _create_resource_uri(uri_string: str) -> AnyUrl | str:
 logger = get_logger(__name__, facility="SERVER")
 
 
+def _get_server_working_directory(server_name: str, configured_cwd: str | None = None) -> str | None:
+    """Get the working directory for a server.
+
+    Args:
+        server_name: Name of the server
+        configured_cwd: Explicitly configured working directory (takes precedence)
+
+    Returns:
+        Working directory path or None to use current directory
+
+    If no working directory is explicitly configured, creates a default directory
+    in the config directory: ~/.config/foxxy-bridge/servers/<server_name>/
+    """
+    if configured_cwd:
+        return configured_cwd
+
+    # Create default working directory in config dir
+    from mcp_foxxy_bridge.utils.config_migration import get_config_dir as _get_config_dir
+
+    config_dir = _get_config_dir()
+    server_work_dir = config_dir / "servers" / server_name
+
+    # Ensure directory exists
+    try:
+        server_work_dir.mkdir(parents=True, exist_ok=True)
+        return str(server_work_dir)
+    except Exception as e:
+        logger.warning("Failed to create working directory for server '%s': %s", server_name, e)
+        return None  # Fall back to current directory
+
+
 # Import OAuth function (avoid circular import by importing only when needed)
 def _get_oauth_env_vars(server_name: str) -> dict[str, str]:
     """Get OAuth environment variables for a server."""
@@ -313,14 +344,13 @@ class ServerManager:
 
     async def _connect_server(self, server: ManagedServer) -> None:
         """Connect to a single MCP server."""
-        logger.debug(
-            'MCP Server Starting: %s - "%s" %s',
-            server.name,
-            server.config.command,
-            " ".join(server.config.args or []),
-        )
-
-        server.health.status = ServerStatus.CONNECTING
+        with server_context(server.name):
+            logger.debug(
+                'MCP Server Starting: "%s" %s',
+                server.config.command,
+                " ".join(server.config.args or []),
+            )
+            server.health.status = ServerStatus.CONNECTING
 
         # Create a dedicated context stack for this server
         context_stack = contextlib.AsyncExitStack()
@@ -450,7 +480,7 @@ class ServerManager:
                             command=server.config.command,
                             args=server.config.args or [],
                             server_name=server.name,
-                            cwd=None,
+                            cwd=_get_server_working_directory(server.name, server.config.working_directory),
                             env=server_env,
                             timeout=30.0,
                         ),
