@@ -1,124 +1,142 @@
 # Installation Guide
 
-This guide covers the different ways to install and run MCP Foxxy Bridge.
-
 ## Prerequisites
 
-- **Python 3.10+** (for local installation)
-- **Node.js 18+** (for MCP servers that use npm)
-- **Docker** (for containerized deployment)
+- Python 3.10+
+- Node.js 18+ (for npm-based MCP servers)
+- Docker (optional, for containerized deployment)
 
-## Installation Methods
+## Installation
 
-### 1. UV Tool (Recommended)
-
-The easiest way to install and use MCP Foxxy Bridge:
+### UV Tool (Recommended)
 
 ```bash
-# Install the bridge
+# Install
 uv tool install mcp-foxxy-bridge
 
-# Run the bridge
-mcp-foxxy-bridge --bridge-config config.json
-
-# Install from git (latest development)
+# Install from GitHub (latest)
 uv tool install git+https://github.com/billyjbryant/mcp-foxxy-bridge
+
+# Verify installation
+foxxy-bridge --version
 ```
 
-### 2. Local Development
-
-For development or when you need to modify the code:
+### Local Development
 
 ```bash
-# Clone the repository
+# Clone repository
 git clone https://github.com/billyjbryant/mcp-foxxy-bridge
 cd mcp-foxxy-bridge
 
 # Install dependencies
 uv sync
 
-# Run the bridge
-uv run mcp-foxxy-bridge --bridge-config bridge_config_example.json
+# Run from source
+uv run foxxy-bridge --debug
 ```
 
-### 3. Docker Container
-
-For production deployments or isolated environments:
+### Docker
 
 ```bash
-# Build the image
-docker build -t mcp-foxxy-bridge .
-
-# Run with configuration
+# Run from GitHub Container Registry
 docker run -p 8080:8080 \
-  -v ./config.json:/app/config/config.json \
-  -e GITHUB_TOKEN=your_token \
-  mcp-foxxy-bridge --bridge-config /app/config/config.json
+  -v ./config.json:/app/config.json:ro \
+  -e GITHUB_TOKEN=$GITHUB_TOKEN \
+  ghcr.io/billyjbryant/mcp-foxxy-bridge:latest
 
-# Or use Docker Compose
-docker-compose up -d
+# Or build locally
+docker build -t mcp-foxxy-bridge .
+docker run -p 8080:8080 mcp-foxxy-bridge
 ```
 
-### 4. Pipx Installation
-
-Alternative to UV for Python tool installation:
+### Pipx (Alternative)
 
 ```bash
-# Install via pipx
 pipx install mcp-foxxy-bridge
-
-# Run the bridge
-mcp-foxxy-bridge --bridge-config config.json
+foxxy-bridge --version
 ```
 
-## Verification
+## Quick Setup
 
-After installation, verify the bridge is working:
+### 1. Initialize Configuration
 
 ```bash
-# Check version
-mcp-foxxy-bridge --version
+# Create default configuration
+foxxy-bridge config init
 
-# Test with example config
-mcp-foxxy-bridge --bridge-config bridge_config_example.json
+# View the created configuration
+foxxy-bridge config config-show
+```
 
-# Check status endpoint (in another terminal)
+### 2. Add MCP Servers
+
+```bash
+# Add GitHub server (requires GITHUB_TOKEN)
+foxxy-bridge mcp add github "npx" "-y" "@modelcontextprotocol/server-github" \
+  --env GITHUB_TOKEN "${GITHUB_TOKEN}" \
+  --tags development git
+
+# Add filesystem server for local files
+foxxy-bridge mcp add filesystem "npx" "-y" "@modelcontextprotocol/server-filesystem" "./" \
+  --tags local files
+
+# Add fetch server for web content
+foxxy-bridge mcp add fetch "uvx" "mcp-server-fetch" \
+  --tags web remote
+
+# List configured servers
+foxxy-bridge mcp mcp-list
+```
+
+### 3. Start the Bridge
+
+```bash
+# Start bridge server
+foxxy-bridge server start
+
+# Or start as background daemon
+foxxy-bridge server start --daemon
+
+# Check status
+foxxy-bridge server server-status
+```
+
+### 4. Connect Your Client
+
+Point your MCP client to: `http://localhost:8080/sse`
+
+Test the connection:
+```bash
 curl http://localhost:8080/status
 ```
 
-## Environment Setup
-
-### Required Environment Variables
-
-Some MCP servers require environment variables:
+## Environment Variables
 
 ```bash
-# GitHub server
+# Set required variables
 export GITHUB_TOKEN=ghp_your_token_here
+export BRAVE_API_KEY=your_api_key_here
 
-# Brave Search server
-export BRAVE_API_KEY=your_brave_api_key
-
-# Run bridge
-mcp-foxxy-bridge --bridge-config config.json
+# Variables are expanded in config
+foxxy-bridge config set mcpServers.github.env.GITHUB_TOKEN '${GITHUB_TOKEN}'
 ```
 
-### Optional Dependencies
+## Legacy Mode (Backward Compatibility)
 
-Install additional MCP servers as needed:
+The traditional command-line interface is still supported:
 
 ```bash
-# Install common MCP servers globally
-npm install -g @modelcontextprotocol/server-github
-npm install -g @modelcontextprotocol/server-filesystem
-npm install -g @modelcontextprotocol/server-brave-search
+# Run with config file
+mcp-foxxy-bridge --bridge-config config.json
 
-# Or install UV-based servers
-uvx install mcp-server-fetch
+# Run with named servers
+mcp-foxxy-bridge --port 8080 \
+  --named-server github 'npx -y @modelcontextprotocol/server-github' \
+  --named-server fetch 'uvx mcp-server-fetch'
 ```
 
 ## Next Steps
 
-1. Create a configuration file (see [Configuration Guide](configuration.md))
-2. Set up your deployment method (see [Deployment Guide](deployment.md))
-3. Connect your MCP client to the bridge endpoint
+- [Configuration Guide](configuration.md) - Detailed configuration options
+- [Example Configurations](examples/README.md) - Ready-to-use configs
+- [Troubleshooting](troubleshooting.md) - Common issues and solutions

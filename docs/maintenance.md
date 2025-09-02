@@ -32,6 +32,7 @@ Weekly maintenance runs every Sunday at 2 AM UTC:
 You can trigger maintenance tasks manually via GitHub Actions:
 
 ### Via GitHub UI
+
 1. Go to **Actions** → **Repository Maintenance**
 2. Click **Run workflow**
 3. Select desired maintenance tasks:
@@ -40,6 +41,7 @@ You can trigger maintenance tasks manually via GitHub Actions:
    - **Force run all tasks**: Run all maintenance jobs
 
 ### Via CLI
+
 ```bash
 # Trigger label setup
 gh workflow run maintenance.yml --field setup_labels=true

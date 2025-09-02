@@ -61,16 +61,21 @@ Example:
 """
 
 import json
-import logging
 import os
 import re
 import shlex
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mcp_foxxy_bridge.security.config import BridgeSecurityConfig, ServerSecurityConfig
 
 from mcp.client.stdio import StdioServerParameters
+
+from mcp_foxxy_bridge.utils.config_migration import get_config_dir
 
 try:
     import jsonschema
@@ -79,7 +84,14 @@ try:
 except ImportError:
     JSONSCHEMA_AVAILABLE = False
 
-logger = logging.getLogger(__name__)
+from mcp_foxxy_bridge.utils.logging import get_logger
+
+logger = get_logger(__name__, facility="CONFIG")
+
+# Security constants for command validation
+MAX_COMMAND_LENGTH = 1000  # Maximum allowed command string length
+MAX_ARG_LENGTH = 500  # Maximum allowed individual argument length
+COMMAND_TIMEOUT = 30  # Timeout in seconds for command execution
 
 
 def _sanitize_command_for_logging(command: str) -> str:
@@ -94,6 +106,177 @@ def _sanitize_command_for_logging(command: str) -> str:
 
     # Escape any remaining quotes to prevent log injection
     return sanitized.replace('"', '\\"').replace("'", "\\'")
+
+
+def _migrate_oauth_fields(config_data: dict[str, Any]) -> bool:
+    """Migrate legacy 'oauth' field to 'oauth_config' in server configurations.
+
+    This handles backward compatibility where older configs or CLI commands
+    may have used 'oauth' instead of the expected 'oauth_config' field name.
+
+    Args:
+        config_data: The parsed configuration data
+
+    Returns:
+        True if any migrations were performed, False otherwise
+    """
+    migrated = False
+
+    try:
+        servers = config_data.get("mcpServers", {})
+
+        for server_name, server_config in servers.items():
+            if isinstance(server_config, dict):
+                # Check if server has 'oauth' but not 'oauth_config'
+                if "oauth" in server_config and "oauth_config" not in server_config:
+                    # Migrate oauth to oauth_config
+                    server_config["oauth_config"] = server_config.pop("oauth")
+                    logger.debug(f"Migrated 'oauth' to 'oauth_config' for server '{server_name}'")
+                    migrated = True
+                elif "oauth" in server_config and "oauth_config" in server_config:
+                    # Both exist - prefer oauth_config and remove oauth
+                    server_config.pop("oauth")
+                    logger.debug(f"Removed duplicate 'oauth' field for server '{server_name}' (keeping 'oauth_config')")
+                    migrated = True
+
+    except Exception as e:
+        logger.debug(f"Error during oauth field migration: {e}")
+
+    return migrated
+
+
+def _write_config_to_disk(config_path: str, config_data: dict[str, Any]) -> None:
+    """Write configuration data back to disk with backup.
+
+    Args:
+        config_path: Path to the configuration file
+        config_data: The configuration data to write
+    """
+    try:
+        config_file_path = Path(config_path)
+
+        # Create backup
+        backup_path = config_file_path.with_suffix(".json.backup")
+        try:
+            shutil.copy2(config_file_path, backup_path)
+            logger.debug("Created configuration backup")
+        except Exception as e:
+            logger.debug(f"Could not create backup: {e}")
+
+        # Write updated config
+        with config_file_path.open("w") as f:
+            json.dump(config_data, f, indent=2)
+
+        logger.info("Updated configuration file with migrations")
+
+    except Exception as e:
+        logger.debug(f"Failed to write config to disk: {e}")
+
+
+def _ensure_schema_reference(config_path: str, config_data: dict[str, Any]) -> bool:
+    """Ensure the config file has a $schema reference for IDE support.
+
+    Args:
+        config_path: Path to the configuration file
+        config_data: The parsed configuration data
+
+    Returns:
+        True if the schema reference was added and file was updated, False otherwise
+    """
+    try:
+        # Check if schema reference already exists and is correct
+        current_schema = config_data.get("$schema", "")
+
+        # Get the config directory and build absolute path to schema
+        config_dir = get_config_dir()
+        schema_path = config_dir / "bridge_config_schema.json"
+        correct_schema = str(schema_path)
+
+        if current_schema == correct_schema:
+            logger.debug("Config already has correct schema reference")
+            return False
+
+        # Add or update schema reference, ensuring it's first in the JSON
+        # Create new ordered dict with schema first
+        updated_config = {"$schema": correct_schema}
+
+        # Add all other keys (except existing $schema if present)
+        updated_config.update({key: value for key, value in config_data.items() if key != "$schema"})
+
+        # Write the updated config back to file
+        config_file_path = Path(config_path)
+
+        # Create backup
+        backup_path = config_file_path.with_suffix(".json.backup")
+        try:
+            shutil.copy2(config_file_path, backup_path)
+            logger.debug("Created configuration backup")
+        except Exception as e:
+            logger.debug(f"Could not create backup: {e}")
+
+        # Write updated config
+        with config_file_path.open("w") as f:
+            json.dump(updated_config, f, indent=2)
+
+        if current_schema:
+            logger.info("Updated schema reference in configuration file for IDE support")
+        else:
+            logger.info("Added schema reference to configuration file for IDE support")
+        return True
+
+    except Exception as e:
+        logger.debug(f"Failed to add schema reference to config: {e}")
+        return False
+
+
+def _ensure_config_schema() -> None:
+    """Copy the JSON schema to the config directory if it doesn't exist or is outdated.
+
+    This ensures users always have access to the current schema for IDE auto-completion
+    and validation, matching the exact version of the bridge they're running.
+    """
+    try:
+        # Get the config directory and schema paths
+        config_dir = get_config_dir()
+        config_schema_path = config_dir / "bridge_config_schema.json"
+
+        # Find the schema file in the package directory
+        # This works whether we're installed via pip or running from source
+        current_file_dir = Path(__file__).parent.parent.parent.parent
+        source_schema_path = current_file_dir / "bridge_config_schema.json"
+
+        if not source_schema_path.exists():
+            logger.debug("Schema file not found in source directory, skipping schema copy")
+            return
+
+        # Check if we need to copy the schema
+        should_copy = False
+
+        if not config_schema_path.exists():
+            logger.debug("Config schema not found, will copy from source")
+            should_copy = True
+        else:
+            # Check if the source is newer
+            try:
+                source_mtime = source_schema_path.stat().st_mtime
+                config_mtime = config_schema_path.stat().st_mtime
+
+                if source_mtime > config_mtime:
+                    logger.debug("Source schema is newer, will update config schema")
+                    should_copy = True
+
+            except OSError:
+                logger.debug("Could not compare schema file times, will copy to be safe")
+                should_copy = True
+
+        if should_copy:
+            logger.info("Copying JSON schema to config directory for IDE support")
+            shutil.copy2(source_schema_path, config_schema_path)
+            logger.debug(f"Schema copied to: {config_schema_path}")
+
+    except Exception as e:
+        # Don't fail configuration loading if schema copy fails
+        logger.debug(f"Failed to copy schema file: {e}")
 
 
 class ConfigLoader:
@@ -168,6 +351,49 @@ class ConfigLoader:
 
 
 # Configuration data classes
+
+
+@dataclass
+class OAuthConfig:
+    """OAuth configuration for MCP servers.
+
+    Attributes:
+        enabled: Whether OAuth is enabled for this server
+        issuer: OAuth issuer URL (e.g., https://auth.atlassian.com)
+        verify_ssl: Whether to verify SSL/TLS certificates
+        keep_alive_interval: Keep-alive ping interval for OAuth servers in milliseconds
+        token_refresh_interval: Proactive token refresh interval in milliseconds
+        connection_check_interval: Connection health check interval in milliseconds
+    """
+
+    enabled: bool = False
+    issuer: str | None = None
+    verify_ssl: bool = True
+    keep_alive_interval: int = 20000  # 20 seconds - more frequent for OAuth
+    token_refresh_interval: int = 1800000  # 30 minutes - proactive token refresh
+    connection_check_interval: int = 10000  # 10 seconds - frequent connection checks
+
+    # Additional fields for backward compatibility with existing configurations
+    client_id: str | None = None
+    authorization_url: str | None = None
+    token_url: str | None = None
+    type: str | None = None
+
+    def __getitem__(self, key: str) -> Any:
+        """Allow dictionary-style access for backward compatibility."""
+        return getattr(self, key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Allow dictionary-style get method for backward compatibility."""
+        return getattr(self, key, default)
+
+    def __contains__(self, key: str) -> bool:
+        """Allow 'key in oauth_config' checks."""
+        return hasattr(self, key)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for backward compatibility with legacy APIs."""
+        return {field_name: field_value for field_name, field_value in self.__dict__.items() if field_value is not None}
 
 
 @dataclass
@@ -254,6 +480,7 @@ class BridgeServerConfig:
         authentication: General authentication configuration
         headers: Custom HTTP headers
         verify_ssl: Whether to verify SSL/TLS certificates
+        working_directory: Working directory for server process
 
     Example:
         >>> config = BridgeServerConfig(
@@ -282,10 +509,12 @@ class BridgeServerConfig:
     priority: int = 100
     tags: list[str] | None = None
     log_level: str = "ERROR"  # Default to quiet (only errors)
-    oauth_config: dict[str, Any] | None = None  # OAuth configuration
+    oauth_config: OAuthConfig | None = None  # OAuth configuration
     authentication: dict[str, Any] | None = None  # General authentication config
     headers: dict[str, str] | None = None  # Custom headers for HTTP requests
     verify_ssl: bool = True  # SSL/TLS verification for HTTPS connections
+    working_directory: str | None = None  # Working directory for server process
+    security: "ServerSecurityConfig | None" = None  # Security configuration for this server
 
     def __post_init__(self) -> None:
         """Initialize default values for optional fields."""
@@ -311,16 +540,7 @@ class BridgeServerConfig:
         if self.oauth_config is None:
             return False
 
-        enabled_value = self.oauth_config.get("enabled", False)
-
-        # Handle both string and boolean values
-        if isinstance(enabled_value, bool):
-            return enabled_value
-
-        if isinstance(enabled_value, str):
-            return enabled_value.lower() in ("true", "1", "yes", "on")
-
-        return False
+        return self.oauth_config.enabled
 
     def needs_oauth_proxy(self) -> bool:
         """Check if this server needs OAuth proxy routes (not passthrough).
@@ -412,6 +632,8 @@ class BridgeConfig:
     allow_command_substitution: bool = False  # Enable command substitution in configuration
     allowed_commands: list[str] | None = None  # Whitelist of allowed commands for substitution
     allow_dangerous_commands: bool = False  # UNSAFE: Allow any command without validation
+    read_only_mode: bool = True  # Block write operations when True (defaults to True for security)
+    security: "BridgeSecurityConfig | None" = None  # Security configuration for the bridge
 
     def __post_init__(self) -> None:
         """Initialize default values for bridge configuration."""
@@ -581,6 +803,16 @@ def validate_command_security(
     if not cmd_parts:
         return
 
+    # Validate command length to prevent resource exhaustion
+    full_command_string = " ".join(cmd_parts)
+    if len(full_command_string) > MAX_COMMAND_LENGTH:
+        raise ValueError("Command too long")
+
+    # Validate individual argument lengths
+    for arg in cmd_parts:
+        if len(arg) > MAX_ARG_LENGTH:
+            raise ValueError("Command validation failed")
+
     # Check for dangerous commands bypass (UNSAFE MODE)
     if allow_dangerous is None:
         allow_dangerous = os.getenv("MCP_ALLOW_DANGEROUS_COMMANDS", "false").lower() in ("true", "1", "yes", "on")
@@ -606,14 +838,7 @@ def validate_command_security(
         allowed_commands = allowed_commands.union(additional_commands)
 
     if command not in allowed_commands:
-        error_msg = (
-            f"SECURITY: Command '{command}' is not allowed for security reasons. "
-            f"Only pre-approved read-only commands are permitted in command substitution. "
-            "To allow additional commands, configure 'allowed_commands' in your bridge config "
-            "or set MCP_ALLOWED_COMMANDS env var. "
-            f"Currently allowed: {', '.join(sorted(allowed_commands))}"
-        )
-        raise ValueError(error_msg)
+        raise ValueError(f"Command '{command}' not in allow list")
 
     # Enhanced validation: check for dangerous arguments
     if command in ["vault", "op"]:
@@ -621,36 +846,54 @@ def validate_command_security(
         if "write" in " ".join(cmd_parts).lower() or "delete" in " ".join(cmd_parts).lower():
             raise ValueError(f"Write operations not allowed for {command}")
 
-    # Additional validation: check for shell metacharacters that could enable command injection
     full_command_string = " ".join(cmd_parts)
 
-    # These patterns are dangerous even with whitelisted commands
     dangerous_patterns = ["|", "||", "&", "&&", ";", "`", ">", ">>", "<", "$()"]
+    fork_bomb_patterns = [
+        ":()",
+        ":bomb:",
+        "while true",
+        "for((;;))",
+        "while(1)",
+        "while :;",
+        "while :",
+        "exec",
+        "ulimit -u unlimited",
+    ]
+    resource_exhaustion_patterns = [
+        "dd if=/dev/zero",
+        "dd if=/dev/urandom",
+        "yes",
+        "cat /dev/zero",
+        ">/dev/random",
+        "mkfifo",
+        "nohup",
+        "disown",
+        "setsid",
+        "tail -f /dev/null",
+    ]
 
     for pattern in dangerous_patterns:
         if pattern in full_command_string:
-            error_msg = (
-                f"SECURITY: Command contains shell operator '{pattern}' which could enable command chaining, "
-                f"piping, or injection attacks. Each command substitution must run exactly one safe command. "
-                f"Use separate $(command) blocks instead."
-            )
-            raise ValueError(error_msg)
+            raise ValueError("Command validation failed")
 
-    # Check for suspicious argument patterns
-    suspicious_exact = ["sudo", "su"]  # Must be exact matches
-    suspicious_substring = ["/bin/", "/usr/bin/", "$(", "`"]  # Can be substrings
+    for pattern in fork_bomb_patterns:
+        if pattern.lower() in full_command_string.lower():
+            raise ValueError("Command validation failed")
+
+    for pattern in resource_exhaustion_patterns:
+        if pattern.lower() in full_command_string.lower():
+            raise ValueError("Command validation failed")
+
+    suspicious_exact = ["sudo", "su", "chmod", "chown"]
+    suspicious_substring = ["/bin/", "/usr/bin/", "$(", "`", "/dev/zero", "/dev/random", ">/tmp/", ">>/tmp/"]
 
     for arg in cmd_parts:
-        # Check for exact matches (like sudo, su)
         if arg.lower() in suspicious_exact:
-            error_msg = f"Command contains suspicious argument pattern '{arg}'"
-            raise ValueError(error_msg)
-
-        # Check for dangerous substrings
+            raise ValueError("Command validation failed")
         for suspicious in suspicious_substring:
             if suspicious in arg.lower():
-                error_msg = f"Command contains suspicious argument pattern '{suspicious}'"
-                raise ValueError(error_msg)
+                raise ValueError("Command validation failed")
 
     # Validate specific commands for read-only operations
     _validate_command_args(command, cmd_parts)
@@ -825,6 +1068,10 @@ def execute_command_substitution(
         )
 
     try:
+        # Validate command length before parsing
+        if len(command) > MAX_COMMAND_LENGTH:
+            raise ValueError("Command too long")
+
         # Parse command safely using shlex
         cmd_parts = shlex.split(command)
         if not cmd_parts:
@@ -840,7 +1087,7 @@ def execute_command_substitution(
             cmd_parts,
             capture_output=True,
             text=True,
-            timeout=30,  # 30 second timeout
+            timeout=COMMAND_TIMEOUT,  # 30 second timeout
             check=True,
             shell=False,  # Explicitly disable shell for security
             env=os.environ.copy(),  # Inherit current environment
@@ -1166,6 +1413,9 @@ def load_bridge_config_from_file(
     """
     logger.info(f"Loading bridge configuration from: {config_file_path}")
 
+    # Step 0: Ensure schema is available in config directory for IDE support
+    _ensure_config_schema()
+
     # Step 1: Load and parse JSON file
     try:
         with Path(config_file_path).open() as f:
@@ -1185,6 +1435,16 @@ def load_bridge_config_from_file(
         msg = f"Invalid config file format in {config_file_path}. Missing 'mcpServers' key."
         logger.error(msg)
         raise ValueError(msg)
+
+    # Step 1.5: Ensure config has schema reference for IDE support
+    schema_updated = _ensure_schema_reference(config_file_path, config_data)
+
+    # Step 1.6: Migrate legacy oauth field names
+    oauth_migrated = _migrate_oauth_fields(config_data)
+
+    # Step 1.7: Write config back to disk if oauth migration happened (but schema wasn't updated)
+    if oauth_migrated and not schema_updated:
+        _write_config_to_disk(config_file_path, config_data)
 
     # Step 2: Load bridge configuration first to get settings
     bridge_config = _load_bridge_settings(config_data, allow_command_substitution)
@@ -1279,6 +1539,40 @@ def _load_bridge_settings(config_data: dict[str, Any], allow_command_substitutio
         allow_command_substitution=effective_allow_substitution,
         allowed_commands=bridge_data.get("allowed_commands"),
         allow_dangerous_commands=bridge_data.get("allow_dangerous_commands", False),
+        read_only_mode=bridge_data.get("read_only_mode", True),
+        security=_load_bridge_security_config(bridge_data.get("security", {})),
+    )
+
+
+def _load_bridge_security_config(security_data: dict[str, Any]) -> "BridgeSecurityConfig | None":
+    """Load bridge security configuration from config data.
+
+    Args:
+        security_data: Security configuration dictionary
+
+    Returns:
+        BridgeSecurityConfig object or None if no security config
+    """
+    if not security_data:
+        return None
+
+    from mcp_foxxy_bridge.security.config import BridgeSecurityConfig, ToolSecurityConfig  # noqa: PLC0415
+
+    # Load tool security config if present
+    tool_config = None
+    if "tool_security" in security_data:
+        tool_data = security_data["tool_security"]
+        tool_config = ToolSecurityConfig(
+            allow_patterns=tool_data.get("allow_patterns", []),
+            block_patterns=tool_data.get("block_patterns", []),
+            allow_tools=tool_data.get("allow_tools", []),
+            block_tools=tool_data.get("block_tools", []),
+            classification_overrides=tool_data.get("classification_overrides", {}),
+        )
+
+    return BridgeSecurityConfig(
+        read_only_mode=security_data.get("read_only_mode", True),
+        tools=tool_config,
     )
 
 
@@ -1336,9 +1630,31 @@ def _load_server_configurations(
         server_env = base_env.copy()
         server_env.update(server_config.get("env", {}))
 
+        # Normalize server name for consistency with OAuth token storage
+        from mcp_foxxy_bridge.oauth.utils import _validate_server_name  # noqa: PLC0415
+
+        normalized_name = _validate_server_name(name)
+
+        # Create OAuth configuration
+        oauth_data = server_config.get("oauth_config", {})
+        oauth_config = None
+        if oauth_data:
+            oauth_config = OAuthConfig(
+                enabled=oauth_data.get("enabled", False),
+                issuer=oauth_data.get("issuer"),
+                verify_ssl=oauth_data.get("verify_ssl", True),
+                keep_alive_interval=oauth_data.get("keepAliveInterval", 20000),
+                token_refresh_interval=oauth_data.get("tokenRefreshInterval", 1800000),
+                connection_check_interval=oauth_data.get("connectionCheckInterval", 10000),
+                client_id=oauth_data.get("client_id"),
+                authorization_url=oauth_data.get("authorization_url"),
+                token_url=oauth_data.get("token_url"),
+                type=oauth_data.get("type"),
+            )
+
         # Create server configuration
         server = BridgeServerConfig(
-            name=name,
+            name=normalized_name,
             enabled=server_config.get("enabled", True),
             command=server_config.get("command", ""),
             args=server_config.get("args", []),
@@ -1355,10 +1671,11 @@ def _load_server_configurations(
             priority=server_config.get("priority", 100),
             tags=server_config.get("tags", []),
             log_level=server_config.get("log_level", "ERROR"),
-            oauth_config=server_config.get("oauth_config"),
+            oauth_config=oauth_config,
             authentication=server_config.get("authentication"),
             headers=server_config.get("headers"),
             verify_ssl=server_config.get("verify_ssl", True),
+            working_directory=server_config.get("working_directory") or server_config.get("cwd"),
         )
 
         # Validate required fields based on transport type
@@ -1377,7 +1694,7 @@ def _load_server_configurations(
             logger.warning(f"Named server '{name}' from config has invalid 'args' (must be a list). Skipping.")
             continue
 
-        servers[name] = server
+        servers[normalized_name] = server
         logger.debug(f'MCP Server configured: {name} - "{server.command}" {" ".join(server.args)}')
 
     return servers

@@ -22,8 +22,11 @@ This module provides HTTP-related utility functions for URL validation,
 header management, and request handling.
 """
 
-import logging
 import urllib.parse
+
+from mcp_foxxy_bridge.utils.logging import get_logger
+
+logger = get_logger(__name__, facility="UTILS")
 
 
 def is_valid_url(url: str) -> bool:
@@ -39,10 +42,10 @@ def is_valid_url(url: str) -> bool:
         parsed = urllib.parse.urlparse(url)
         return all([parsed.scheme, parsed.netloc])
     except (ValueError, TypeError) as e:
-        logging.getLogger(__name__).debug("URL validation error: %s", e)
+        logger.debug("URL validation error: %s", e)
         return False
     except Exception as e:
-        logging.getLogger(__name__).warning("Unexpected URL validation error: %s", str(e))
+        logger.warning("Unexpected URL validation error: %s", str(e))
         return False
 
 
@@ -59,10 +62,10 @@ def extract_host_port(url: str) -> tuple[str | None, int | None]:
         parsed = urllib.parse.urlparse(url)
         return parsed.hostname, parsed.port
     except (ValueError, TypeError) as e:
-        logging.getLogger(__name__).debug("URL parsing error: %s", e)
+        logger.debug("URL parsing error: %s", e)
         return None, None
     except Exception as e:
-        logging.getLogger(__name__).warning("Unexpected URL parsing error: %s", str(e))
+        logger.warning("Unexpected URL parsing error: %s", str(e))
         return None, None
 
 

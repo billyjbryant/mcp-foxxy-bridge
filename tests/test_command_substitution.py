@@ -1,3 +1,24 @@
+#
+# Copyright (C) 2024 Billy Bryant
+# Portions copyright (C) 2024 Sergey Parfenyuk (original MIT-licensed author)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# MIT License attribution: Portions of this file were originally licensed
+# under the MIT License by Sergey Parfenyuk (2024).
+#
+
 """Tests for command substitution functionality in config loader."""
 
 import os
@@ -56,9 +77,7 @@ class TestExecuteCommandSubstitution:
 
     def test_nonexistent_command_raises_error(self) -> None:
         """Test that nonexistent command raises ValueError."""
-        with pytest.raises(
-            ValueError, match="Invalid command substitution.*SECURITY: Command.*not allowed for security reasons"
-        ):
+        with pytest.raises(ValueError, match="Invalid command substitution.*Command.*not in allow list"):
             execute_command_substitution("nonexistent_command_12345")
 
     def test_command_failure_raises_error(self) -> None:
@@ -79,13 +98,13 @@ class TestExecuteCommandSubstitution:
     def test_shell_injection_protection(self) -> None:
         """Test that shell injection attempts are blocked by security validation."""
         # Commands with dangerous shell metacharacters should be blocked
-        with pytest.raises(ValueError, match="Invalid command substitution.*SECURITY: Command contains shell operator"):
+        with pytest.raises(ValueError, match="Invalid command substitution.*Command validation failed"):
             execute_command_substitution("echo hello; rm -rf /")
 
-        with pytest.raises(ValueError, match="Invalid command substitution.*SECURITY: Command contains shell operator"):
+        with pytest.raises(ValueError, match="Invalid command substitution.*Command validation failed"):
             execute_command_substitution("echo test | cat")
 
-        with pytest.raises(ValueError, match="Invalid command substitution.*SECURITY: Command contains shell operator"):
+        with pytest.raises(ValueError, match="Invalid command substitution.*Command validation failed"):
             execute_command_substitution("echo output > file")
 
     def test_quoted_arguments_handled_correctly(self) -> None:
@@ -198,7 +217,7 @@ class TestCommandSecurityValidation:
         dangerous_commands = ["rm", "mv", "ssh", "sudo", "bash", "apt", "ps", "systemctl", "service"]
 
         for cmd in dangerous_commands:
-            with pytest.raises(ValueError, match="SECURITY: Command.*not allowed for security reasons"):
+            with pytest.raises(ValueError, match="Command.*not in allow list"):
                 validate_command_security([cmd, "arg"])
 
     def test_shell_metacharacters_blocked(self) -> None:
@@ -212,7 +231,7 @@ class TestCommandSecurityValidation:
         ]
 
         for cmd_parts in dangerous_patterns:
-            with pytest.raises(ValueError, match="SECURITY: Command contains shell operator"):
+            with pytest.raises(ValueError, match="Command validation failed"):
                 validate_command_security(cmd_parts)
 
     def test_safe_arguments_allowed(self) -> None:
@@ -235,21 +254,21 @@ class TestCommandSecurityValidation:
 
     def test_case_insensitive_command_checking(self) -> None:
         """Test that command checking is case insensitive."""
-        with pytest.raises(ValueError, match="SECURITY: Command.*not allowed for security reasons"):
+        with pytest.raises(ValueError, match="Command.*not in allow list"):
             validate_command_security(["RM", "file"])
 
-        with pytest.raises(ValueError, match="SECURITY: Command.*not allowed for security reasons"):
+        with pytest.raises(ValueError, match="Command.*not in allow list"):
             validate_command_security(["Sudo", "ls"])
 
     def test_comprehensive_security_error_messages(self) -> None:
         """Test that security error messages are helpful."""
-        with pytest.raises(ValueError, match="SECURITY: Command.*not allowed for security reasons") as exc_info:
+        with pytest.raises(ValueError, match="Command.*not in allow list") as exc_info:
             validate_command_security(["dangerous_cmd"])
 
         error_msg = str(exc_info.value)
-        assert "not allowed for security reasons" in error_msg
-        assert "Currently allowed:" in error_msg
-        assert "echo" in error_msg  # Should list allowed commands
+        assert "not in allow list" in error_msg
+        # The error message should be concise
+        assert len(error_msg) < 100  # Should not be overly verbose
 
 
 @patch.dict(os.environ, {"MCP_ALLOW_COMMAND_SUBSTITUTION": "true"})

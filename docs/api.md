@@ -7,7 +7,7 @@ provided by MCP Foxxy Bridge.
 
 ### SSE Endpoint
 
-## Primary MCP client connection endpoint
+#### Primary MCP client connection endpoint
 
 ```http
 GET /sse
@@ -38,7 +38,7 @@ const session = new MCPSession("http://localhost:8080/sse");
 
 ### Status Endpoint
 
-## Bridge and server status monitoring
+#### Bridge and server status monitoring
 
 ```http
 GET /status

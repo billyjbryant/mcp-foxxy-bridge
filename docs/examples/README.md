@@ -5,28 +5,34 @@ This directory contains various configuration examples for MCP Foxxy Bridge to h
 ## Quick Start Examples
 
 ### [minimal-config.json](minimal-config.json)
+
 The absolute minimum configuration to get started. Perfect for testing or simple setups.
 
 **What it includes:**
+
 - Single filesystem server
 - Basic bridge settings
 - No advanced features
 
 **Usage:**
+
 ```bash
 mcp-foxxy-bridge --bridge-config docs/examples/minimal-config.json
 ```
 
 ### [basic-config.json](basic-config.json)
+
 A simple but practical configuration for everyday use.
 
 **What it includes:**
+
 - GitHub integration
 - Filesystem access
 - Web fetching capability
 - Environment variable expansion
 
 **Usage:**
+
 ```bash
 export GITHUB_TOKEN=your_token_here
 mcp-foxxy-bridge --bridge-config docs/examples/basic-config.json
@@ -35,15 +41,18 @@ mcp-foxxy-bridge --bridge-config docs/examples/basic-config.json
 ## Production Examples
 
 ### [production-config.json](production-config.json)
+
 Enterprise-ready configuration with reliability features.
 
 **What it includes:**
+
 - Multiple MCP servers with health checks
 - Failover configuration
 - Optimized timeouts and retry settings
 - Comprehensive monitoring
 
 **Usage:**
+
 ```bash
 export GITHUB_TOKEN=your_token_here
 export BRAVE_API_KEY=your_api_key_here
@@ -51,15 +60,18 @@ mcp-foxxy-bridge --bridge-config docs/examples/production-config.json
 ```
 
 ### [docker-config.json](docker-config.json)
+
 Optimized for Docker container deployment.
 
 **What it includes:**
+
 - Container-friendly paths (`/app/data`)
 - Network-accessible configuration
 - Environment variable based secrets
 - Docker-optimized health checks
 
 **Usage:**
+
 ```bash
 docker run -v ./docs/examples/docker-config.json:/app/config.json:ro \\
   -e GITHUB_TOKEN=your_token \\
@@ -69,27 +81,33 @@ docker run -v ./docs/examples/docker-config.json:/app/config.json:ro \\
 ## Specialized Examples
 
 ### [development-config.json](development-config.json)
+
 Perfect for local development and testing.
 
 **What it includes:**
+
 - Relaxed timeouts for debugging
 - Detailed logging configuration
 - Local filesystem access
 - Development-friendly settings
 
 ### [full-featured-config.json](full-featured-config.json)
+
 Demonstrates all available configuration options.
 
 **What it includes:**
+
 - Every supported MCP server type
 - All configuration options with comments
 - Advanced bridge features
 - Complete feature showcase
 
 ### [oauth-ssl-config.json](oauth-ssl-config.json)
+
 OAuth authentication with SSL verification settings.
 
 **What it includes:**
+
 - Production OAuth servers with SSL verification enabled
 - Development OAuth server with self-signed certificates
 - Mixed local and remote MCP servers
@@ -97,12 +115,14 @@ OAuth authentication with SSL verification settings.
 - HTTP/2 support for improved performance
 
 **Usage:**
+
 ```bash
 export GITHUB_TOKEN=your_token_here
 mcp-foxxy-bridge --bridge-config docs/examples/oauth-ssl-config.json
 ```
 
 **Security Notes:**
+
 - SSL verification is enabled by default (`"verify_ssl": true`)
 - Only disable SSL verification for development environments with self-signed certificates
 - The bridge will log warnings when SSL verification is disabled
@@ -124,6 +144,7 @@ All examples support environment variable expansion:
 ```
 
 **Syntax:**
+
 - `${VAR_NAME}` - Required variable
 - `${VAR_NAME:default}` - Variable with fallback default
 

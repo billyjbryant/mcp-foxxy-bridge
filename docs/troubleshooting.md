@@ -15,6 +15,19 @@ and how to resolve them.
 - Error messages about connection timeouts
 - Tools are not available
 
+**🔍 Quick Diagnosis:**
+
+```bash
+# Check server status
+foxxy-bridge server server-status
+
+# List configured servers
+foxxy-bridge mcp mcp-list
+
+# View detailed server information
+foxxy-bridge mcp mcp-show github
+```
+
 **Possible Causes and Solutions:**
 
 1. **Incorrect command or arguments**
@@ -22,9 +35,11 @@ and how to resolve them.
    ```bash
    # Check if the command works directly
    npx -y @modelcontextprotocol/server-github
-   ```
 
-   If this fails, fix the command in your configuration.
+   # If command is wrong, remove and re-add server
+   foxxy-bridge mcp remove github
+   foxxy-bridge mcp add github "npx" "-y" "@modelcontextprotocol/server-github"
+   ```
 
 2. **Missing dependencies**
 
@@ -45,6 +60,11 @@ and how to resolve them.
 
    # Set if missing
    export GITHUB_TOKEN=your_token_here
+
+   # Update server configuration
+   foxxy-bridge mcp remove github
+   foxxy-bridge mcp add github "npx" "-y" "@modelcontextprotocol/server-github" \
+     --env GITHUB_TOKEN "${GITHUB_TOKEN}"
    ```
 
 4. **Permission issues**
@@ -173,7 +193,20 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081
 
 **Solutions:**
 
-1. **Check file path**
+1. **Using CLI (recommended)**
+
+   ```bash
+   # Initialize configuration if missing
+   foxxy-bridge config init
+
+   # Check configuration location
+   foxxy-bridge config config-show
+
+   # Validate configuration
+   foxxy-bridge config validate
+   ```
+
+2. **Legacy file-based approach**
 
    ```bash
    # Use absolute path
@@ -183,7 +216,7 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081
    ls -la config.json
    ```
 
-2. **Check file permissions**
+3. **Check file permissions**
 
    ```bash
    ls -la config.json
@@ -515,17 +548,49 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081
 
 ### Enable Debug Logging
 
+**🎯 Using CLI (recommended):**
+
+```bash
+# Start with debug logging
+foxxy-bridge server start --log-level debug
+
+# View server logs
+foxxy-bridge mcp logs github --follow
+
+# Check daemon status with debug info
+foxxy-bridge server server-status --format json
+```
+
+**📄 Legacy approach:**
+
 ```bash
 mcp-foxxy-bridge --bridge-config config.json --debug
 ```
 
 This will show:
-
 - Server connection attempts
 - Tool routing decisions
 - Error details and stack traces
 
 ### Check Server Status
+
+**🎯 Using CLI:**
+
+```bash
+# Check overall bridge status
+foxxy-bridge server server-status
+
+# List all servers and their status
+foxxy-bridge mcp mcp-list --format table
+
+# View specific server details
+foxxy-bridge mcp mcp-show github --format json
+
+# Check OAuth status
+foxxy-bridge oauth oauth-status
+```
+
+**📄 REST API approach:**
 
 ```bash
 # Get detailed status

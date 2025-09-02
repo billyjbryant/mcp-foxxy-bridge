@@ -37,6 +37,10 @@ dependencies = [
     "cryptography>=3.4.8",
     "keyring>=23.0.0",
     "httpx[http2]>=0.28.0",
+    "psutil>=5.9.0",
+    "pyyaml>=6.0.0",
+    "click>=8.1.0",
+    "rich-click>=1.7.0",
 ]
 
 [build-system]
@@ -50,8 +54,8 @@ Documentation = "https://github.com/billyjbryant/mcp-foxxy-bridge"
 Changelog = "https://github.com/billyjbryant/mcp-foxxy-bridge/releases"
 
 [project.scripts]
-mcp-foxxy-bridge = "mcp_foxxy_bridge.__main__:main"
-mcp-foxxy-bridge-reverse = "mcp_foxxy_bridge.__main__:client"
+foxxy-bridge = "mcp_foxxy_bridge.cli.click_main:cli"
+mcp-foxxy-bridge = "mcp_foxxy_bridge.cli.click_main:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_foxxy_bridge"]
@@ -163,6 +167,10 @@ ignore = [
     "ANN201",  # Missing return type annotation for public function
     "ANN202",  # Missing return type annotation for private function
     "ANN003",  # Missing type annotation for **kwargs
+    "PTH123",  # Use of open() instead of Path.open() (acceptable in tests)
+    "RUF015",  # Prefer next(iter()) over single element slice (acceptable in tests)
+    "F841",    # Local variable assigned but never used (test setup variables)
+    "PLC0415", # Import should be at top-level (acceptable in tests)
     "PLR0913", # Too many arguments (common in test fixtures)
     "S106",    # Possible hardcoded password (test data)
     "S105",    # Possible hardcoded password (test data)
@@ -177,7 +185,25 @@ ignore = [
     "S110",    # try-except-pass (acceptable in tests for error tolerance)
     "SIM105",  # Use contextlib.suppress (sometimes clearer to use try-except in tests)
 ]
+"src/mcp_foxxy_bridge/cli/*" = [
+    "S324",    # MD5 hash is acceptable for non-security purposes (daemon naming)
+    "S603",    # Subprocess execution is expected in daemon manager
+    "S110",    # Exception suppression is acceptable for daemon cleanup
+    "ASYNC220", # Async subprocess restrictions are relaxed for CLI tools
+    "ASYNC221", # Async subprocess restrictions are relaxed for CLI tools
+    "SIM105",  # Contextlib.suppress preference is relaxed for CLI tools
+    "DTZ005",  # Timezone awareness is less critical for CLI daemon timestamps
+]
 "src/mcp_foxxy_bridge/utils/bridge_config.py" = [
+    "PLC0415", # Import should be at the top-level (intentional to avoid circular imports)
+]
+"src/mcp_foxxy_bridge/cli/commands/oauth.py" = [
+    "PLC0415", # Import should be at the top-level (intentional to avoid circular imports)
+]
+"src/mcp_foxxy_bridge/cli/commands/server.py" = [
+    "PLC0415", # Import should be at the top-level (intentional to avoid circular imports)
+]
+"src/mcp_foxxy_bridge/cli/commands/tool.py" = [
     "PLC0415", # Import should be at the top-level (intentional to avoid circular imports)
 ]
 

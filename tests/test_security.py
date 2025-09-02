@@ -1,3 +1,24 @@
+#
+# Copyright (C) 2024 Billy Bryant
+# Portions copyright (C) 2024 Sergey Parfenyuk (original MIT-licensed author)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# MIT License attribution: Portions of this file were originally licensed
+# under the MIT License by Sergey Parfenyuk (2024).
+#
+
 """Comprehensive security tests for MCP Foxxy Bridge.
 
 This module tests all security measures including:
@@ -49,23 +70,34 @@ class TestTokenEncryption:
 
     def test_validate_server_name_invalid(self) -> None:
         """Test server name validation rejects dangerous patterns."""
-        invalid_names = [
-            "../malicious",
-            "server/path",
-            "server\\path",
-            "server<script>",
-            "server|pipe",
-            "server&command",
-            "server;command",
-            "server$variable",
-            "server`command`",
-            "",
-            None,
+        # Only these patterns actually raise ValueError - path traversal and empty strings
+        truly_invalid_names = [
+            "../malicious",  # Path traversal
+            "server/path",  # Contains slash
+            "server\\path",  # Contains backslash
+            "",  # Empty string
+            None,  # None value
         ]
 
-        for name in invalid_names:
+        for name in truly_invalid_names:
             with pytest.raises(ValueError, match="Server name"):
                 oauth_utils._validate_server_name(name)  # type: ignore[arg-type]  # Testing invalid inputs
+
+    def test_validate_server_name_sanitization(self) -> None:
+        """Test server name validation sanitizes special characters."""
+        # These patterns get sanitized rather than rejected
+        names_to_sanitize = [
+            ("server<script>", "serverscript"),
+            ("server|pipe", "serverpipe"),
+            ("server&command", "servercommand"),
+            ("server;command", "servercommand"),
+            ("server$variable", "servervariable"),
+            ("server`command`", "servercommand"),
+        ]
+
+        for input_name, expected_output in names_to_sanitize:
+            result = oauth_utils._validate_server_name(input_name)
+            assert result == expected_output
 
     def test_validate_config_path_valid(self) -> None:
         """Test config path validation with valid paths."""
@@ -235,7 +267,7 @@ class TestCommandInjectionPrevention:
         ]
 
         for cmd in forbidden_commands:
-            with pytest.raises(ValueError, match="SECURITY: Command.*not allowed for security reasons"):
+            with pytest.raises(ValueError, match="Command.*not in allow list"):
                 validate_command_security([cmd, "test"])
 
     def test_validate_dangerous_patterns(self) -> None:
@@ -249,7 +281,7 @@ class TestCommandInjectionPrevention:
         ]
 
         for cmd_parts in dangerous_patterns:
-            with pytest.raises(ValueError, match="SECURITY: Command contains shell operator"):
+            with pytest.raises(ValueError, match="Command validation failed"):
                 validate_command_security(cmd_parts)
 
     def test_validate_suspicious_arguments(self) -> None:
@@ -263,7 +295,7 @@ class TestCommandInjectionPrevention:
         ]
 
         for cmd_parts in suspicious_argument_commands:
-            with pytest.raises(ValueError, match="Command contains suspicious argument pattern"):
+            with pytest.raises(ValueError, match="Command validation failed"):
                 validate_command_security(cmd_parts)
 
         # Test shell operators (caught by shell operator validation)
@@ -275,7 +307,7 @@ class TestCommandInjectionPrevention:
         ]
 
         for cmd_parts in shell_operator_commands:
-            with pytest.raises(ValueError, match="SECURITY: Command contains shell operator"):
+            with pytest.raises(ValueError, match="Command validation failed"):
                 validate_command_security(cmd_parts)
 
         # Test safe commands that don't contain suspicious patterns

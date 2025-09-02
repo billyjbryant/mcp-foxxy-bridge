@@ -1,3 +1,24 @@
+#
+# Copyright (C) 2024 Billy Bryant
+# Portions copyright (C) 2024 Sergey Parfenyuk (original MIT-licensed author)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# MIT License attribution: Portions of this file were originally licensed
+# under the MIT License by Sergey Parfenyuk (2024).
+#
+
 """Unified logging system for MCP Foxxy Bridge.
 
 This module consolidates all logging functionality into a single, clean interface:
@@ -6,13 +27,15 @@ This module consolidates all logging functionality into a single, clean interfac
 - Child process log capture and redirection
 - Security-aware log masking for sensitive data
 - Custom SUCCESS log level with logger.success() method
+- Context-aware sub-facility support for server names
 """
 
 import asyncio
 import contextlib
 import logging
 import re
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Generator, Mapping
+from contextvars import ContextVar, Token
 from logging.handlers import RotatingFileHandler
 from types import TracebackType  # noqa: TC003
 from typing import cast
@@ -26,6 +49,9 @@ from .config_migration import get_logs_dir, get_server_logs_dir
 # Add custom SUCCESS level
 SUCCESS_LEVEL = 25  # Between INFO (20) and WARNING (30)
 logging.addLevelName(SUCCESS_LEVEL, "SUCCESS")
+
+# Context variable for server-specific logging context (used by both SERVER and OAUTH facilities)
+current_server_context: ContextVar[str | None] = ContextVar("server_context", default=None)
 
 
 class MCPRichHandler(RichHandler):
@@ -60,7 +86,34 @@ class MCPRichHandler(RichHandler):
         formatted_message = self._add_emoji(record, message)
         message_text = Text(formatted_message)
 
-        if hasattr(record, "name") and record.name:
+        # Check for explicit facility first
+        record_logger = logging.getLogger(record.name) if hasattr(record, "name") else None
+        facility = getattr(record_logger, "_facility", None) if record_logger else None
+
+        if facility:
+            # Use explicit facility with appropriate color
+            facility_colors = {
+                "OAUTH": "bold orange3",
+                "BRIDGE": "bold blue",
+                "SERVER": "bold magenta",
+                "CLIENT": "bold cyan",
+                "CONFIG": "bold green",
+                "SECURITY": "bold red",
+                "UTILS": "bold white",
+            }
+            color = facility_colors.get(facility, "bold white")
+
+            # Check for server context (applies to both SERVER and OAUTH facilities)
+            sub_facility = None
+            if facility in ("SERVER", "OAUTH"):
+                sub_facility = current_server_context.get()
+
+            # Format facility tag with optional sub-facility
+            facility_tag = f"{facility}:{sub_facility}" if sub_facility else facility
+
+            message_text = Text.from_markup(f"[{color}]\\[{facility_tag}][/{color}] {formatted_message}")
+
+        elif hasattr(record, "name") and record.name:
             logger_name = record.name
 
             if "mcp.server." in logger_name:
@@ -85,6 +138,9 @@ class MCPRichHandler(RichHandler):
 
             elif "bridge_server" in logger_name:
                 message_text = Text.from_markup(f"[bold magenta]\\[BRIDGE][/bold magenta] {formatted_message}")
+
+            elif "oauth" in logger_name:
+                message_text = Text.from_markup(f"[bold orange3]\\[OAUTH][/bold orange3] {formatted_message}")
 
         return message_text
 
@@ -316,16 +372,69 @@ def setup_logging(*, debug: bool = False, quiet: bool = False) -> logging.Logger
     return logging.getLogger(__name__)
 
 
-def get_logger(name: str) -> logging.Logger:
-    """Get a logger with success method added."""
+def get_logger(name: str, facility: str | None = None) -> logging.Logger:
+    """Get a logger with success method added and optional facility.
+
+    Args:
+        name: Logger name
+        facility: Optional facility name (e.g., "OAUTH", "BRIDGE", "SERVER") for styled output
+                 Sub-facility context (e.g., server names) is automatically added via context variables
+
+    Returns:
+        Logger instance with facility support
+    """
     logger = logging.getLogger(name)
     _add_success_method(logger)
+
+    # Store facility information for the render_message method
+    if facility:
+        logger._facility = facility  # type: ignore[attr-defined] # noqa: SLF001
+
     return logger
 
 
 def get_file_logger(server_name: str, log_level: str = "INFO") -> logging.Logger:
     """Get a file logger for a specific server."""
     return _file_logger_manager.get_logger(server_name, log_level)
+
+
+def set_server_context(server_name: str | None) -> Token[str | None]:
+    """Set the server context for logging (applies to both SERVER and OAUTH facilities).
+
+    Args:
+        server_name: Name of the server or None to clear context
+
+    Returns:
+        Context token that can be used to reset the context
+
+    Example:
+        token = set_server_context("github")
+        try:
+            server_logger.info("Connecting")  # Shows as [SERVER:github] Connecting
+            oauth_logger.info("Token refresh")  # Shows as [OAUTH:github] Token refresh
+        finally:
+            current_server_context.reset(token)
+    """
+    return current_server_context.set(server_name)
+
+
+@contextlib.contextmanager
+def server_context(server_name: str) -> Generator[None, None, None]:
+    """Context manager for server-specific logging (applies to both SERVER and OAUTH facilities).
+
+    Args:
+        server_name: Name of the server
+
+    Example:
+        with server_context("github"):
+            server_logger.info("Connecting")  # Shows as [SERVER:github] Connecting
+            oauth_logger.info("Token refresh")  # Shows as [OAUTH:github] Token refresh
+    """
+    token = set_server_context(server_name)
+    try:
+        yield
+    finally:
+        current_server_context.reset(token)
 
 
 def log_to_file(server_name: str, message: str, level: int = logging.INFO) -> None:

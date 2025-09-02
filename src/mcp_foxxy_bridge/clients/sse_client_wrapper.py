@@ -59,7 +59,6 @@ Example:
 import asyncio
 import base64
 import contextlib
-import logging
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -75,8 +74,10 @@ from mcp.types import JSONRPCMessage
 from mcp_foxxy_bridge.oauth import OAuthFlow, OAuthProviderOptions, OAuthTokens, get_oauth_client_config
 from mcp_foxxy_bridge.oauth.utils import get_server_url_hash, load_tokens
 from mcp_foxxy_bridge.utils.bridge_config import get_bridge_server_host, get_oauth_port
+from mcp_foxxy_bridge.utils.logging import get_logger, server_context
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, facility="CLIENT")
+oauth_logger = get_logger(f"{__name__}.oauth", facility="OAUTH")
 
 
 def _auto_detect_oauth_issuer(server_url: str) -> str | None:
@@ -151,7 +152,7 @@ async def _discover_oauth_issuer(server_url: str) -> str | None:
                     config = response.json()
                     issuer = config.get("issuer")
                     if issuer and isinstance(issuer, str):
-                        logger.info("Discovered OAuth issuer")
+                        oauth_logger.info("Discovered OAuth issuer")
                         return str(issuer)  # Explicit cast to satisfy mypy
             except Exception as e:
                 logger.debug("OAuth discovery failed: %s", type(e).__name__)
@@ -182,17 +183,17 @@ def get_oauth_tokens(server_url: str, server_name: str | None = None) -> OAuthTo
             issued_at = tokens_data["issued_at"]
             current_time = int(time.time())
             if (current_time - issued_at) >= tokens_data["expires_in"]:
-                logger.debug("OAuth tokens expired")
+                oauth_logger.debug("OAuth tokens expired")
                 return None
 
         # Remove 'issued_at' field before creating OAuthTokens object
         oauth_token_data = {k: v for k, v in tokens_data.items() if k != "issued_at"}
         return OAuthTokens(**oauth_token_data)
     except (TypeError, ValueError, KeyError) as e:
-        logger.debug("Error reading OAuth tokens: %s", e)
+        oauth_logger.debug("Error reading OAuth tokens: %s", e)
         return None
     except Exception:
-        logger.exception("Unexpected error reading OAuth tokens")
+        oauth_logger.exception("Unexpected error reading OAuth tokens")
         return None
 
 
@@ -376,133 +377,136 @@ async def sse_client_with_logging(
         ... ) as streams:
         ...     # Connection uses API key authentication
     """
-    logger.debug("Starting SSE client")
+    with server_context(server_name):
+        logger.debug("Starting SSE client")
 
-    try:
-        # Initialize headers with defaults
-        connection_headers = _prepare_connection_headers(headers)
-
-        # Apply authentication methods
-        await _apply_authentication(connection_headers, authentication, server_name)
-
-        # Handle OAuth-enabled servers
-        if oauth_enabled:
-            logger.debug("OAuth enabled, loading tokens...")
-            await _handle_oauth_authentication(url, connection_headers, server_name, oauth_config)
-        else:
-            logger.debug("OAuth not enabled")
-
-        # Security: NO logging of connection details or headers
-        logger.debug("Attempting SSE connection")
-        # Try initial connection
-        oauth_retry_attempted = False
-
-        # Function to attempt SSE connection
-        async def _try_sse_connection() -> AsyncGenerator[
-            tuple[MemoryObjectReceiveStream[JSONRPCMessage], MemoryObjectSendStream[JSONRPCMessage]], None
-        ]:
-            async with sse_client(url=url, headers=connection_headers) as streams:
-                yield streams
-
-        # Try initial connection
-        connection_start_time = time.time()
         try:
-            logger.debug("Attempting SSE connection to server '%s'", server_name)
-            async with sse_client(url=url, headers=connection_headers) as streams:
+            # Initialize headers with defaults
+            connection_headers = _prepare_connection_headers(headers)
+
+            # Apply authentication methods
+            await _apply_authentication(connection_headers, authentication, server_name)
+
+            # Handle OAuth-enabled servers
+            if oauth_enabled:
+                logger.debug("OAuth enabled, loading tokens...")
+                await _handle_oauth_authentication(url, connection_headers, server_name, oauth_config)
+            else:
+                logger.debug("OAuth not enabled")
+
+            # Security: NO logging of connection details or headers
+            logger.debug("Attempting SSE connection")
+            # Try initial connection
+            oauth_retry_attempted = False
+
+            # Function to attempt SSE connection
+            async def _try_sse_connection() -> AsyncGenerator[
+                tuple[MemoryObjectReceiveStream[JSONRPCMessage], MemoryObjectSendStream[JSONRPCMessage]], None
+            ]:
+                async with sse_client(url=url, headers=connection_headers) as streams:
+                    yield streams
+
+            # Try initial connection
+            connection_start_time = time.time()
+            try:
+                logger.debug("Attempting SSE connection to server '%s'", server_name)
+                async with sse_client(url=url, headers=connection_headers) as streams:
+                    connection_elapsed = time.time() - connection_start_time
+                    logger.debug(
+                        "SSE connection established for server '%s' in %.3f seconds", server_name, connection_elapsed
+                    )
+                    try:
+                        yield streams
+                    except (GeneratorExit, asyncio.CancelledError):
+                        # Handle cleanup exceptions gracefully
+                        logger.debug("SSE connection closed during cleanup for server '%s'", server_name)
+                        raise
+                    return
+            except Exception as sse_error:
                 connection_elapsed = time.time() - connection_start_time
                 logger.debug(
-                    "SSE connection established for server '%s' in %.3f seconds", server_name, connection_elapsed
-                )
-                try:
-                    yield streams
-                except (GeneratorExit, asyncio.CancelledError):
-                    # Handle cleanup exceptions gracefully
-                    logger.debug("SSE connection closed during cleanup for server '%s'", server_name)
-                    raise
-                return
-        except Exception as sse_error:
-            connection_elapsed = time.time() - connection_start_time
-            logger.debug(
-                "SSE connection failed for server '%s' after %.3f seconds: %s",
-                server_name,
-                connection_elapsed,
-                type(sse_error).__name__,
-            )
-
-            # Handle authentication errors with automatic OAuth flow (only try once)
-            if oauth_enabled and not oauth_retry_attempted and _is_authentication_error(sse_error):
-                logger.warning(
-                    "SSE authentication failed for OAuth-enabled server '%s' - initiating automatic OAuth flow",
+                    "SSE connection failed for server '%s' after %.3f seconds: %s",
                     server_name,
+                    connection_elapsed,
+                    type(sse_error).__name__,
                 )
 
-                # Attempt automatic OAuth flow and retry
-                logger.info("Attempting OAuth token refresh due to authentication failure")
+                # Handle authentication errors with automatic OAuth flow (only try once)
+                if oauth_enabled and not oauth_retry_attempted and _is_authentication_error(sse_error):
+                    logger.warning(
+                        "SSE authentication failed for OAuth-enabled server '%s' - initiating automatic OAuth flow",
+                        server_name,
+                    )
 
-                oauth_retry_attempted = True
-                try:
-                    if await _handle_oauth_flow_and_retry(url, server_name, connection_headers, oauth_config):
-                        # Retry connection with updated tokens in a new context
-                        try:
-                            async with sse_client(url=url, headers=connection_headers) as streams:
-                                logger.info(
-                                    "SSE client established after OAuth token refresh for server: %s", server_name
+                    # Attempt automatic OAuth flow and retry
+                    oauth_logger.info("Attempting OAuth token refresh due to authentication failure")
+
+                    oauth_retry_attempted = True
+                    try:
+                        if await _handle_oauth_flow_and_retry(url, server_name, connection_headers, oauth_config):
+                            # Retry connection with updated tokens in a new context
+                            try:
+                                async with sse_client(url=url, headers=connection_headers) as streams:
+                                    logger.info(
+                                        "SSE client established after OAuth token refresh for server: %s", server_name
+                                    )
+                                    yield streams
+                                    return
+                            except Exception:
+                                logger.exception(
+                                    "SSE connection failed even after OAuth retry for server '%s'",
+                                    server_name,
                                 )
-                                yield streams
-                                return
-                        except Exception:
-                            logger.exception(
-                                "SSE connection failed even after OAuth retry for server '%s'",
-                                server_name,
-                            )
-                            raise
-                    else:
-                        # OAuth flow failed or timed out
+                                raise
+                        else:
+                            # OAuth flow failed or timed out
+                            _log_oauth_failure_guidance(server_name)
+                            raise sse_error from None
+                    except Exception as oauth_error:
+                        logger.exception("OAuth retry failed for server '%s'", server_name)
                         _log_oauth_failure_guidance(server_name)
-                        raise sse_error from None
-                except Exception as oauth_error:
-                    logger.exception("OAuth retry failed for server '%s'", server_name)
-                    _log_oauth_failure_guidance(server_name)
-                    # Re-raise the original SSE error, not the OAuth error
-                    raise sse_error from oauth_error
-            else:
-                # Not an auth error, or already tried OAuth retry, or OAuth disabled
-                raise
+                        # Re-raise the original SSE error, not the OAuth error
+                        raise sse_error from oauth_error
+                else:
+                    # Not an auth error, or already tried OAuth retry, or OAuth disabled
+                    raise
 
-    except Exception as e:
-        # Handle shutdown-related errors gracefully
-        error_msg = str(e).lower()
-        is_shutdown_error = any(
-            phrase in error_msg
-            for phrase in [
-                "cancel scope",
-                "shutdown",
-                "cancelled",
-                "closed",
-                "generator",
-                "task",
-                "asyncgen",
-                "already running",
-                "exit cancel scope",
-                "different task",
+        except Exception as e:
+            # Handle shutdown-related errors gracefully
+            error_msg = str(e).lower()
+            is_shutdown_error = any(
+                phrase in error_msg
+                for phrase in [
+                    "cancel scope",
+                    "shutdown",
+                    "cancelled",
+                    "closed",
+                    "generator",
+                    "task",
+                    "asyncgen",
+                    "already running",
+                    "exit cancel scope",
+                    "different task",
+                ]
+            )
+            exception_type = type(e).__name__
+            is_cleanup_exception = exception_type in [
+                "GeneratorExit",
+                "RuntimeError",
+                "BaseExceptionGroup",
+                "CancelledError",
             ]
-        )
-        exception_type = type(e).__name__
-        is_cleanup_exception = exception_type in [
-            "GeneratorExit",
-            "RuntimeError",
-            "BaseExceptionGroup",
-            "CancelledError",
-        ]
 
-        if is_shutdown_error or is_cleanup_exception:
-            logger.debug("SSE client shutdown: %s", exception_type)
-            # Suppress cleanup exceptions during shutdown
-        else:
-            logger.exception("SSE client failed for server '%s': %s", server_name, e)
-            raise
-    finally:
-        logger.debug("SSE client cleanup completed")
+            if is_shutdown_error or is_cleanup_exception:
+                logger.debug("SSE client shutdown: %s", exception_type)
+                # Suppress cleanup exceptions during shutdown but still need to raise
+                # to prevent "generator didn't yield" error
+                raise
+            else:
+                logger.exception("SSE client failed for server '%s': %s", server_name, e)
+                raise
+        finally:
+            logger.debug("SSE client cleanup completed")
 
 
 # Authentication helper functions
@@ -524,26 +528,26 @@ async def _check_and_refresh_tokens_if_needed(
     # Check if token is close to expiring (within 5 minutes)
     if hasattr(tokens, "expires_in") and tokens.expires_in:
         if tokens.expires_in < 300:  # Less than 5 minutes
-            logger.info("Token expiring soon, attempting refresh...")
+            oauth_logger.info("Token expiring soon, attempting refresh...")
 
             if tokens.refresh_token:
                 try:
                     refreshed_tokens = oauth_flow.refresh_tokens(tokens.refresh_token)
-                    logger.info("Successfully refreshed tokens")
+                    oauth_logger.info("Successfully refreshed tokens")
                     return refreshed_tokens
                 except Exception as e:
-                    logger.warning("Failed to refresh tokens: %s", type(e).__name__)
-                    logger.info("Will attempt to use existing token anyway")
+                    oauth_logger.warning("Failed to refresh tokens: %s", type(e).__name__)
+                    oauth_logger.info("Will attempt to use existing token anyway")
                     return tokens
             else:
-                logger.warning("No refresh token available, cannot auto-refresh")
+                oauth_logger.warning("No refresh token available, cannot auto-refresh")
                 return tokens
         else:
-            logger.debug("Token still valid, no refresh needed")
+            oauth_logger.debug("Token still valid, no refresh needed")
             return tokens
     else:
         # No expiration info, assume token is valid
-        logger.debug("No expiration info for tokens, assuming valid")
+        oauth_logger.debug("No expiration info for tokens, assuming valid")
         return tokens
 
 
@@ -562,86 +566,87 @@ async def _attempt_token_refresh_and_retry(
     Returns:
         True if tokens were successfully refreshed, False otherwise
     """
-    if not oauth_enabled:
-        return False
-
-    try:
-        oauth_port = get_oauth_port()  # Use dedicated OAuth port
-        bridge_host = get_bridge_server_host()
-
-        # First, check if we have a stored OAuth issuer from previous auth
-        client_config = get_oauth_client_config()
-
-        # Extract SSL verification setting from OAuth config
-        verify_ssl = oauth_config.get("verify_ssl", True) if oauth_config else True
-
-        oauth_options_temp = OAuthProviderOptions(
-            server_url=url,
-            oauth_issuer=None,
-            callback_port=oauth_port,
-            host=bridge_host,
-            client_name=client_config["client_name"],
-            client_uri=client_config["client_uri"],
-            software_id=client_config["software_id"],
-            software_version=client_config["software_version"],
-            server_name=server_name,
-            verify_ssl=verify_ssl,
-        )
-        temp_flow = OAuthFlow(oauth_options_temp)
-        stored_oauth_issuer = temp_flow.provider.stored_oauth_issuer()
-
-        # Use stored OAuth issuer if available, otherwise fall back to auto-detection
-        oauth_issuer = stored_oauth_issuer
-        if oauth_issuer:
-            logger.debug("Using stored OAuth issuer for token refresh")
-        else:
-            oauth_issuer = _auto_detect_oauth_issuer(url)
-            if oauth_issuer:
-                logger.debug("Using auto-detected OAuth issuer for token refresh")
-
-        oauth_options = OAuthProviderOptions(
-            server_url=url,
-            oauth_issuer=oauth_issuer,
-            callback_port=oauth_port,
-            host=bridge_host,
-            client_name=client_config["client_name"],
-            client_uri=client_config["client_uri"],
-            software_id=client_config["software_id"],
-            software_version=client_config["software_version"],
-            server_name=server_name,
-            verify_ssl=verify_ssl,
-        )
-        oauth_flow = OAuthFlow(oauth_options)
-        # Get tokens even if expired, since we need the refresh token
-        tokens = oauth_flow.provider.tokens_including_expired()
-
-        if not tokens or not tokens.refresh_token:
-            logger.debug("No refresh token available, cannot auto-refresh")
+    with server_context(server_name):
+        if not oauth_enabled:
             return False
 
-        logger.info("Attempting automatic token refresh...")
         try:
-            refreshed_tokens = oauth_flow.refresh_tokens(tokens.refresh_token)
+            oauth_port = get_oauth_port()  # Use dedicated OAuth port
+            bridge_host = get_bridge_server_host()
 
-            # Update headers with new tokens
-            oauth_headers = create_oauth_headers(refreshed_tokens)
-            if oauth_headers:
-                # Remove old authorization header
-                headers.pop("Authorization", None)
-                # Add new authorization header
-                headers.update(oauth_headers)
-                logger.info("Successfully refreshed and updated tokens")
-                return True
-            logger.warning("Failed to create headers from refreshed tokens")
-            return False
+            # First, check if we have a stored OAuth issuer from previous auth
+            client_config = get_oauth_client_config()
+
+            # Extract SSL verification setting from OAuth config
+            verify_ssl = oauth_config.get("verify_ssl", True) if oauth_config else True
+
+            oauth_options_temp = OAuthProviderOptions(
+                server_url=url,
+                oauth_issuer=None,
+                callback_port=oauth_port,
+                host=bridge_host,
+                client_name=client_config["client_name"],
+                client_uri=client_config["client_uri"],
+                software_id=client_config["software_id"],
+                software_version=client_config["software_version"],
+                server_name=server_name,
+                verify_ssl=verify_ssl,
+            )
+            temp_flow = OAuthFlow(oauth_options_temp)
+            stored_oauth_issuer = temp_flow.provider.stored_oauth_issuer()
+
+            # Use stored OAuth issuer if available, otherwise fall back to auto-detection
+            oauth_issuer = stored_oauth_issuer
+            if oauth_issuer:
+                oauth_logger.debug("Using stored OAuth issuer for token refresh")
+            else:
+                oauth_issuer = _auto_detect_oauth_issuer(url)
+                if oauth_issuer:
+                    oauth_logger.debug("Using auto-detected OAuth issuer for token refresh")
+
+            oauth_options = OAuthProviderOptions(
+                server_url=url,
+                oauth_issuer=oauth_issuer,
+                callback_port=oauth_port,
+                host=bridge_host,
+                client_name=client_config["client_name"],
+                client_uri=client_config["client_uri"],
+                software_id=client_config["software_id"],
+                software_version=client_config["software_version"],
+                server_name=server_name,
+                verify_ssl=verify_ssl,
+            )
+            oauth_flow = OAuthFlow(oauth_options)
+            # Get tokens even if expired, since we need the refresh token
+            tokens = oauth_flow.provider.tokens_including_expired()
+
+            if not tokens or not tokens.refresh_token:
+                oauth_logger.debug("No refresh token available, cannot auto-refresh")
+                return False
+
+            oauth_logger.info("Attempting automatic token refresh...")
+            try:
+                refreshed_tokens = oauth_flow.refresh_tokens(tokens.refresh_token)
+
+                # Update headers with new tokens
+                oauth_headers = create_oauth_headers(refreshed_tokens)
+                if oauth_headers:
+                    # Remove old authorization header
+                    headers.pop("Authorization", None)
+                    # Add new authorization header
+                    headers.update(oauth_headers)
+                    oauth_logger.info("Successfully refreshed and updated tokens")
+                    return True
+                oauth_logger.warning("Failed to create headers from refreshed tokens")
+                return False
+
+            except Exception as e:
+                oauth_logger.warning("Token refresh failed: %s", type(e).__name__)
+                return False
 
         except Exception as e:
-            logger.warning("Token refresh failed: %s", type(e).__name__)
+            oauth_logger.warning("Error during token refresh attempt: %s", type(e).__name__)
             return False
-
-    except Exception as e:
-        logger.warning("Error during token refresh attempt: %s", type(e).__name__)
-        return False
 
 
 def _prepare_connection_headers(headers: dict[str, Any] | None) -> dict[str, str]:
@@ -741,72 +746,73 @@ async def _handle_oauth_authentication(
         server_name: Server name for logging
         oauth_config: OAuth configuration dictionary with provider-specific settings
     """
-    logger.info("OAuth-enabled server detected. Checking for existing OAuth tokens.")
+    with server_context(server_name):
+        oauth_logger.info("OAuth-enabled server detected. Checking for existing OAuth tokens.")
 
-    try:
-        # OAuth is now integrated with bridge server - use bridge server port
-        # Default to standard ports if bridge config isn't available yet
-        bridge_host = "127.0.0.1"  # Default bridge host
-        bridge_port = 8080  # Default bridge port
+        try:
+            # OAuth is now integrated with bridge server - use bridge server port
+            # Default to standard ports if bridge config isn't available yet
+            bridge_host = "127.0.0.1"  # Default bridge host
+            bridge_port = 8080  # Default bridge port
 
-        # Try to get bridge config if available
-        with contextlib.suppress(RuntimeError):
-            bridge_host = get_bridge_server_host()
-            # For now, use default bridge port since OAuth is integrated
-            # TODO: Pass actual bridge port from server startup
+            # Try to get bridge config if available
+            with contextlib.suppress(RuntimeError):
+                bridge_host = get_bridge_server_host()
+                # For now, use default bridge port since OAuth is integrated
+                # TODO: Pass actual bridge port from server startup
 
-        # Extract OAuth issuer from config if explicitly configured
-        # Do NOT auto-detect for initial auth as it breaks the working flow
-        oauth_issuer = None
-        if oauth_config and oauth_config.get("issuer"):
-            oauth_issuer = oauth_config["issuer"]
-            logger.debug("Found configured OAuth issuer.")
+            # Extract OAuth issuer from config if explicitly configured
+            # Do NOT auto-detect for initial auth as it breaks the working flow
+            oauth_issuer = None
+            if oauth_config and oauth_config.get("issuer"):
+                oauth_issuer = oauth_config["issuer"]
+                oauth_logger.debug("Found configured OAuth issuer.")
 
-        # Extract SSL verification setting (default: True for security)
-        verify_ssl = oauth_config.get("verify_ssl", True) if oauth_config else True
+            # Extract SSL verification setting (default: True for security)
+            verify_ssl = oauth_config.get("verify_ssl", True) if oauth_config else True
 
-        client_config = get_oauth_client_config()
-        oauth_options = OAuthProviderOptions(
-            server_url=url,
-            oauth_issuer=oauth_issuer,
-            callback_port=bridge_port,
-            host=bridge_host,
-            client_name=client_config["client_name"],
-            client_uri=client_config["client_uri"],
-            software_id=client_config["software_id"],
-            software_version=client_config["software_version"],
-            server_name=server_name,
-            verify_ssl=verify_ssl,
-        )
-        oauth_flow = OAuthFlow(oauth_options)
-        tokens = oauth_flow.provider.tokens()
-        logger.debug("Loaded OAuth tokens: %s", tokens is not None)
+            client_config = get_oauth_client_config()
+            oauth_options = OAuthProviderOptions(
+                server_url=url,
+                oauth_issuer=oauth_issuer,
+                callback_port=bridge_port,
+                host=bridge_host,
+                client_name=client_config["client_name"],
+                client_uri=client_config["client_uri"],
+                software_id=client_config["software_id"],
+                software_version=client_config["software_version"],
+                server_name=server_name,
+                verify_ssl=verify_ssl,
+            )
+            oauth_flow = OAuthFlow(oauth_options)
+            tokens = oauth_flow.provider.tokens()
+            oauth_logger.debug("Loaded OAuth tokens: %s", tokens is not None)
 
-        if tokens:
-            # Check token expiration for debugging
-            if hasattr(tokens, "expires_in") and tokens.expires_in:
-                logger.debug("Token expires in: %s seconds", tokens.expires_in)
-            logger.debug("Token type: %s", getattr(tokens, "token_type", "Bearer"))
-            # Use the create_oauth_headers function for proper token formatting
-            oauth_headers = create_oauth_headers(tokens)
-            if oauth_headers:
-                headers.update(oauth_headers)
-                logger.info("Using existing OAuth tokens for authentication")
-                logger.debug("OAuth authorization header added successfully")
-                # Log safely without exposing any credential information
-                logger.debug("Authorization header configured with token type")
+            if tokens:
+                # Check token expiration for debugging
+                if hasattr(tokens, "expires_in") and tokens.expires_in:
+                    oauth_logger.debug("Token expires in: %s seconds", tokens.expires_in)
+                oauth_logger.debug("Token type: %s", getattr(tokens, "token_type", "Bearer"))
+                # Use the create_oauth_headers function for proper token formatting
+                oauth_headers = create_oauth_headers(tokens)
+                if oauth_headers:
+                    headers.update(oauth_headers)
+                    oauth_logger.info("Using existing OAuth tokens for authentication")
+                    oauth_logger.debug("OAuth authorization header added successfully")
+                    # Log safely without exposing any credential information
+                    oauth_logger.debug("Authorization header configured with token type")
+                else:
+                    oauth_logger.warning("Failed to create OAuth headers from tokens")
             else:
-                logger.warning("Failed to create OAuth headers from tokens")
-        else:
-            logger.warning("No valid OAuth tokens found. Server may require manual authentication.")
+                oauth_logger.warning("No valid OAuth tokens found. Server may require manual authentication.")
 
-    except (ValueError, KeyError, TypeError) as e:
-        logger.warning("OAuth configuration error: %s", e)
-    except (FileNotFoundError, OSError) as e:
-        logger.debug("OAuth tokens not found or inaccessible: %s", e)
-    except Exception:
-        logger.exception("Unexpected error loading OAuth tokens")
-        # Don't re-raise here as we want to continue without OAuth
+        except (ValueError, KeyError, TypeError) as e:
+            oauth_logger.warning("OAuth configuration error: %s", e)
+        except (FileNotFoundError, OSError) as e:
+            oauth_logger.debug("OAuth tokens not found or inaccessible: %s", e)
+        except Exception:
+            oauth_logger.exception("Unexpected error loading OAuth tokens")
+            # Don't re-raise here as we want to continue without OAuth
 
 
 async def _initiate_automatic_oauth_flow(
@@ -824,54 +830,55 @@ async def _initiate_automatic_oauth_flow(
     Raises:
         Exception: If OAuth flow initiation fails
     """
-    logger.info("Attempting to automatically initiate OAuth flow")
+    with server_context(server_name):
+        oauth_logger.info("Attempting to automatically initiate OAuth flow")
 
-    try:
-        oauth_port = get_oauth_port()  # Use dedicated OAuth port
-        bridge_host = get_bridge_server_host()
-        # Extract OAuth issuer from config if explicitly configured
-        # Only use auto-detection for token refresh operations, not initial auth
-        oauth_issuer = None
-        if oauth_config and oauth_config.get("issuer"):
-            oauth_issuer = oauth_config["issuer"]
-            logger.debug("Found configured OAuth issuer for automatic flow")
-        else:
-            # For token refresh scenarios, we can auto-detect the OAuth issuer
-            oauth_issuer = _auto_detect_oauth_issuer(server_url)
-            if oauth_issuer:
-                logger.debug("Auto-detected OAuth issuer for token refresh")
+        try:
+            oauth_port = get_oauth_port()  # Use dedicated OAuth port
+            bridge_host = get_bridge_server_host()
+            # Extract OAuth issuer from config if explicitly configured
+            # Only use auto-detection for token refresh operations, not initial auth
+            oauth_issuer = None
+            if oauth_config and oauth_config.get("issuer"):
+                oauth_issuer = oauth_config["issuer"]
+                oauth_logger.debug("Found configured OAuth issuer for automatic flow")
+            else:
+                # For token refresh scenarios, we can auto-detect the OAuth issuer
+                oauth_issuer = _auto_detect_oauth_issuer(server_url)
+                if oauth_issuer:
+                    oauth_logger.debug("Auto-detected OAuth issuer for token refresh")
 
-        client_config = get_oauth_client_config()
+            client_config = get_oauth_client_config()
 
-        # Extract SSL verification setting from OAuth config
-        verify_ssl = oauth_config.get("verify_ssl", True) if oauth_config else True
+            # Extract SSL verification setting from OAuth config
+            verify_ssl = oauth_config.get("verify_ssl", True) if oauth_config else True
 
-        oauth_options = OAuthProviderOptions(
-            server_url=server_url,
-            oauth_issuer=oauth_issuer,
-            callback_port=oauth_port,
-            host=bridge_host,
-            client_name=client_config["client_name"],
-            client_uri=client_config["client_uri"],
-            software_id=client_config["software_id"],
-            software_version=client_config["software_version"],
-            server_name=server_name,
-            verify_ssl=verify_ssl,
-        )
-        oauth_flow = OAuthFlow(oauth_options)
-        tokens = await oauth_flow.authenticate(skip_browser=False)
-        access_token = tokens.access_token if tokens else None
+            oauth_options = OAuthProviderOptions(
+                server_url=server_url,
+                oauth_issuer=oauth_issuer,
+                callback_port=oauth_port,
+                host=bridge_host,
+                client_name=client_config["client_name"],
+                client_uri=client_config["client_uri"],
+                software_id=client_config["software_id"],
+                software_version=client_config["software_version"],
+                server_name=server_name,
+                verify_ssl=verify_ssl,
+            )
+            oauth_flow = OAuthFlow(oauth_options)
+            tokens = await oauth_flow.authenticate(skip_browser=False)
+            access_token = tokens.access_token if tokens else None
 
-        if access_token:
-            logger.info("OAuth flow completed successfully")
-            logger.info("User should be able to retry connection now")
-        else:
-            logger.error("OAuth flow failed")
-            raise RuntimeError("OAuth flow did not produce valid tokens")
+            if access_token:
+                oauth_logger.info("OAuth flow completed successfully")
+                oauth_logger.info("User should be able to retry connection now")
+            else:
+                oauth_logger.error("OAuth flow failed")
+                raise RuntimeError("OAuth flow did not produce valid tokens")
 
-    except Exception as e:
-        logger.exception(f"Unexpected error initiating OAuth flow for '{server_name}': {e}")
-        raise
+        except Exception as e:
+            oauth_logger.exception(f"Unexpected error initiating OAuth flow for '{server_name}': {e}")
+            raise
 
 
 async def _wait_for_oauth_completion_and_retry(
@@ -925,21 +932,21 @@ async def _wait_for_oauth_completion_and_retry(
 
             if access_token:
                 headers["Authorization"] = f"Bearer {access_token}"
-                logger.info("New OAuth tokens detected")
+                oauth_logger.info("New OAuth tokens detected")
                 return True
 
         except (ValueError, KeyError, TypeError) as e:
-            logger.debug("OAuth token configuration error: %s", e)
+            oauth_logger.debug("OAuth token configuration error: %s", e)
         except (FileNotFoundError, OSError) as e:
-            logger.debug("OAuth tokens not accessible: %s", e)
+            oauth_logger.debug("OAuth tokens not accessible: %s", e)
         except Exception as e:
-            logger.warning("Unexpected error checking OAuth tokens: %s", str(e))
+            oauth_logger.warning("Unexpected error checking OAuth tokens: %s", str(e))
 
         elapsed = int(time.time() - start_time)
         if elapsed % 30 == 0:  # Log progress every 30 seconds
-            logger.info("Still waiting for OAuth completion...")
+            oauth_logger.info("Still waiting for OAuth completion...")
 
-    logger.warning("OAuth completion timeout")
+    oauth_logger.warning("OAuth completion timeout")
     return False
 
 
@@ -961,16 +968,16 @@ async def _handle_oauth_flow_and_retry(
     """
     try:
         # First, try to refresh existing tokens if we have a refresh token
-        logger.info("Attempting to refresh expired OAuth tokens...")
+        oauth_logger.info("Attempting to refresh expired OAuth tokens...")
         refresh_success = await _attempt_token_refresh_and_retry(
             server_url, server_name, headers, oauth_enabled=True, oauth_config=oauth_config
         )
 
         if refresh_success:
-            logger.info("OAuth tokens refreshed successfully!")
+            oauth_logger.info("OAuth tokens refreshed successfully!")
             return True
 
-        logger.warning("Token refresh failed, falling back to full OAuth flow")
+        oauth_logger.warning("Token refresh failed, falling back to full OAuth flow")
 
         # If refresh failed, initiate full OAuth flow
         await _initiate_automatic_oauth_flow(server_url, server_name, oauth_config)
@@ -979,13 +986,13 @@ async def _handle_oauth_flow_and_retry(
             f"OAuth flow initiated for server '{server_name}'. Please check your browser to complete authorization."
         )
 
-        logger.info("Waiting for OAuth completion...")
+        oauth_logger.info("Waiting for OAuth completion...")
         success = await _wait_for_oauth_completion_and_retry(server_url, server_name, headers, max_wait_time=300)
 
         if success:
-            logger.info("OAuth completed successfully! Retrying connection")
+            oauth_logger.info("OAuth completed successfully! Retrying connection")
         else:
-            logger.warning("OAuth completion timed out or failed")
+            oauth_logger.warning("OAuth completion timed out or failed")
 
         return success
 
@@ -1003,8 +1010,8 @@ def _log_oauth_failure_guidance(server_name: str) -> None:
         server_name: The server name for URL generation
     """
     logger.error("Authentication failed")
-    logger.info("OAuth tokens should now be stored for automatic use")
-    logger.info("If authentication continues to fail, check your OAuth server configuration")
+    oauth_logger.info("OAuth tokens should now be stored for automatic use")
+    oauth_logger.info("If authentication continues to fail, check your OAuth server configuration")
 
 
 def _is_authentication_error(exception: Exception) -> bool:

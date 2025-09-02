@@ -183,3 +183,9 @@ CURSOR.md
 # Foxxy cache files
 .channels_cache_v2.json
 .users_cache.json
+
+# cache files
+**/**cache**
+
+# Local Claude documentation
+CLAUDE.local.md

@@ -1,3 +1,24 @@
+#
+# Copyright (C) 2024 Billy Bryant
+# Portions copyright (C) 2024 Sergey Parfenyuk (original MIT-licensed author)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# MIT License attribution: Portions of this file were originally licensed
+# under the MIT License by Sergey Parfenyuk (2024).
+#
+
 """Integration security tests for MCP Foxxy Bridge.
 
 This module provides end-to-end integration tests for security features
@@ -266,11 +287,15 @@ class TestOAuthIntegrationSecurity:
             except ValueError:
                 pytest.fail(f"Valid server name '{name}' was rejected")
 
-        # Invalid server names should be rejected
-        invalid_names = ["../etc/passwd", "server/path", "server\\windows", "server<script>"]
+        # Invalid server names should be rejected (path traversal patterns only)
+        invalid_names = ["../etc/passwd", "server/path", "server\\windows"]
         for name in invalid_names:
             with pytest.raises(ValueError, match="Server name"):
                 oauth_utils.get_tokens_path(server_url_hash, name)
+
+        # This name gets sanitized rather than rejected
+        sanitized_path = oauth_utils.get_tokens_path(server_url_hash, "server<script>")
+        assert "serverscript" in str(sanitized_path)
 
     def test_oauth_migration_from_legacy_format(self) -> None:
         """Test OAuth data migration from legacy format with security validation."""

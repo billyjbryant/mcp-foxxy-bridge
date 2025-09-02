@@ -31,168 +31,74 @@
 
 **MCP Foxxy Bridge** is a secure one-to-many proxy for the Model Context Protocol (MCP). Connect multiple MCP servers through a single endpoint with enterprise-grade security.
 
-### ✨ Key Benefits
+**Key Features:**
 
-- **🔌 Single Endpoint**: Access all your MCP servers through one connection point
-- **🛡️ Enterprise Security**: OAuth 2.0 + PKCE authentication with configurable SSL verification
-- **⚡ Easy Setup**: Simple configuration with environment variable support
-- **🔀 Smart Routing**: Automatic request routing to the right backend server
-- **🏠 Secure by Default**: Localhost-only binding, SSL verification enabled, and comprehensive input validation
-- **🚀 HTTP/2 Support**: Automatic protocol upgrade for improved performance
-
-### 🎯 Perfect For
-
-- Connecting multiple MCP servers to Claude Desktop, VS Code, or other AI tools
-- Centralizing credential management with secure command substitution
-- Production deployments requiring OAuth authentication
-- Development environments with multiple data sources
+- Single endpoint for all MCP servers
+- OAuth 2.0 + PKCE authentication
+- Enhanced CLI with daemon management
+- REST API for operational control
+- Secure command substitution
+- HTTP/2 support
 
 ---
 
-## 🚀 Quickstart
+## Quickstart
 
-See the [Installation Guide](docs/installation.md) for full details.
-
-### 1. Choose one of the following installation methods
-
-**A. Install via uv (Recommended):**
+### Installation
 
 ```bash
+# Install via uv (recommended)
 uv tool install mcp-foxxy-bridge
-```
 
-**B. Install latest from GitHub:**
-
-```bash
+# Or install from GitHub
 uv tool install git+https://github.com/billyjbryant/mcp-foxxy-bridge
 ```
 
-**C. Run with Docker (from GHCR):**
+---
+
+### Quick Setup
 
 ```bash
-docker run --rm -p 8080:8080 ghcr.io/billyjbryant/mcp-foxxy-bridge:latest --bridge-config /app/config.json
+# Initialize configuration
+foxxy-bridge config init
+
+# Add MCP servers
+foxxy-bridge mcp add github "npx -y @modelcontextprotocol/server-github"
+foxxy-bridge mcp add filesystem "npx -y @modelcontextprotocol/server-filesystem" --path ./
+
+# Start the bridge server
+foxxy-bridge server start
+
+# Check status
+foxxy-bridge server status
 ```
 
 ---
 
-### 2. Run the Bridge
+### Connect Your AI Tool
 
-**With config file:**
-
-```bash
-mcp-foxxy-bridge --bridge-config config.json
-```
-
-**Or with named servers:**
-
-```bash
-mcp-foxxy-bridge --port 8080 \
-  --named-server fetch 'uvx mcp-server-fetch' \
-  --named-server github 'npx -y @modelcontextprotocol/server-github' \
-  --named-server filesystem 'npx -y @modelcontextprotocol/server-filesystem'
-
-# With security features
-mcp-foxxy-bridge --bridge-config config.json \
-  --allow-command-substitution  # Enable secure command substitution
-```
-
-See [Configuration Guide](docs/configuration.md) for config file examples.
+Point your MCP-compatible client to: `http://localhost:8080/sse`
 
 ---
 
-### 3. Connect Your AI Tool
+## Documentation
 
-Point your MCP-compatible client to:
+**📖 Getting Started:**
 
-```
-http://localhost:8080/sse
-```
+- **[Installation Guide](docs/installation.md)** - Detailed setup and configuration
+- **[Configuration Guide](docs/configuration.md)** - Configuration options and examples
+- **[CLI Reference](docs/cli-reference.md)** - Complete command reference
 
-See [API Reference](docs/api.md) for integration details.
+**🔧 Advanced Topics:**
 
----
-
-## 📚 Documentation
-
-### 🚀 Getting Started
-- [📖 Documentation Overview](docs/README.md) - Start here for a complete guide
-- [⬇️ Installation Guide](docs/installation.md) - Multiple installation methods
-- [⚙️ Configuration Guide](docs/configuration.md) - Configure your setup
-- [🎯 Example Configurations](docs/examples/README.md) - Ready-to-use config files
-
-### 🔧 Advanced Usage
-- [🚀 Deployment Guide](docs/deployment.md) - Docker, production deployments
-- [🔌 API Reference](docs/api.md) - Programmatic integration
-- [🏗️ Architecture Overview](docs/architecture.md) - Technical deep dive
-
-### 📡 REST API Endpoints
-
-The bridge provides REST endpoints for operational management, monitoring, and tool discovery:
-
-**Server Discovery & Status:**
-```bash
-# Global bridge health and status
-curl http://localhost:9000/status
-
-# List all configured servers and their endpoints
-curl http://localhost:9000/sse/servers
-
-# List all available tags and their associated servers
-curl http://localhost:9000/sse/tags
-
-# Individual server status and health metrics
-curl http://localhost:9000/sse/mcp/filesystem/status
-```
-
-**Tool Discovery:**
-```bash
-# List all available tools from all servers
-curl http://localhost:9000/sse/list_tools
-
-# List tools for a specific server
-curl http://localhost:9000/sse/mcp/filesystem/list_tools
-
-# List tools filtered by tags (supports union and intersection)
-curl http://localhost:9000/sse/tag/development/list_tools      # Single tag
-curl http://localhost:9000/sse/tag/dev+local/list_tools        # Intersection (AND)
-curl http://localhost:9000/sse/tag/web,api/list_tools          # Union (OR)
-```
-
-**Server Management:**
-```bash
-# Force reconnection of a specific server
-curl -X POST http://localhost:9000/sse/mcp/filesystem/reconnect
-
-# Refresh tool capabilities across all servers
-curl -X POST http://localhost:9000/sse/tools/rescan
-```
-
-**OAuth Status (for OAuth-enabled servers):**
-```bash
-# Check OAuth authentication status
-curl http://localhost:9000/oauth/filesystem/status
-```
-
-These endpoints are ideal for monitoring, debugging, and operational management of your MCP bridge deployment.
-
-### 🛡️ Security & Production
-- [🔒 Security Guide](docs/security.md) - Comprehensive security practices
-- [🔐 OAuth Authentication](docs/oauth.md) - Enterprise authentication setup
-
-### 🆘 Support
-- [🔧 Troubleshooting Guide](docs/troubleshooting.md) - Common issues and solutions
-- [🤝 Contributing Guide](CONTRIBUTING.md) - Development setup and guidelines
+- **[API Reference](docs/api.md)** - REST API endpoints
+- **[OAuth Authentication](docs/oauth.md)** - OAuth setup and security
+- **[Daemon Management](docs/daemon-management.md)** - Background process management
+- **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
 
 ---
 
-## 🛠️ Development
-
-- [Development Setup](docs/README.md#development)
-- [Contributing Guide](CONTRIBUTING.md)
-
----
-
-## 🤝 Contributing & Support
+## Contributing & Support
 
 - [Contributing Guide](CONTRIBUTING.md)
 - [Issue Tracker](https://github.com/billyjbryant/mcp-foxxy-bridge/issues)
@@ -200,8 +106,8 @@ These endpoints are ideal for monitoring, debugging, and operational management 
 
 ---
 
-## ⚖️ License
+## License
 
-This project is licensed under the GNU Affero General Public License v3.0 or later (AGPLv3+). See the [LICENSE](LICENSE) file for details.
+AGPL-3.0-or-later - See [LICENSE](LICENSE) file for details.
 
 ---

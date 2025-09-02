@@ -23,7 +23,6 @@ validation, and manipulation.
 """
 
 import json
-import logging
 from typing import Any
 
 try:
@@ -33,7 +32,9 @@ try:
 except ImportError:
     JSONSCHEMA_AVAILABLE = False
 
-logger = logging.getLogger(__name__)
+from mcp_foxxy_bridge.utils.logging import get_logger
+
+logger = get_logger(__name__, facility="UTILS")
 
 
 def safe_json_loads(json_str: str, default: Any = None) -> Any:

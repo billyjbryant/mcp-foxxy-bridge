@@ -23,11 +23,12 @@ and error response creation.
 """
 
 import asyncio
-import logging
 import traceback
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from mcp_foxxy_bridge.utils.logging import get_logger
+
+logger = get_logger(__name__, facility="UTILS")
 
 
 def format_exception(exc: Exception, include_traceback: bool = True) -> str:

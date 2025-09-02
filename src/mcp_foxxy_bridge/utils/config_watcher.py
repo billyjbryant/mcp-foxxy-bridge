@@ -19,7 +19,6 @@
 """Configuration file watcher for dynamic config reloading."""
 
 import asyncio
-import logging
 import threading
 import time
 from collections.abc import Awaitable, Callable
@@ -29,7 +28,9 @@ from typing import Any
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-logger = logging.getLogger(__name__)
+from mcp_foxxy_bridge.utils.logging import get_logger
+
+logger = get_logger(__name__, facility="UTILS")
 
 
 class ConfigFileHandler(FileSystemEventHandler):

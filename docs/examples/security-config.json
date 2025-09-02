@@ -1,0 +1,107 @@
+{
+  "mcpServers": {
+    "filesystem-readonly": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./safe-directory"],
+      "tags": ["development", "safe"],
+      "enabled": true,
+      "security": {
+        "read_only_mode": true,
+        "tool_security": {
+          "allow_patterns": ["read_*", "list_*", "search_*"],
+          "block_patterns": ["write_*", "delete_*", "move_*"],
+          "allow_tools": ["read_file", "list_directory"],
+          "block_tools": ["write_file", "create_directory"]
+        }
+      }
+    },
+    "github-controlled": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "tags": ["development", "restricted"],
+      "enabled": true,
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "security": {
+        "read_only_mode": false,
+        "tool_security": {
+          "allow_patterns": ["github_*"],
+          "block_patterns": ["*_delete_*", "*_force_*"],
+          "allow_tools": [
+            "github_create_issue",
+            "github_update_issue",
+            "github_list_repositories",
+            "github_get_file"
+          ],
+          "block_tools": [
+            "github_delete_repository",
+            "github_force_push"
+          ],
+          "classification_overrides": {
+            "github_create_issue": "write",
+            "github_list_repositories": "read",
+            "github_get_file": "read"
+          }
+        }
+      }
+    },
+    "trusted-admin": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "tags": ["admin", "trusted"],
+      "enabled": false,
+      "env": {
+        "DATABASE_URL": "$(op read op://Private/Database/url)"
+      },
+      "security": {
+        "read_only_mode": false,
+        "tool_security": {
+          "allow_patterns": ["*"],
+          "block_patterns": [],
+          "allow_tools": [],
+          "block_tools": [],
+          "classification_overrides": {}
+        }
+      }
+    }
+  },
+  "bridge": {
+    "port": 9000,
+    "oauth_port": 8090,
+    "conflictResolution": "namespace",
+    "defaultNamespace": true,
+    "allow_command_substitution": true,
+    "allowed_commands": ["op", "vault", "pass"],
+    "aggregation": {
+      "tools": true,
+      "resources": true,
+      "prompts": true
+    },
+    "failover": {
+      "enabled": true,
+      "maxFailures": 3,
+      "recoveryInterval": 60000
+    },
+    "security": {
+      "read_only_mode": true,
+      "tool_security": {
+        "allow_patterns": ["read_*", "list_*", "get_*", "search_*"],
+        "block_patterns": ["delete_*", "remove_*", "destroy_*", "*_force_*"],
+        "allow_tools": [],
+        "block_tools": [
+          "system_shutdown",
+          "format_disk",
+          "rm_rf"
+        ],
+        "classification_overrides": {
+          "backup_database": "read",
+          "restore_database": "write"
+        }
+      }
+    }
+  }
+}

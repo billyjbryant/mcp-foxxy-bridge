@@ -46,7 +46,6 @@ Example:
     ...     print(f"Schema error: {e}")
 """
 
-import logging
 import re
 import urllib.parse
 from typing import Any
@@ -58,7 +57,9 @@ try:
 except ImportError:
     JSONSCHEMA_AVAILABLE = False
 
-logger = logging.getLogger(__name__)
+from mcp_foxxy_bridge.utils.logging import get_logger
+
+logger = get_logger(__name__, facility="CONFIG")
 
 
 class ConfigValidationError(Exception):

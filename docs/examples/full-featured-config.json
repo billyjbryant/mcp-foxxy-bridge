@@ -5,7 +5,7 @@
       "timeout": 60,
       "command": "uvx",
       "args": ["mcp-server-fetch"],
-      "transportType": "stdio",
+      "transport": "stdio",
       "retryAttempts": 3,
       "retryDelay": 1000,
       "healthCheck": {
@@ -22,7 +22,7 @@
       "timeout": 60,
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
-      "transportType": "stdio",
+      "transport": "stdio",
       "env": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
       },
@@ -42,7 +42,7 @@
       "timeout": 30,
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"],
-      "transportType": "stdio",
+      "transport": "stdio",
       "retryAttempts": 2,
       "retryDelay": 500,
       "healthCheck": {
@@ -53,14 +53,23 @@
       "toolNamespace": "fs",
       "resourceNamespace": "fs",
       "priority": 50,
-      "tags": ["filesystem", "files", "local"]
+      "tags": ["filesystem", "files", "local"],
+      "security": {
+        "read_only_mode": true,
+        "tool_security": {
+          "allow_patterns": ["read_*", "list_*"],
+          "block_patterns": ["write_*", "delete_*"],
+          "allow_tools": ["read_file", "list_directory"],
+          "block_tools": ["write_file", "delete_file"]
+        }
+      }
     },
     "brave_search": {
       "enabled": false,
       "timeout": 30,
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-brave-search"],
-      "transportType": "stdio",
+      "transport": "stdio",
       "env": {
         "BRAVE_API_KEY": "${BRAVE_API_KEY}"
       },
@@ -77,8 +86,12 @@
     }
   },
   "bridge": {
+    "port": 9000,
+    "oauth_port": 8090,
     "conflictResolution": "namespace",
     "defaultNamespace": true,
+    "allow_command_substitution": false,
+    "allowed_commands": [],
     "aggregation": {
       "tools": true,
       "resources": true,
@@ -88,6 +101,16 @@
       "enabled": true,
       "maxFailures": 3,
       "recoveryInterval": 60000
+    },
+    "security": {
+      "read_only_mode": true,
+      "tool_security": {
+        "allow_patterns": ["read_*", "list_*", "get_*", "search_*"],
+        "block_patterns": ["delete_*", "remove_*", "*_force_*"],
+        "allow_tools": [],
+        "block_tools": ["system_shutdown", "format_disk"],
+        "classification_overrides": {}
+      }
     }
   }
 }

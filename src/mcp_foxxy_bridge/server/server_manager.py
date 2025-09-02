@@ -49,7 +49,10 @@ from mcp_foxxy_bridge.config.config_loader import (
     BridgeServerConfig,
     normalize_server_name,
 )
-from mcp_foxxy_bridge.utils.logging import log_to_file
+from mcp_foxxy_bridge.security.config import BridgeSecurityConfig
+from mcp_foxxy_bridge.security.policy import SecurityPolicy
+from mcp_foxxy_bridge.utils.config_migration import get_config_dir as _get_config_dir
+from mcp_foxxy_bridge.utils.logging import get_logger, log_to_file, server_context
 
 
 def _create_resource_uri(uri_string: str) -> AnyUrl | str:
@@ -75,7 +78,37 @@ def _create_resource_uri(uri_string: str) -> AnyUrl | str:
         raise ValueError(f"Invalid URI format: {uri_string}") from None
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, facility="SERVER")
+
+
+def _get_server_working_directory(server_name: str, configured_cwd: str | None = None) -> str | None:
+    """Get the working directory for a server.
+
+    Args:
+        server_name: Name of the server
+        configured_cwd: Explicitly configured working directory (takes precedence)
+
+    Returns:
+        Working directory path or None to use current directory
+
+    If no working directory is explicitly configured, creates a default directory
+    in the config directory: ~/.config/foxxy-bridge/servers/<server_name>/
+    """
+    if configured_cwd:
+        return configured_cwd
+
+    # Create default working directory in config dir
+
+    config_dir = _get_config_dir()
+    server_work_dir = config_dir / "servers" / server_name
+
+    # Ensure directory exists
+    try:
+        server_work_dir.mkdir(parents=True, exist_ok=True)
+        return str(server_work_dir)
+    except Exception as e:
+        logger.warning("Failed to create working directory for server '%s': %s", server_name, e)
+        return None  # Fall back to current directory
 
 
 # Import OAuth function (avoid circular import by importing only when needed)
@@ -155,9 +188,16 @@ class ServerManager:
         self.servers: dict[str, ManagedServer] = {}
         self.health_check_task: asyncio.Task[None] | None = None
         self.keep_alive_task: asyncio.Task[None] | None = None
+        self.oauth_token_refresh_task: asyncio.Task[None] | None = None
         self._shutdown_event = asyncio.Event()
         self._server_contexts: dict[str, contextlib.AsyncExitStack] = {}
         self._restart_locks: dict[str, asyncio.Lock] = {}
+        self._oauth_token_refresh_times: dict[str, float] = {}  # Track last token refresh per server
+
+        # Track filtered tools for visibility
+        self._filtered_tools: list[dict[str, str]] = []
+
+        # Security will be handled per-request using SecurityPolicy and individual controllers
 
         # Capability change notification system
         self.capability_change_notifier: Callable[[dict[str, Any]], Any] | None = None
@@ -225,6 +265,10 @@ class ServerManager:
         if any(server.config.health_check and server.config.health_check.enabled for server in self.servers.values()):
             self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
 
+        # Start OAuth token refresh task for OAuth servers (both SSE and HTTP)
+        if any(self._is_oauth_endpoint(server) for server in self.servers.values()):
+            self.oauth_token_refresh_task = asyncio.create_task(self._oauth_token_refresh_loop())
+
         logger.info(
             "Server manager started with %d active servers",
             len(self.get_active_servers()),
@@ -256,6 +300,11 @@ class ServerManager:
             self.keep_alive_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.keep_alive_task
+
+        if self.oauth_token_refresh_task:
+            self.oauth_token_refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.oauth_token_refresh_task
 
         # Close all server context stacks to cleanup managed connections
         cleanup_tasks = []
@@ -295,14 +344,13 @@ class ServerManager:
 
     async def _connect_server(self, server: ManagedServer) -> None:
         """Connect to a single MCP server."""
-        logger.debug(
-            'MCP Server Starting: %s - "%s" %s',
-            server.name,
-            server.config.command,
-            " ".join(server.config.args or []),
-        )
-
-        server.health.status = ServerStatus.CONNECTING
+        with server_context(server.name):
+            logger.debug(
+                'MCP Server Starting: "%s" %s',
+                server.config.command,
+                " ".join(server.config.args or []),
+            )
+            server.health.status = ServerStatus.CONNECTING
 
         # Create a dedicated context stack for this server
         context_stack = contextlib.AsyncExitStack()
@@ -376,7 +424,7 @@ class ServerManager:
                             server.name,
                             headers=headers or None,
                             oauth_enabled=server.config.is_oauth_enabled(),
-                            oauth_config=server.config.oauth_config,
+                            oauth_config=server.config.oauth_config.to_dict() if server.config.oauth_config else None,
                             authentication=server.config.authentication,
                             verify_ssl=server.config.verify_ssl,
                         ),
@@ -432,7 +480,7 @@ class ServerManager:
                             command=server.config.command,
                             args=server.config.args or [],
                             server_name=server.name,
-                            cwd=None,
+                            cwd=_get_server_working_directory(server.name, server.config.working_directory),
                             env=server_env,
                             timeout=30.0,
                         ),
@@ -685,10 +733,14 @@ class ServerManager:
         while not self._shutdown_event.is_set():
             try:
                 await self._perform_keep_alive_checks()
-                # Use the minimum keep-alive interval from all servers
+                # Use the minimum keep-alive interval from all servers, with OAuth-specific intervals
                 min_interval = min(
                     (
-                        server.config.health_check.keep_alive_interval / 1000.0
+                        (
+                            server.config.oauth_config.keep_alive_interval / 1000.0
+                            if self._is_oauth_endpoint(server) and server.config.oauth_config
+                            else server.config.health_check.keep_alive_interval / 1000.0
+                        )
                         for server in self.servers.values()
                         if server.config.health_check and server.config.health_check.enabled
                     ),
@@ -700,6 +752,19 @@ class ServerManager:
             except Exception:
                 logger.exception("Error in keep-alive loop")
                 await asyncio.sleep(5)  # Brief pause before retrying
+
+    async def _oauth_token_refresh_loop(self) -> None:
+        """Proactive OAuth token refresh loop for OAuth servers."""
+        while not self._shutdown_event.is_set():
+            try:
+                await self._perform_oauth_token_refresh()
+                # Check every 5 minutes for tokens that need refreshing
+                await asyncio.sleep(300)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("Error in OAuth token refresh loop")
+                await asyncio.sleep(60)  # Brief pause before retrying
 
     async def _perform_health_checks(self) -> None:
         """Perform health checks on all servers."""
@@ -724,7 +789,7 @@ class ServerManager:
                 except Exception as e:
                     health_elapsed = time.time() - health_start_time
 
-                    # Handle OAuth SSE endpoints with special logic
+                    # Handle OAuth endpoints (SSE and HTTP) with special logic
                     if await self._handle_oauth_health_check_failure(server, e):
                         # OAuth recovery was attempted, continue to next server
                         continue
@@ -746,11 +811,11 @@ class ServerManager:
                     elif server.config.health_check:
                         max_failures = server.config.health_check.max_consecutive_failures
 
-                    # OAuth SSE endpoints get more tolerance for connection issues
-                    if self._is_oauth_sse_endpoint(server):
+                    # OAuth endpoints get more tolerance for connection issues
+                    if self._is_oauth_endpoint(server):
                         max_failures = max(max_failures * 2, 6)  # Double the tolerance
                         logger.debug(
-                            "OAuth SSE endpoint '%s' gets increased failure tolerance: %d",
+                            "OAuth endpoint '%s' gets increased failure tolerance: %d",
                             server.name,
                             max_failures,
                         )
@@ -877,6 +942,8 @@ class ServerManager:
         """Get aggregated tools from all active servers."""
         tools: list[types.Tool] = []
         seen_names = set()
+        filtered_tools: list[dict[str, str]] = []  # Track filtered tools
+        total_tools_before_filter = 0
 
         # Sort servers by priority (lower number = higher priority)
         active_servers = sorted(self.get_active_servers(), key=lambda s: s.config.priority)
@@ -896,10 +963,40 @@ class ServerManager:
 
             namespace = server.get_effective_namespace("tools", self.bridge_config.bridge)
 
+            # Create security policy for this server using bridge-level read_only_mode
+            # Always create a BridgeSecurityConfig, using defaults if bridge config is None
+            if self.bridge_config.bridge:
+                bridge_security = BridgeSecurityConfig(
+                    read_only_mode=self.bridge_config.bridge.read_only_mode,
+                    tools=self.bridge_config.bridge.security.tools if self.bridge_config.bridge.security else None,
+                )
+            else:
+                # Create default bridge security config
+                bridge_security = BridgeSecurityConfig()
+
+            security_policy = SecurityPolicy(
+                bridge_config=bridge_security,
+                server_config=server.config.security
+                if hasattr(server.config, "security") and server.config.security
+                else None,
+            )
+
             for tool in server.tools:
+                total_tools_before_filter += 1
                 tool_name = tool.name
+                original_tool_name = tool.name
                 if namespace:
                     tool_name = f"{namespace}__{tool.name}"
+
+                # Apply security filtering - check if tool is allowed
+                if not security_policy.is_tool_allowed(original_tool_name):
+                    logger.debug(
+                        "Tool '%s' from server '%s' blocked by security policy", original_tool_name, server.name
+                    )
+                    filtered_tools.append(
+                        {"tool": original_tool_name, "server": server.name, "namespaced_name": tool_name}
+                    )
+                    continue
 
                 # Handle name conflicts based on configuration
                 if tool_name in seen_names:
@@ -919,8 +1016,30 @@ class ServerManager:
 
                 tools.append(namespaced_tool)
                 seen_names.add(tool_name)
+                logger.debug("Tool '%s' from server '%s' allowed", original_tool_name, server.name)
+
+        # Store filtered tools for status reporting
+        self._filtered_tools = filtered_tools
+
+        # Log filtering summary
+        filtered_count = len(filtered_tools)
+        if filtered_count > 0:
+            logger.warning("Security filtering: %d tools filtered out, %d tools available", filtered_count, len(tools))
+            if logger.level <= logging.DEBUG:
+                for filtered in filtered_tools:
+                    logger.debug("Filtered tool: %s from server %s", filtered["tool"], filtered["server"])
+        else:
+            logger.info("Security filtering: %d tools available (no tools filtered)", len(tools))
 
         return tools
+
+    def get_filtered_tools(self) -> list[dict[str, str]]:
+        """Get information about tools that were filtered out by security policies.
+
+        Returns:
+            List of filtered tool dictionaries with keys: tool, server, namespaced_name
+        """
+        return self._filtered_tools.copy()
 
     def get_aggregated_resources(self) -> list[types.Resource]:
         """Get aggregated resources from all active servers."""
@@ -955,8 +1074,27 @@ class ServerManager:
                     # Use helper function to handle both standard and custom URI schemes
                     parsed_uri = _create_resource_uri(resource_uri)
 
-                    # Convert to AnyUrl if it's a string
-                    resource_uri_typed = AnyUrl(parsed_uri) if isinstance(parsed_uri, str) else parsed_uri
+                    # If _create_resource_uri returned a string (custom scheme),
+                    # don't try to convert to AnyUrl again as it will fail
+                    if isinstance(parsed_uri, str):
+                        # For custom schemes that failed AnyUrl validation, we need a different approach
+                        # Try to namespace the path part instead of the scheme
+                        if namespace and "://" in original_uri:
+                            scheme, rest = original_uri.split("://", 1)
+                            # Namespace the path part while keeping the scheme intact
+                            rest_stripped = rest.strip("/ \t\r\n") if rest is not None else ""
+                            if rest_stripped:
+                                namespaced_uri = f"{scheme}://{namespace}/{rest_stripped}"
+                            else:
+                                namespaced_uri = f"{scheme}://{namespace}"
+                        else:
+                            namespaced_uri = original_uri
+
+                        # Try to create AnyUrl with the properly namespaced URI
+                        resource_uri_typed = AnyUrl(namespaced_uri)
+                    else:
+                        resource_uri_typed = parsed_uri
+
                     namespaced_resource = types.Resource(
                         uri=resource_uri_typed,
                         name=resource.name,
@@ -1056,9 +1194,35 @@ class ServerManager:
             msg = f"Tool '{actual_tool_name}' not found on server '{server.name}'"
             raise ValueError(msg)
 
+        # Apply security check for tool execution using bridge-level read_only_mode
+        # Always create a BridgeSecurityConfig, using defaults if bridge config is None
+        if self.bridge_config.bridge:
+            bridge_security = BridgeSecurityConfig(
+                read_only_mode=self.bridge_config.bridge.read_only_mode,
+                tools=self.bridge_config.bridge.security.tools if self.bridge_config.bridge.security else None,
+            )
+        else:
+            # Create default bridge security config
+            bridge_security = BridgeSecurityConfig()
+
+        security_policy = SecurityPolicy(
+            bridge_config=bridge_security,
+            server_config=server.config.security
+            if hasattr(server.config, "security") and server.config.security
+            else None,
+        )
+
+        if not security_policy.is_tool_allowed(actual_tool_name):
+            msg = f"Tool '{actual_tool_name}' blocked by security policy"
+            logger.warning("Blocked tool execution: %s", msg)
+            raise PermissionError(msg)
+
+        # Use original arguments for now (AccessController sanitization will be added later if needed)
+        sanitized_arguments = arguments
+
         # Call the tool
         try:
-            return await server.session.call_tool(actual_tool_name, arguments)
+            return await server.session.call_tool(actual_tool_name, sanitized_arguments)
         except McpError as e:
             # Log MCP errors as warnings and re-raise
             logger.warning(
@@ -1416,9 +1580,13 @@ class ServerManager:
             ):
                 continue
 
-            # Check if it's time for a keep-alive ping
+            # Check if it's time for a keep-alive ping (use OAuth-specific interval for OAuth servers)
             time_since_last_keep_alive = current_time - server.health.last_keep_alive
-            keep_alive_interval = server.config.health_check.keep_alive_interval / 1000.0
+            keep_alive_interval = (
+                server.config.oauth_config.keep_alive_interval / 1000.0
+                if self._is_oauth_endpoint(server) and server.config.oauth_config
+                else server.config.health_check.keep_alive_interval / 1000.0
+            )
 
             if time_since_last_keep_alive >= keep_alive_interval:
                 # Start keep-alive task and store reference to prevent GC
@@ -1532,7 +1700,28 @@ class ServerManager:
             server: The server to reconnect
         """
         logger.info("Forcing reconnection for server '%s'", server.name)
-        await self._connect_server(server)
+
+        try:
+            # First disconnect cleanly if connected
+            if server.health.status in (ServerStatus.CONNECTED, ServerStatus.CONNECTING):
+                logger.debug("Disconnecting server '%s' before reconnecting", server.name)
+                await self._disconnect_server(server)
+
+            # Small delay to ensure cleanup completes
+            await asyncio.sleep(0.1)
+
+            # Now reconnect
+            await self._connect_server(server)
+            logger.info("Server '%s' reconnected successfully", server.name)
+
+        except asyncio.CancelledError:
+            logger.warning("Reconnection of server '%s' was cancelled", server.name)
+            server.health.status = ServerStatus.FAILED
+            raise
+        except Exception:
+            logger.exception("Failed to reconnect server '%s'", server.name)
+            server.health.status = ServerStatus.FAILED
+            raise
 
     async def update_servers(self, new_server_configs: dict[str, BridgeServerConfig]) -> None:
         """Update server configurations dynamically.
@@ -1797,14 +1986,18 @@ class ServerManager:
         """Check if server is an OAuth-enabled SSE endpoint."""
         return server.config.transport_type == "sse" and server.config.is_oauth_enabled()
 
+    def _is_oauth_endpoint(self, server: ManagedServer) -> bool:
+        """Check if server is an OAuth-enabled endpoint (SSE or HTTP)."""
+        return server.config.is_oauth_enabled() and server.config.transport_type in ("sse", "http")
+
     async def _handle_oauth_health_check_failure(self, server: ManagedServer, error: Exception) -> bool:
-        """Handle health check failures for OAuth SSE endpoints.
+        """Handle health check failures for OAuth endpoints (both SSE and HTTP).
 
         Returns:
             True if OAuth recovery was attempted (skip normal failure handling)
             False if normal failure handling should proceed
         """
-        if not self._is_oauth_sse_endpoint(server):
+        if not self._is_oauth_endpoint(server):
             return False
 
         error_str = str(error).lower()
@@ -1892,3 +2085,78 @@ class ServerManager:
             logger.warning("OAuth SSE reconnection network error: %s", type(e).__name__)
         except Exception:
             logger.exception("Unexpected OAuth SSE reconnection error for server '%s'", server.name)
+
+    async def _perform_oauth_token_refresh(self) -> None:
+        """Proactively refresh OAuth tokens before they expire."""
+        current_time = time.time()
+
+        for server in self.servers.values():
+            if not self._is_oauth_endpoint(server):
+                continue
+
+            if not server.config.oauth_config:
+                continue
+
+            # Check if it's time to refresh the token
+            last_refresh = self._oauth_token_refresh_times.get(server.name, 0)
+            refresh_interval = server.config.oauth_config.token_refresh_interval / 1000.0
+
+            if current_time - last_refresh >= refresh_interval:
+                logger.debug("Proactively refreshing OAuth token for server '%s'", server.name)
+                await self._refresh_oauth_token(server)
+                self._oauth_token_refresh_times[server.name] = current_time
+
+    async def _refresh_oauth_token(self, server: ManagedServer) -> None:
+        """Refresh OAuth token for a specific server."""
+        with server_context(server.name):
+            if not server.config.oauth_config or not server.config.oauth_config.enabled:
+                logger.debug("OAuth not enabled for server, skipping token refresh")
+                return
+
+            try:
+                # Import OAuth components when needed to avoid circular dependencies
+                from mcp_foxxy_bridge.oauth import get_oauth_client_config  # noqa: PLC0415
+                from mcp_foxxy_bridge.oauth.oauth_flow import OAuthFlow  # noqa: PLC0415
+                from mcp_foxxy_bridge.oauth.types import OAuthProviderOptions  # noqa: PLC0415
+
+                # Get client config for OAuth
+                client_config = get_oauth_client_config()
+
+                # Create OAuth provider options
+                oauth_options = OAuthProviderOptions(
+                    server_url=server.config.url or "",
+                    host="localhost",
+                    callback_port=self.bridge_config.bridge.oauth_port if self.bridge_config.bridge else 8080,
+                    callback_path="/oauth/callback",
+                    client_name=client_config["client_name"],
+                    client_uri=client_config["client_uri"],
+                    software_id=client_config["software_id"],
+                    software_version=client_config["software_version"],
+                    server_name=server.name,
+                    oauth_issuer=server.config.oauth_config.issuer,
+                    verify_ssl=server.config.oauth_config.verify_ssl,
+                )
+
+                oauth_flow = OAuthFlow(oauth_options)
+
+                # Check if we have existing tokens with refresh capability
+                existing_tokens = oauth_flow.provider.tokens_including_expired()
+                if not existing_tokens or not existing_tokens.refresh_token:
+                    logger.debug("No refresh token available for server, cannot proactively refresh")
+                    return
+
+                # Attempt to refresh the token
+                logger.debug("Proactively refreshing OAuth token for server")
+                refreshed_tokens = oauth_flow.refresh_tokens(existing_tokens.refresh_token)
+
+                if refreshed_tokens and refreshed_tokens.access_token:
+                    logger.info("OAuth token successfully refreshed for server")
+                    # Token is automatically saved by the OAuth flow
+                else:
+                    logger.warning("OAuth token refresh returned invalid tokens for server")
+
+            except Exception as e:
+                logger.warning(
+                    "Failed to proactively refresh OAuth token for server: %s",
+                    str(e),
+                )
