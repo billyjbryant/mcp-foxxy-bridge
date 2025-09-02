@@ -51,6 +51,7 @@ from mcp_foxxy_bridge.config.config_loader import (
 )
 from mcp_foxxy_bridge.security.config import BridgeSecurityConfig
 from mcp_foxxy_bridge.security.policy import SecurityPolicy
+from mcp_foxxy_bridge.utils.config_migration import get_config_dir as _get_config_dir
 from mcp_foxxy_bridge.utils.logging import get_logger, log_to_file, server_context
 
 
@@ -97,7 +98,6 @@ def _get_server_working_directory(server_name: str, configured_cwd: str | None =
         return configured_cwd
 
     # Create default working directory in config dir
-    from mcp_foxxy_bridge.utils.config_migration import get_config_dir as _get_config_dir
 
     config_dir = _get_config_dir()
     server_work_dir = config_dir / "servers" / server_name
