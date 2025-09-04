@@ -31,9 +31,9 @@ from rich.prompt import Confirm
 
 from mcp_foxxy_bridge.cli.formatters import ConfigFormatter
 from mcp_foxxy_bridge.config.config_loader import load_bridge_config_from_file
-from mcp_foxxy_bridge.oauth.utils import _validate_server_name
 from mcp_foxxy_bridge.utils.config_migration import get_config_dir
 from mcp_foxxy_bridge.utils.path_security import validate_config_path
+from mcp_foxxy_bridge.utils.server_names import find_server_key
 
 
 async def handle_config_command(
@@ -675,20 +675,21 @@ async def _mcp_config_set(
     try:
         config = _load_config_safe(config_path, logger)
 
-        # Get and normalize server name, key, and value from CLI args
-        server_name = _validate_server_name(args.server_name)
+        # Get server name, key, and value from CLI args
+        input_server_name = args.server_name
         key = args.key
         value = args.value
 
-        # Check if server exists
+        # Find actual server key using case-insensitive matching
         servers = config.get("mcpServers", {})
-        if server_name not in servers:
-            console.print(f"[red]MCP server '{server_name}' not found[/red]")
+        actual_server_key = find_server_key(servers, input_server_name)
+        if actual_server_key is None:
+            console.print(f"[red]MCP server '{input_server_name}' not found[/red]")
             console.print("[dim]Use 'foxxy-bridge mcp list' to see available servers[/dim]")
             return
 
-        # Build the full key path for mcpServers
-        full_key = f"mcpServers.{server_name}.{key}"
+        # Build the full key path for mcpServers using actual server key
+        full_key = f"mcpServers.{actual_server_key}.{key}"
 
         old_value = _get_config_value(config, full_key)
         parsed_value = _parse_config_value(value)
@@ -699,7 +700,7 @@ async def _mcp_config_set(
         # Save configuration
         _save_config(config, config_path, console, logger)
 
-        console.print(f"[green]✓[/green] Set [bold]{server_name}.{key}[/bold] = [cyan]{parsed_value}[/cyan]")
+        console.print(f"[green]✓[/green] Set [bold]{actual_server_key}.{key}[/bold] = [cyan]{parsed_value}[/cyan]")
         if old_value is not None and old_value != parsed_value:
             console.print(f"[dim]Previous value: {old_value}[/dim]")
 
@@ -728,25 +729,26 @@ async def _mcp_config_get(
     try:
         config = _load_config_safe(config_path, logger)
 
-        # Get and normalize server name and key from CLI args
-        server_name = _validate_server_name(args.server_name)
+        # Get server name and key from CLI args
+        input_server_name = args.server_name
         key = args.key
 
-        # Check if server exists
+        # Find actual server key using case-insensitive matching
         servers = config.get("mcpServers", {})
-        if server_name not in servers:
-            console.print(f"[red]MCP server '{server_name}' not found[/red]")
+        actual_server_key = find_server_key(servers, input_server_name)
+        if actual_server_key is None:
+            console.print(f"[red]MCP server '{input_server_name}' not found[/red]")
             console.print("[dim]Use 'foxxy-bridge mcp list' to see available servers[/dim]")
             return
 
-        # Build the full key path for mcpServers
-        full_key = f"mcpServers.{server_name}.{key}"
+        # Build the full key path for mcpServers using actual server key
+        full_key = f"mcpServers.{actual_server_key}.{key}"
 
         value = _get_config_value(config, full_key)
         if value is None:
-            console.print(f"[yellow]Key [bold]{server_name}.{key}[/bold] is not set[/yellow]")
+            console.print(f"[yellow]Key [bold]{actual_server_key}.{key}[/bold] is not set[/yellow]")
         else:
-            console.print(f"[bold]{server_name}.{key}[/bold] = [cyan]{value}[/cyan]")
+            console.print(f"[bold]{actual_server_key}.{key}[/bold] = [cyan]{value}[/cyan]")
 
     except Exception as e:
         console.print(f"[red]Error getting MCP server config value: {e}[/red]")
@@ -773,23 +775,24 @@ async def _mcp_config_unset(
     try:
         config = _load_config_safe(config_path, logger)
 
-        # Get and normalize server name and key from CLI args
-        server_name = _validate_server_name(args.server_name)
+        # Get server name and key from CLI args
+        input_server_name = args.server_name
         key = args.key
 
-        # Check if server exists
+        # Find actual server key using case-insensitive matching
         servers = config.get("mcpServers", {})
-        if server_name not in servers:
-            console.print(f"[red]MCP server '{server_name}' not found[/red]")
+        actual_server_key = find_server_key(servers, input_server_name)
+        if actual_server_key is None:
+            console.print(f"[red]MCP server '{input_server_name}' not found[/red]")
             console.print("[dim]Use 'foxxy-bridge mcp list' to see available servers[/dim]")
             return
 
-        # Build the full key path for mcpServers
-        full_key = f"mcpServers.{server_name}.{key}"
+        # Build the full key path for mcpServers using actual server key
+        full_key = f"mcpServers.{actual_server_key}.{key}"
 
         old_value = _get_config_value(config, full_key)
         if old_value is None:
-            console.print(f"[yellow]Key [bold]{server_name}.{key}[/bold] is not set[/yellow]")
+            console.print(f"[yellow]Key [bold]{actual_server_key}.{key}[/bold] is not set[/yellow]")
             return
 
         # Unset the value
@@ -798,7 +801,7 @@ async def _mcp_config_unset(
         # Save configuration
         _save_config(config, config_path, console, logger)
 
-        console.print(f"[green]✓[/green] Unset [bold]{server_name}.{key}[/bold]")
+        console.print(f"[green]✓[/green] Unset [bold]{actual_server_key}.{key}[/bold]")
         console.print(f"[dim]Previous value: {old_value}[/dim]")
 
     except Exception as e:
