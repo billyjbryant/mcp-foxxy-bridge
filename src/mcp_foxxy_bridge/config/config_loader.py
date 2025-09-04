@@ -1463,9 +1463,13 @@ def load_bridge_config_from_file(
         raise
 
     # Step 5: Load server configurations with expanded variables
-    servers = _load_server_configurations(config_data, config_file_path, base_env)
+    servers, config_updated = _load_server_configurations(config_data, config_file_path, base_env)
 
-    # Step 6: Show warning if dangerous commands are enabled via config
+    # Step 6: Save normalized config if server names were updated
+    if config_updated:
+        _save_normalized_config(config_data, config_file_path)
+
+    # Step 7: Show warning if dangerous commands are enabled via config
     if bridge_config.allow_dangerous_commands:
         logger.warning("DANGER: UNSAFE MODE ENABLED via configuration!")
         logger.warning("'allow_dangerous_commands: true' found in bridge config")
@@ -1578,7 +1582,7 @@ def _load_bridge_security_config(security_data: dict[str, Any]) -> "BridgeSecuri
 
 def _load_server_configurations(
     config_data: dict[str, Any], config_file_path: str, base_env: dict[str, str]
-) -> dict[str, BridgeServerConfig]:
+) -> tuple[dict[str, BridgeServerConfig], bool]:
     """Load and parse server configurations from config data.
 
     Args:
@@ -1587,10 +1591,14 @@ def _load_server_configurations(
         base_env: Base environment variables for servers
 
     Returns:
-        Dictionary mapping server names to BridgeServerConfig objects
+        Tuple of (dictionary mapping server names to BridgeServerConfig objects, config_updated flag)
     """
     servers = {}
-    for name, server_config in config_data.get("mcpServers", {}).items():
+    config_updated = False
+    mcp_servers = config_data.get("mcpServers", {})
+    normalized_servers = {}
+
+    for name, server_config in mcp_servers.items():
         if not isinstance(server_config, dict):
             logger.warning(
                 f"Skipping invalid server config for '{name}' in {config_file_path}. Entry is not a dictionary."
@@ -1634,6 +1642,14 @@ def _load_server_configurations(
         from mcp_foxxy_bridge.oauth.utils import _validate_server_name  # noqa: PLC0415
 
         normalized_name = _validate_server_name(name)
+
+        # Track if server name was normalized (changed)
+        if normalized_name != name:
+            config_updated = True
+            logger.debug(f"Normalized server name '{name}' -> '{normalized_name}'")
+
+        # Store normalized server config for potential config file update
+        normalized_servers[normalized_name] = server_config
 
         # Create OAuth configuration
         oauth_data = server_config.get("oauth_config", {})
@@ -1697,7 +1713,39 @@ def _load_server_configurations(
         servers[normalized_name] = server
         logger.debug(f'MCP Server configured: {name} - "{server.command}" {" ".join(server.args)}')
 
-    return servers
+    # Update config_data with normalized server names if any were changed
+    if config_updated:
+        config_data["mcpServers"] = normalized_servers
+
+    return servers, config_updated
+
+
+def _save_normalized_config(config_data: dict[str, Any], config_file_path: str) -> None:
+    """Save the config file with normalized server names.
+
+    Args:
+        config_data: Updated configuration data with normalized server names
+        config_file_path: Path to the config file to update
+    """
+    try:
+        config_path = Path(config_file_path)
+
+        # Create backup of original config
+        backup_path = config_path.with_suffix(config_path.suffix + ".backup")
+        if config_path.exists() and not backup_path.exists():
+            shutil.copy2(config_path, backup_path)
+            logger.debug(f"Created backup: {backup_path}")
+
+        # Write normalized config
+        with config_path.open("w", encoding="utf-8") as f:
+            json.dump(config_data, f, indent=2, ensure_ascii=False)
+
+        # Set secure permissions
+        config_path.chmod(0o600)
+        logger.debug(f"Updated config file with normalized server names: {config_file_path}")
+
+    except Exception as e:
+        logger.warning(f"Failed to save normalized config: {e}")
 
 
 def validate_bridge_config(config_data: dict[str, Any]) -> None:

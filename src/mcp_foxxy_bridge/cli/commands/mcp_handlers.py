@@ -37,6 +37,61 @@ from mcp_foxxy_bridge.oauth.utils import _validate_server_name
 from .config import _load_config_safe, _save_config
 
 
+async def _try_get_servers_from_api(config_path: Path, logger: logging.Logger) -> dict[str, Any] | None:
+    """Try to get server configurations from running bridge API.
+
+    Returns:
+        Server configurations dict if API is available, None otherwise
+    """
+    try:
+        # Load bridge config to get port
+        config = load_bridge_config_from_file(str(config_path), dict(os.environ))
+        if config is None or config.bridge is None:
+            return None
+
+        bridge_port = config.bridge.port
+
+        # Try to connect to bridge API
+        timeout = aiohttp.ClientTimeout(total=3)  # Quick timeout for API check
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            # Get server configurations from bridge API
+            url = f"http://127.0.0.1:{bridge_port}/sse/servers"
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    servers = data.get("servers", [])
+
+                    # Convert server list to config format for compatibility
+                    server_configs = {}
+                    for server in servers:
+                        name = server.get("name", "unknown")
+                        # Extract config-like info from server status
+                        server_configs[name] = {
+                            "transport": server.get("transport", "unknown"),
+                            "enabled": server.get("status") != "disabled",
+                            "tags": server.get("tags", []),
+                        }
+
+                        # Add transport-specific config
+                        if server.get("transport") == "sse":
+                            server_configs[name]["url"] = server.get("url", "")
+                        else:
+                            server_configs[name]["command"] = server.get("command", "")
+                            server_configs[name]["args"] = server.get("args", [])
+
+                    logger.debug(f"Retrieved {len(server_configs)} servers from bridge API")
+                    return server_configs
+                logger.debug(f"Bridge API returned status {response.status}")
+                return None
+
+    except (aiohttp.ClientError, OSError) as e:
+        logger.debug(f"Bridge API not available: {type(e).__name__}")
+        return None
+    except Exception as e:
+        logger.debug(f"Failed to get servers from bridge API: {e}")
+        return None
+
+
 async def handle_mcp_add(
     args: Any,
     config_path: Path,
@@ -59,9 +114,17 @@ async def handle_mcp_add(
         # Load existing configuration
         config = _load_config_safe(config_path, logger)
 
-        # Check if server already exists
+        # Normalize server name for consistency
+        from mcp_foxxy_bridge.oauth.utils import _validate_server_name  # noqa: PLC0415
+
+        normalized_name = _validate_server_name(args.name)
+
+        if normalized_name != args.name:
+            logger.debug(f"Normalized server name '{args.name}' -> '{normalized_name}'")
+
+        # Check if server already exists (case-insensitive)
         servers = config.get("mcpServers", {})
-        if args.name in servers:
+        if normalized_name in servers:
             try:
                 if not Confirm.ask(f"Server '{args.name}' already exists. Overwrite?"):
                     console.print("[yellow]Operation cancelled[/yellow]")
@@ -187,14 +250,16 @@ async def handle_mcp_add(
             server_config["security"] = security_config
 
         # Add server to configuration
-        servers[args.name] = server_config
+        servers[normalized_name] = server_config
         config["mcpServers"] = servers
 
         # Save configuration
         _save_config(config, config_path, console, logger)
 
-        console.print(f"[green]✓[/green] Added MCP server '[cyan]{args.name}[/cyan]'")
-        logger.info(f"Added MCP server '{args.name}' with transport '{args.transport}'")
+        console.print(f"[green]✓[/green] Added MCP server '[cyan]{normalized_name}[/cyan]'")
+        if normalized_name != args.name:
+            console.print(f"[dim]Server name normalized from '{args.name}' to '{normalized_name}'[/dim]")
+        logger.info(f"Added MCP server '{normalized_name}' with transport '{args.transport}'")
 
     except Exception as e:
         console.print(f"[red]Error adding MCP server: {e}[/red]")
@@ -273,20 +338,26 @@ async def handle_mcp_list(
     Supports table, JSON, and YAML output formats.
     """
     """List configured MCP servers."""
-    try:
-        config = _load_config_safe(config_path, logger)
-        servers = config.get("mcpServers", {})
+    # First try to get server list from running bridge API
+    servers = await _try_get_servers_from_api(config_path, logger)
 
-        if args.format == "json":
-            console.print(json.dumps(servers, indent=2))
-        elif args.format == "yaml":
-            console.print(yaml.dump(servers, default_flow_style=False))  # type: ignore[no-untyped-call]
-        else:
-            ConfigFormatter.format_servers_table(servers, console)
+    # Fall back to config file if bridge API is not available
+    if servers is None:
+        logger.debug("Bridge API unavailable, reading from config file")
+        try:
+            config = _load_config_safe(config_path, logger)
+            servers = config.get("mcpServers", {})
+        except Exception as e:
+            console.print(f"[red]Error loading config file: {e}[/red]")
+            logger.exception("Failed to load server configurations from config file")
+            return
 
-    except Exception as e:
-        console.print(f"[red]Error listing MCP servers: {e}[/red]")
-        logger.exception("Failed to list MCP server configurations")
+    if args.format == "json":
+        console.print(json.dumps(servers, indent=2))
+    elif args.format == "yaml":
+        console.print(yaml.dump(servers, default_flow_style=False))  # type: ignore[no-untyped-call]
+    else:
+        ConfigFormatter.format_servers_table(servers, console)
 
 
 async def handle_mcp_show(
