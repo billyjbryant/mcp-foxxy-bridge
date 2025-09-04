@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.6.1...v1.6.2) (2025-09-04)
+
+
+### 🐛 Bug Fixes
+
+* **cli:** resolve MCP command status and transport display issues ([4727087](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/472708757ffece15cacf0649d71c3bbf4abd202e))
+
 ## [1.6.1](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.6.0...v1.6.1) (2025-09-04)
 
 
