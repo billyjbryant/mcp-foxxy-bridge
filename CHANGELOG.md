@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.6.0...v1.6.1) (2025-09-04)
+
+
+### 🐛 Bug Fixes
+
+* resolve server name case-sensitivity causing config lookup failures ([#21](https://github.com/billyjbryant/mcp-foxxy-bridge/issues/21)) ([32176a3](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/32176a3f90c28ae59dce526ae25c6ca3c171e2d9))
+
 ## [1.6.0](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.5.0...v1.6.0) (2025-09-02)
 
 
