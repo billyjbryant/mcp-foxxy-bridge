@@ -54,8 +54,8 @@ Documentation = "https://github.com/billyjbryant/mcp-foxxy-bridge"
 Changelog = "https://github.com/billyjbryant/mcp-foxxy-bridge/releases"
 
 [project.scripts]
-foxxy-bridge = "mcp_foxxy_bridge.cli.click_main:cli"
-mcp-foxxy-bridge = "mcp_foxxy_bridge.cli.click_main:cli"
+foxxy-bridge = "mcp_foxxy_bridge.cli.main:cli"
+mcp-foxxy-bridge = "mcp_foxxy_bridge.cli.main:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_foxxy_bridge"]

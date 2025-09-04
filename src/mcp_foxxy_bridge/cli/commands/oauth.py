@@ -79,17 +79,6 @@ async def handle_oauth_command(
     """
     # Check if no subcommand was provided
     if not hasattr(args, "oauth_command") or args.oauth_command is None:
-        from mcp_foxxy_bridge.cli.main import _setup_argument_parser
-
-        parser = _setup_argument_parser()
-        if parser._subparsers is None:  # noqa: SLF001
-            console.print("[yellow]Usage: foxxy-bridge oauth <command>[/yellow]")
-            console.print("Available commands: status, login, logout")
-            return
-        for action in parser._subparsers._actions:  # noqa: SLF001
-            if hasattr(action, "choices") and action.choices and "oauth" in action.choices:
-                action.choices["oauth"].print_help()  # type: ignore[index]
-                return
         console.print("[yellow]Usage: foxxy-bridge oauth <command>[/yellow]")
         console.print("Available commands: status, login, logout")
         return

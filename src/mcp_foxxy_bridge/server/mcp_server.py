@@ -850,21 +850,26 @@ async def handle_server_discovery(request: Request) -> Response:
 
                 # Get server status if we can access the server manager
                 server_status = "unknown"
+                last_seen = None
                 for manager in _server_manager_registry.values():
                     server = manager.get_server_by_name(server_name)
                     if server:
                         server_status = server.health.status.value
+                        last_seen = getattr(server.health, "last_seen", None)
                         break
 
-                available_servers.append(
-                    {
-                        "name": normalized_name,
-                        "endpoint": f"{base_url}/sse/mcp/{normalized_name}",
-                        "tags": server_config.tags or [],
-                        "status": server_status,
-                        "transport_type": getattr(server_config, "transport_type", "stdio"),
-                    }
-                )
+                server_info = {
+                    "name": normalized_name,
+                    "endpoint": f"{base_url}/sse/mcp/{normalized_name}",
+                    "tags": server_config.tags or [],
+                    "status": server_status,
+                    "transport": getattr(server_config, "transport_type", "stdio"),
+                }
+
+                if last_seen is not None:
+                    server_info["last_seen"] = last_seen
+
+                available_servers.append(server_info)
 
         return JSONResponse(
             {

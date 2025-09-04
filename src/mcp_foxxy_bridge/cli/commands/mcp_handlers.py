@@ -18,9 +18,11 @@
 #
 """MCP server management command handlers."""
 
+import argparse
 import json
 import logging
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +37,36 @@ from mcp_foxxy_bridge.config.config_loader import load_bridge_config_from_file
 from mcp_foxxy_bridge.oauth.utils import _validate_server_name
 
 from .config import _load_config_safe, _save_config
+
+
+async def handle_mcp_command(
+    args: argparse.Namespace,
+    config_path: Path,
+    config_dir: Path,
+    console: Console,
+    logger: logging.Logger,
+) -> None:
+    """Handle MCP server management commands."""
+    # Check if no subcommand was provided (this shouldn't happen with Click)
+    if not hasattr(args, "mcp_command") or args.mcp_command is None:
+        console.print("[yellow]Usage: foxxy-bridge mcp <command>[/yellow]")
+        console.print("Available commands: add, remove, list, show, status, restart")
+        return
+
+    if args.mcp_command == "add":
+        await handle_mcp_add(args, config_path, config_dir, console, logger)
+    elif args.mcp_command == "remove":
+        await handle_mcp_remove(args, config_path, config_dir, console, logger)
+    elif args.mcp_command == "list":
+        await handle_mcp_list(args, config_path, config_dir, console, logger)
+    elif args.mcp_command == "show":
+        await handle_mcp_show(args, config_path, config_dir, console, logger)
+    elif args.mcp_command == "status":
+        await handle_mcp_status(args, config_path, config_dir, console, logger)
+    elif args.mcp_command == "restart":
+        await handle_mcp_restart(args, config_path, config_dir, console, logger)
+    else:
+        console.print(f"[red]Unknown mcp command: {args.mcp_command}[/red]")
 
 
 async def _try_get_servers_from_api(config_path: Path, logger: logging.Logger) -> dict[str, Any] | None:
@@ -52,40 +84,64 @@ async def _try_get_servers_from_api(config_path: Path, logger: logging.Logger) -
         bridge_port = config.bridge.port
 
         # Try to connect to bridge API
+        configured_host = config.bridge.host if config.bridge else "127.0.0.1"
+        # If server binds to 0.0.0.0 (all interfaces), connect via localhost
+        bridge_host = "127.0.0.1" if configured_host == "0.0.0.0" else configured_host  # noqa: S104
         timeout = aiohttp.ClientTimeout(total=3)  # Quick timeout for API check
         async with aiohttp.ClientSession(timeout=timeout) as session:
             # Get server configurations from bridge API
-            url = f"http://127.0.0.1:{bridge_port}/sse/servers"
+            url = f"http://{bridge_host}:{bridge_port}/sse/servers"
             async with session.get(url) as response:
                 if response.status == 200:
                     data = await response.json()
                     servers = data.get("servers", [])
 
-                    # Convert server list to config format for compatibility
+                    # Load config to get actual command/URL details
+                    config = load_bridge_config_from_file(str(config_path), dict(os.environ))
+                    config_servers = config.servers if config else {}
+
+                    # Convert server list to config format, merging API status with config details
                     server_configs = {}
                     for server in servers:
                         name = server.get("name", "unknown")
-                        # Extract config-like info from server status
+                        transport_type = server.get("transport", "stdio")
+
+                        # Get config details for this server
+                        server_config = config_servers.get(name)
+
                         server_configs[name] = {
-                            "transport": server.get("transport", "unknown"),
+                            "transport": transport_type,
                             "enabled": server.get("status") != "disabled",
                             "tags": server.get("tags", []),
                         }
 
-                        # Add transport-specific config
-                        if server.get("transport") == "sse":
-                            server_configs[name]["url"] = server.get("url", "")
-                        else:
-                            server_configs[name]["command"] = server.get("command", "")
-                            server_configs[name]["args"] = server.get("args", [])
+                        # Add actual command/URL from config
+                        if server_config:
+                            if transport_type in ("sse", "http", "streamablehttp"):
+                                server_configs[name]["url"] = getattr(server_config, "url", "Unknown")
+                            else:
+                                server_configs[name]["command"] = getattr(server_config, "command", "Unknown")
+                                server_configs[name]["args"] = getattr(server_config, "args", [])
 
-                    logger.debug(f"Retrieved {len(server_configs)} servers from bridge API")
+                            # Get OAuth config from actual config
+                            oauth_config = getattr(server_config, "oauth_config", None)
+                            if oauth_config and getattr(oauth_config, "enabled", False):
+                                server_configs[name]["oauth_config"] = {"enabled": True}
+                        # Fallback if config not found
+                        elif transport_type in ("sse", "http", "streamablehttp"):
+                            server_configs[name]["url"] = "Unknown"
+                        else:
+                            server_configs[name]["command"] = "Unknown"
+                            server_configs[name]["args"] = []
+
+                    transports = [(name, cfg.get("transport")) for name, cfg in server_configs.items()]
+                    logger.debug(f"Retrieved {len(server_configs)} servers from bridge API, transports: {transports}")
                     return server_configs
                 logger.debug(f"Bridge API returned status {response.status}")
                 return None
 
     except (aiohttp.ClientError, OSError) as e:
-        logger.debug(f"Bridge API not available: {type(e).__name__}")
+        logger.debug(f"Bridge API not available: {type(e).__name__}: {e}")
         return None
     except Exception as e:
         logger.debug(f"Failed to get servers from bridge API: {e}")
@@ -584,7 +640,9 @@ async def handle_mcp_restart(
         server_name = _validate_server_name(args.server_name)
 
         # Make API call to restart the server (config-agnostic)
-        url = f"http://127.0.0.1:{bridge_port}/sse/mcp/{server_name}/reconnect"
+        configured_host = config.bridge.host if config.bridge else "127.0.0.1"
+        bridge_host = "127.0.0.1" if configured_host == "0.0.0.0" else configured_host  # noqa: S104
+        url = f"http://{bridge_host}:{bridge_port}/sse/mcp/{server_name}/reconnect"
 
         console.print(f"[blue]Restarting MCP server '[cyan]{server_name}[/cyan]'...[/blue]")
 
@@ -598,7 +656,7 @@ async def handle_mcp_restart(
                 elif response.status == 404:
                     # Try to get list of running servers for better error message
                     try:
-                        servers_url = f"http://127.0.0.1:{bridge_port}/sse/servers"
+                        servers_url = f"http://{bridge_host}:{bridge_port}/sse/servers"
                         async with session.get(servers_url) as servers_response:
                             if servers_response.status == 200:
                                 servers_data = await servers_response.json()
@@ -661,10 +719,12 @@ async def handle_mcp_status(
         server_name = _validate_server_name(args.name) if args.name else None
 
         # Get server status from bridge API
+        configured_host = config.bridge.host if config.bridge else "127.0.0.1"
+        bridge_host = "127.0.0.1" if configured_host == "0.0.0.0" else configured_host  # noqa: S104
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             # Get servers list
-            servers_url = f"http://127.0.0.1:{bridge_port}/sse/servers"
+            servers_url = f"http://{bridge_host}:{bridge_port}/sse/servers"
             try:
                 async with session.get(servers_url) as response:
                     if response.status != 200:
@@ -697,9 +757,10 @@ async def handle_mcp_status(
             detailed_servers = []
             for server in servers:
                 name = server.get("name", "unknown")
+                transport = server.get("transport", "stdio")
                 try:
                     # Get tools list for this server
-                    tools_url = f"http://127.0.0.1:{bridge_port}/sse/mcp/{name}/list_tools"
+                    tools_url = f"http://{bridge_host}:{bridge_port}/sse/mcp/{name}/list_tools"
                     async with session.get(tools_url) as tools_response:
                         if tools_response.status == 200:
                             tools_data = await tools_response.json()
@@ -711,13 +772,19 @@ async def handle_mcp_status(
                             tool_names = []
 
                     # Get server health status
-                    status_url = f"http://127.0.0.1:{bridge_port}/sse/mcp/{name}/status"
+                    status_url = f"http://{bridge_host}:{bridge_port}/sse/mcp/{name}/status"
                     async with session.get(status_url) as status_response:
                         if status_response.status == 200:
                             status_data = await status_response.json()
-                            connection_state = status_data.get("connection_status", "unknown")
-                            last_connected = status_data.get("last_connected", "never")
-                            error_count = status_data.get("error_count", 0)
+                            connection_state = status_data.get("status", "unknown")
+                            last_seen = status_data.get("last_seen")
+                            if last_seen:
+                                dt = datetime.fromtimestamp(last_seen, tz=UTC)
+                                last_connected = dt.strftime("%Y-%m-%d %H:%M:%S")
+                            else:
+                                last_connected = "never"
+                            error_count = status_data.get("failure_count", 0)
+                            tool_count = status_data.get("tools_count", tool_count)
                         else:
                             connection_state = "error"
                             last_connected = "unknown"
@@ -732,7 +799,7 @@ async def handle_mcp_status(
                             "tool_count": tool_count,
                             "tools": tool_names,
                             "tags": server.get("tags", []),
-                            "transport": server.get("transport", "stdio"),
+                            "transport": transport,
                         }
                     )
 

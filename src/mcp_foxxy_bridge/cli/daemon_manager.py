@@ -22,6 +22,8 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import os
+import socket
 import subprocess
 import sys
 from datetime import datetime
@@ -30,6 +32,8 @@ from typing import Any
 
 import psutil
 from rich.console import Console
+
+from mcp_foxxy_bridge.config.config_loader import load_bridge_config_from_file
 
 
 class DaemonManager:
@@ -427,6 +431,14 @@ class DaemonManager:
             if self.pid_file.exists():
                 self.pid_file.unlink()
 
+            # Wait for daemon to be fully stopped and port to be released
+            if not await self._wait_for_daemon_stopped():
+                self.console.print("[yellow]Warning: Daemon may not be fully stopped[/yellow]")
+
+            host, port = await self._get_bridge_host_port()
+            if not await self._wait_for_port_available(host, port):
+                self.console.print(f"[yellow]Warning: Port {port} on {host} may still be in use[/yellow]")
+
             return True
 
         except psutil.NoSuchProcess:
@@ -452,10 +464,86 @@ class DaemonManager:
             if not await self.stop_daemon(force):
                 return False
 
-        # Wait a moment for cleanup
-        await asyncio.sleep(1)
+        # Wait for port to be available
+        host, port = await self._get_bridge_host_port()
+        if not await self._wait_for_port_available(host, port):
+            self.console.print(f"[red]Error: Port {port} on {host} is still in use after stopping daemon[/red]")
+            return False
 
         return await self.start_daemon(**start_kwargs)
+
+    async def _wait_for_port_available(self, host: str = "127.0.0.1", port: int = 9090, timeout: int = 30) -> bool:
+        """Wait for a port to become available.
+
+        Args:
+            host: Host to check (default: 127.0.0.1)
+            port: Port number to check
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            True if port became available, False if timeout
+        """
+        start_time = asyncio.get_event_loop().time()
+
+        while (asyncio.get_event_loop().time() - start_time) < timeout:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    sock.bind((host, port))
+                    return True
+            except OSError:
+                await asyncio.sleep(0.5)
+
+        return False
+
+    async def _wait_for_daemon_stopped(self, timeout: int = 30) -> bool:
+        """Wait for daemon to be fully stopped.
+
+        Args:
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            True if daemon stopped, False if timeout
+        """
+        start_time = asyncio.get_event_loop().time()
+
+        while (asyncio.get_event_loop().time() - start_time) < timeout:
+            if not await self.is_running():
+                return True
+            await asyncio.sleep(0.5)
+
+        return False
+
+    async def _get_bridge_host_port(self) -> tuple[str, int]:
+        """Get bridge host and port from config.
+
+        Returns:
+            Tuple of (host, port) from config, defaults to ("127.0.0.1", 9090)
+        """
+        try:
+            # Try to find config file - look in common locations
+            config_paths = [
+                Path.home() / ".config" / "foxxy-bridge" / "config.json",
+                Path.cwd() / "config.json",
+            ]
+
+            for config_path in config_paths:
+                if config_path.exists():
+                    try:
+                        bridge_config = load_bridge_config_from_file(str(config_path), dict(os.environ))
+                        if bridge_config and bridge_config.bridge:
+                            configured_host = getattr(bridge_config.bridge, "host", "127.0.0.1")
+                            # If server binds to 0.0.0.0, check port on localhost instead
+                            host = "127.0.0.1" if configured_host == "0.0.0.0" else configured_host  # noqa: S104
+                            port = getattr(bridge_config.bridge, "port", 9090)
+                            return (host, port)
+                    except Exception:
+                        pass
+
+        except Exception:
+            pass
+
+        return ("127.0.0.1", 9090)
 
     async def get_daemon_status(self) -> dict[str, Any]:
         """Get daemon status information.

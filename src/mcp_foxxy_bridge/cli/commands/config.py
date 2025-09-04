@@ -46,17 +46,6 @@ async def handle_config_command(
     """Handle configuration management commands."""
     # Check if no subcommand was provided
     if not hasattr(args, "config_command") or args.config_command is None:
-        # Import the parser to show help
-        from mcp_foxxy_bridge.cli.main import _setup_argument_parser  # noqa: PLC0415
-
-        parser = _setup_argument_parser()
-        # Get the config subparser to show its help
-        if parser._subparsers is not None:  # noqa: SLF001
-            for action in parser._subparsers._actions:  # noqa: SLF001
-                if hasattr(action, "choices") and action.choices is not None and "config" in action.choices:
-                    action.choices["config"].print_help()  # type: ignore[index]
-                    return
-        # Fallback if we can't find the subparser
         console.print("[yellow]Usage: foxxy-bridge config <command>[/yellow]")
         console.print("Available commands: add, remove, list, show, validate, init, get, set")
         return

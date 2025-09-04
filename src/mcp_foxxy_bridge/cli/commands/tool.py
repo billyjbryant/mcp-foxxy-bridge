@@ -80,17 +80,6 @@ async def handle_tool_command(
     """
     # Check if no subcommand was provided
     if not hasattr(args, "tool_command") or args.tool_command is None:
-        from mcp_foxxy_bridge.cli.main import _setup_argument_parser
-
-        parser = _setup_argument_parser()
-        if parser._subparsers is None:  # noqa: SLF001
-            console.print("[yellow]Usage: foxxy-bridge tool <command>[/yellow]")
-            console.print("Available commands: list, test, call, search")
-            return
-        for action in parser._subparsers._actions:  # noqa: SLF001
-            if hasattr(action, "choices") and action.choices and "tool" in action.choices:
-                action.choices["tool"].print_help()  # type: ignore[index]
-                return
         console.print("[yellow]Usage: foxxy-bridge tool <command>[/yellow]")
         console.print("Available commands: list, test, call, search")
         return

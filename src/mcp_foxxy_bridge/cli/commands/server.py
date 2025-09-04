@@ -217,17 +217,6 @@ async def handle_server_command(
     """Handle server management commands."""
     # Check if no subcommand was provided
     if not hasattr(args, "server_command") or args.server_command is None:
-        from mcp_foxxy_bridge.cli.main import _setup_argument_parser
-
-        parser = _setup_argument_parser()
-        if parser._subparsers is None:  # noqa: SLF001
-            console.print("[yellow]Usage: foxxy-bridge server <command>[/yellow]")
-            console.print("Available commands: status, logs, restart, health, reconnect")
-            return
-        for action in parser._subparsers._actions:  # noqa: SLF001
-            if hasattr(action, "choices") and action.choices and "server" in action.choices:
-                action.choices["server"].print_help()  # type: ignore[index]
-                return
         console.print("[yellow]Usage: foxxy-bridge server <command>[/yellow]")
         console.print("Available commands: status, logs, restart, health, reconnect")
         return
