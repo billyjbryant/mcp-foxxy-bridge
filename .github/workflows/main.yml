@@ -499,11 +499,18 @@ jobs:
       id: version
       run: |
         if [ -f VERSION ]; then
-          echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
+          VERSION_CONTENT=$(cat VERSION)
+          echo "version=$VERSION_CONTENT" >> $GITHUB_OUTPUT
           echo "has_release=true" >> $GITHUB_OUTPUT
+          echo "✅ Release detected: v$VERSION_CONTENT"
         else
+          echo "version=" >> $GITHUB_OUTPUT
           echo "has_release=false" >> $GITHUB_OUTPUT
+          echo "ℹ️ No release - VERSION file not found"
         fi
+        echo "Final outputs:"
+        echo "  has_release=$([ -f VERSION ] && echo 'true' || echo 'false')"
+        echo "  version=$([ -f VERSION ] && cat VERSION || echo 'none')"
 
     - name: Build package
       if: steps.version.outputs.has_release == 'true'
@@ -520,13 +527,25 @@ jobs:
   publish-test-pypi:
     needs: semantic-release
     runs-on: ubuntu-latest
-    if: github.event.inputs.test_pypi == 'true' && needs.semantic-release.outputs.has_release == 'true'
+    if: |
+      github.event.inputs.test_pypi == 'true' &&
+      needs.semantic-release.result == 'success' &&
+      needs.semantic-release.outputs.has_release == 'true' &&
+      needs.semantic-release.outputs.version != ''
 # environment:
     #   name: test_pypi
     #   url: https://test.pypi.org/p/mcp-foxxy-bridge
     permissions:
       id-token: write
     steps:
+    - name: Debug Test PyPI publishing conditions
+      run: |
+        echo "🔍 Publishing to Test PyPI - Debug Info:"
+        echo "  test_pypi input: ${{ github.event.inputs.test_pypi }}"
+        echo "  semantic-release result: ${{ needs.semantic-release.result }}"
+        echo "  has_release: ${{ needs.semantic-release.outputs.has_release }}"
+        echo "  version: ${{ needs.semantic-release.outputs.version }}"
+
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
@@ -548,13 +567,27 @@ jobs:
   publish-pypi:
     needs: semantic-release
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.semantic-release.outputs.has_release == 'true'
+    if: |
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      needs.semantic-release.result == 'success' &&
+      needs.semantic-release.outputs.has_release == 'true' &&
+      needs.semantic-release.outputs.version != ''
 # environment:
     #   name: pypi
     #   url: https://pypi.org/p/mcp-foxxy-bridge
     permissions:
       id-token: write
     steps:
+    - name: Debug PyPI publishing conditions
+      run: |
+        echo "🔍 Publishing to PyPI - Debug Info:"
+        echo "  branch: ${{ github.ref }}"
+        echo "  event: ${{ github.event_name }}"
+        echo "  semantic-release result: ${{ needs.semantic-release.result }}"
+        echo "  has_release: ${{ needs.semantic-release.outputs.has_release }}"
+        echo "  version: ${{ needs.semantic-release.outputs.version }}"
+
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
@@ -575,11 +608,25 @@ jobs:
   publish-docker:
     needs: semantic-release
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.semantic-release.outputs.has_release == 'true'
+    if: |
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      needs.semantic-release.result == 'success' &&
+      needs.semantic-release.outputs.has_release == 'true' &&
+      needs.semantic-release.outputs.version != ''
     permissions:
       contents: read
       packages: write
     steps:
+    - name: Debug Docker publishing conditions
+      run: |
+        echo "🔍 Publishing to Docker - Debug Info:"
+        echo "  branch: ${{ github.ref }}"
+        echo "  event: ${{ github.event_name }}"
+        echo "  semantic-release result: ${{ needs.semantic-release.result }}"
+        echo "  has_release: ${{ needs.semantic-release.outputs.has_release }}"
+        echo "  version: ${{ needs.semantic-release.outputs.version }}"
+
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
