@@ -133,21 +133,35 @@ jobs:
             pull_number: context.payload.pull_request.number
           });
 
-          const conventionalPattern = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .{1,50}/;
+          const conventionalPattern = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\((minor|patch|major|security|critical|cli|core|api|bridge|oauth|config|server|client|auth|logging|[a-z-]+)\))?: .{1,50}/;
           const breakingPattern = /BREAKING CHANGE:|!:/;
 
           let invalidCommits = [];
           let hasFeature = false;
           let hasFix = false;
           let hasBreaking = false;
+          let hasMajorFeature = false;
+          let hasMinorFeature = false;
+          let hasSecurityFix = false;
+          let hasCriticalFix = false;
+          let hasMajorFix = false;
 
           for (const commit of commits) {
             const message = commit.commit.message;
             const firstLine = message.split('\n')[0];
 
             if (conventionalPattern.test(firstLine)) {
-              if (firstLine.startsWith('feat')) hasFeature = true;
-              if (firstLine.startsWith('fix')) hasFix = true;
+              if (firstLine.startsWith('feat')) {
+                hasFeature = true;
+                if (firstLine.includes('(major)')) hasMajorFeature = true;
+                if (firstLine.includes('(minor)')) hasMinorFeature = true;
+              }
+              if (firstLine.startsWith('fix')) {
+                hasFix = true;
+                if (firstLine.includes('(security)')) hasSecurityFix = true;
+                if (firstLine.includes('(critical)')) hasCriticalFix = true;
+                if (firstLine.includes('(major)')) hasMajorFix = true;
+              }
               if (breakingPattern.test(message) || firstLine.includes('!:')) hasBreaking = true;
             } else {
               invalidCommits.push({
@@ -163,6 +177,11 @@ jobs:
             hasFeature,
             hasFix,
             hasBreaking,
+            hasMajorFeature,
+            hasMinorFeature,
+            hasSecurityFix,
+            hasCriticalFix,
+            hasMajorFix,
             totalCommits: commits.length
           }));
 
@@ -260,8 +279,11 @@ jobs:
           commentBody += `\`\`\`\n<type>(<scope>): <description>\n\`\`\`\n\n`;
 
           commentBody += `**Examples:**\n`;
-          commentBody += `- \`feat(bridge): add environment variable expansion\`\n`;
-          commentBody += `- \`fix(server): resolve connection timeout\`\n`;
+          commentBody += `- \`feat(major): add environment variable expansion\` (minor release)\n`;
+          commentBody += `- \`feat(minor): enhance CLI output\` (patch release)\n`;
+          commentBody += `- \`fix(security): resolve token exposure\` (minor release)\n`;
+          commentBody += `- \`fix(critical): resolve connection timeout\` (minor release)\n`;
+          commentBody += `- \`fix(server): resolve connection timeout\` (patch release)\n`;
           commentBody += `- \`docs: update installation guide\`\n`;
           commentBody += `- \`chore: update dependencies\`\n\n`;
 

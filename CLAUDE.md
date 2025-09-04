@@ -27,6 +27,31 @@ AI assistant reference for MCP Foxxy Bridge development.
 
 **Debug:** Add `--debug` flag. Security flags: `--allow-command-substitution`, `--allow-dangerous-commands` (testing only)
 
+## Commit Guidelines
+
+Enhanced conventional commit types for granular release control:
+
+**Features:**
+- `feat(major):` → minor release (significant features)
+- `feat(minor):` → patch release (incremental features)
+- `feat!:` → major release (breaking changes)
+- `feat:` → minor release (default features)
+
+**Fixes:**
+- `fix(security):` → minor release (security fixes)
+- `fix(critical):` → minor release (critical fixes)
+- `fix(major):` → minor release (major bug fixes)
+- `fix:` → patch release (standard fixes)
+
+**Scopes:** `cli`, `core`, `api`, `bridge`, `oauth`, `config`, `server`, `client`, `auth`, `logging`
+
+**Examples:**
+- `feat(major): add environment variable expansion` → 1.5.0
+- `feat(minor): enhance CLI output formatting` → 1.4.1
+- `fix(security): resolve token exposure vulnerability` → 1.4.5
+- `fix(critical): resolve connection timeout` → 1.4.4
+- `fix(server): resolve case-sensitivity issues` → 1.4.3
+
 **API Endpoints (port 9000):**
 
 - Status: `/status`, `/sse/servers`, `/sse/tags`, `/sse/mcp/{server}/status`

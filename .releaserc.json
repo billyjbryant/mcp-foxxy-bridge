@@ -8,8 +8,15 @@
       {
         "preset": "conventionalcommits",
         "releaseRules": [
+          { "type": "feat", "scope": "minor", "release": "patch" },
+          { "type": "feat", "scope": "patch", "release": "patch" },
+          { "type": "feat", "scope": "major", "release": "minor" },
           { "type": "feat", "release": "minor" },
+          { "type": "fix", "scope": "security", "release": "minor" },
+          { "type": "fix", "scope": "critical", "release": "minor" },
+          { "type": "fix", "scope": "major", "release": "minor" },
           { "type": "fix", "release": "patch" },
+          { "type": "perf", "scope": "critical", "release": "minor" },
           { "type": "perf", "release": "patch" },
           { "type": "revert", "release": "patch" },
           { "type": "docs", "release": false },
@@ -19,7 +26,8 @@
           { "type": "test", "release": false },
           { "type": "build", "release": false },
           { "type": "ci", "release": false },
-          { "type": "breaking", "release": "major" }
+          { "type": "breaking", "release": "major" },
+          { "breaking": true, "release": "major" }
         ]
       }
     ],
@@ -29,8 +37,15 @@
         "preset": "conventionalcommits",
         "presetConfig": {
           "types": [
+            { "type": "feat", "section": "🚀 Major Features", "scope": "major" },
+            { "type": "feat", "section": "✨ Minor Features", "scope": "minor" },
+            { "type": "feat", "section": "🔧 Incremental Features", "scope": "patch" },
             { "type": "feat", "section": "🚀 Features" },
+            { "type": "fix", "section": "🔒 Security Fixes", "scope": "security" },
+            { "type": "fix", "section": "🚨 Critical Bug Fixes", "scope": "critical" },
+            { "type": "fix", "section": "🔧 Major Bug Fixes", "scope": "major" },
             { "type": "fix", "section": "🐛 Bug Fixes" },
+            { "type": "perf", "section": "🚀 Critical Performance Improvements", "scope": "critical" },
             { "type": "perf", "section": "⚡ Performance Improvements" },
             { "type": "revert", "section": "⏪ Reverts" },
             { "type": "docs", "section": "📚 Documentation", "hidden": false },
