@@ -1742,7 +1742,7 @@ def _save_normalized_config(config_data: dict[str, Any], config_file_path: str) 
 
         # Set secure permissions
         config_path.chmod(0o600)
-        logger.debug(f"Updated config file with normalized server names: {config_file_path}")
+        logger.debug("Updated config file with normalized server names.")
 
     except Exception as e:
         logger.warning(f"Failed to save normalized config: {e}")
