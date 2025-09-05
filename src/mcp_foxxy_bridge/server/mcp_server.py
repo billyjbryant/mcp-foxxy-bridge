@@ -59,10 +59,11 @@ from mcp_foxxy_bridge.config.config_loader import (
     normalize_server_name,
 )
 from mcp_foxxy_bridge.oauth import OAUTH_USER_AGENT, OAuthFlow, OAuthProviderOptions, get_oauth_client_config
-from mcp_foxxy_bridge.oauth.http_security import create_localhost_client, create_secure_async_client
+from mcp_foxxy_bridge.oauth.http_security import create_localhost_client
 from mcp_foxxy_bridge.oauth.oauth_flow import OAuthFlow as OAuthFlowImpl
 from mcp_foxxy_bridge.oauth.types import OAuthClientInformation
 from mcp_foxxy_bridge.oauth.types import OAuthProviderOptions as OAuthProviderOptionsImpl
+from mcp_foxxy_bridge.utils.bridge_config import get_oauth_port
 from mcp_foxxy_bridge.utils.config_watcher import ConfigWatcher
 from mcp_foxxy_bridge.utils.logging import get_logger
 
@@ -255,10 +256,10 @@ async def create_oauth_callback_server(callback_port: int, bridge_port: int) -> 
             # Get server ID from stored state
             server_id = _oauth_states[state]["server_id"]
 
-            # Forward the callback to the main bridge server with correct path
-            bridge_url = f"http://localhost:{bridge_port}/oauth/{server_id}/callback"
+            # Forward the callback to the main bridge server's generic OAuth callback handler
+            bridge_url = f"http://localhost:{bridge_port}/oauth/callback"
 
-            logger.info("Forwarding OAuth callback to bridge server for server '%s'", server_id)
+            logger.info("Forwarding OAuth callback to bridge server generic handler for server '%s'", server_id)
             logger.debug("Bridge URL: %s", bridge_url)
 
             # Use localhost client for internal OAuth callback forwarding
@@ -1269,8 +1270,6 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                 logger.info("Starting OAuth flow")
 
                 # Use the new OAuthFlow implementation
-                # Extract bridge port from the request
-                bridge_port = request.url.port or 8080
                 bridge_host = request.url.hostname or "127.0.0.1"
 
                 # Create OAuth provider options
@@ -1283,7 +1282,7 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                 oauth_options = OAuthProviderOptions(
                     server_url=server_url,
                     oauth_issuer=None,
-                    callback_port=bridge_port,
+                    callback_port=get_oauth_port(),
                     host=bridge_host,
                     client_name=client_config["client_name"],
                     client_uri=client_config["client_uri"],
@@ -1331,6 +1330,15 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                     auth_url = oauth_flow.provider.build_authorization_url(
                         endpoints["authorization_endpoint"], client_info.client_id
                     )
+
+                    # Track this OAuth state for callback routing with complete OAuth flow context
+                    _oauth_states[oauth_flow.provider.state] = {
+                        "server_name": actual_server_name,
+                        "server_id": actual_server_name,  # Add server_id for callback server compatibility
+                        "server_config": server_config,
+                        "oauth_flow": oauth_flow,  # Store the actual OAuth flow instance
+                        "timestamp": time.time(),
+                    }
 
                     # Note: We don't start the full OAuth flow here since it would conflict
                     # with our callback server. The token exchange will happen in the
@@ -1447,8 +1455,6 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
 
                 # Actually perform token exchange instead of just showing success
 
-                # Extract bridge port from the request
-                bridge_port = request.url.port or 8080
                 bridge_host = request.url.hostname or "127.0.0.1"
 
                 # Create OAuth flow instance for this server
@@ -1458,7 +1464,7 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                 oauth_options = OAuthProviderOptionsImpl(
                     client_name=oauth_config.get("client_name", f"{server_id}-client"),
                     server_url=oauth_config.get("issuer", ""),
-                    callback_port=bridge_port,
+                    callback_port=get_oauth_port(),
                     host=bridge_host,
                 )
 
@@ -1560,24 +1566,24 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                 if not server_id:
                     return JSONResponse({"error": "Server ID required"}, status_code=400)
 
-                # Get server config
+                # Get server config and actual server name
                 server_config = None
+                actual_server_name = None
                 for name, config in bridge_config.servers.items():
                     if normalize_server_name(name) == server_id:
                         server_config = config
+                        actual_server_name = name
                         break
 
                 if not server_config:
                     return JSONResponse({"error": "Server configuration not found"}, status_code=400)
 
                 # Use the new OAuthFlow to check token status
-                # Extract bridge port from the request
-                bridge_port = request.url.port or 8080
                 bridge_host = request.url.hostname or "127.0.0.1"
 
                 # Create OAuth provider options
                 try:
-                    server_url = validate_oauth_server_config(server_config, server_name)
+                    server_url = validate_oauth_server_config(server_config, actual_server_name or server_name)
                 except ValueError as e:
                     return JSONResponse({"error": str(e)}, status_code=400)
 
@@ -1585,12 +1591,13 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                 oauth_options = OAuthProviderOptions(
                     server_url=server_url,
                     oauth_issuer=None,
-                    callback_port=bridge_port,
+                    callback_port=get_oauth_port(),
                     host=bridge_host,
                     client_name=client_config["client_name"],
                     client_uri=client_config["client_uri"],
                     software_id=client_config["software_id"],
                     software_version=client_config["software_version"],
+                    server_name=actual_server_name,
                 )
 
                 oauth_flow = OAuthFlow(oauth_options)
@@ -1647,7 +1654,7 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
         try:
             # Get OAuth parameters
             code = request.query_params.get("code")
-            request.query_params.get("state")
+            state = request.query_params.get("state")
             error = request.query_params.get("error")
 
             if error:
@@ -1686,65 +1693,84 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
 
             # Perform token exchange using the authorization code
             try:
-                # We need to find which server this callback is for
-                # For now, we'll try to find an OAuth-enabled server and exchange tokens
-                # Find the OAuth-enabled server (in this case, we know it's likely Atlassian)
-                oauth_server = None
-                for config in bridge_config.servers.values():
-                    if hasattr(config, "oauth_config") and config.oauth_config and config.oauth_config.get("enabled"):
-                        oauth_server = config
-                        break
+                # Find which server this callback is for using the state parameter
+                actual_server_name = None
 
-                if oauth_server:
-                    # Get the actual server name (non-normalized) for proper storage organization
-                    actual_server_name = None
-                    for name, config in bridge_config.servers.items():
-                        if config == oauth_server:
-                            actual_server_name = name
-                            break
+                if state and state in _oauth_states:
+                    # Found the server using tracked state
+                    state_info = _oauth_states[state]
+                    actual_server_name = state_info["server_name"]
+                    oauth_flow = state_info["oauth_flow"]  # Use the stored OAuth flow instance
+                    logger.info(f"Found server '{actual_server_name}' for OAuth callback using tracked state")
 
-                    # Create OAuth flow for token exchange
+                    # Use the stored OAuth flow for token exchange (preserves PKCE state)
                     try:
-                        server_url = validate_oauth_server_config(oauth_server, actual_server_name or "unknown")
-                    except ValueError as e:
-                        return JSONResponse({"error": str(e)}, status_code=400)
+                        # Discover endpoints using the original OAuth flow
+                        endpoints = oauth_flow.discover_endpoints()
+                        logger.info(f"Discovered endpoints for '{actual_server_name}': {endpoints}")
 
-                    client_config = get_oauth_client_config()
-                    oauth_options = OAuthProviderOptions(
-                        server_url=server_url,
-                        oauth_issuer=None,
-                        callback_port=request.url.port or 8080,
-                        host=request.url.hostname or "127.0.0.1",
-                        client_name=client_config["client_name"],
-                        client_uri=client_config["client_uri"],
-                        software_id=client_config["software_id"],
-                        software_version=client_config["software_version"],
-                        server_name=actual_server_name,
+                        # Get client information from the original flow
+                        client_info = oauth_flow.provider.client_information()
+                        logger.info(f"Client info available for '{actual_server_name}': {client_info is not None}")
+
+                        if client_info and endpoints.get("token_endpoint"):
+                            # Exchange code for tokens using the SAME OAuth flow instance
+                            oauth_flow.exchange_code_for_tokens(endpoints["token_endpoint"], code, client_info)
+                            logger.info("Successfully exchanged authorization code for tokens")
+                            logger.info(f"Tokens saved to: {oauth_flow.provider.server_url_hash}")
+                        else:
+                            missing_parts = []
+                            if not client_info:
+                                missing_parts.append("client info")
+                            if not endpoints.get("token_endpoint"):
+                                missing_parts.append("token endpoint")
+                            logger.error(f"Could not exchange code for tokens: missing {', '.join(missing_parts)}")
+                    finally:
+                        # Clean up the state after use
+                        del _oauth_states[state]
+
+                    return HTMLResponse(
+                        """
+                    <html>
+                    <head>
+                        <title>OAuth Success</title>
+                        <style>
+                            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                            .success { color: #28a745; font-size: 24px; margin-bottom: 20px; }
+                            .info { color: #6c757d; margin-bottom: 10px; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="success">✅ OAuth Authorization Successful!</div>
+                        <div class="info">Authorization completed successfully</div>
+                        <div class="info">You can now close this window and return to your application.</div>
+                        <script>
+                            setTimeout(() => { window.close(); }, 2000);
+                        </script>
+                    </body>
+                    </html>
+                    """
                     )
-                    oauth_flow = OAuthFlow(oauth_options)
 
-                    # Discover endpoints for token exchange
-                    endpoints = oauth_flow.discover_endpoints()
-                    logger.info(f"Discovered endpoints: {endpoints}")
+                # No tracked state found - this shouldn't happen in normal operation
+                if state:
+                    logger.error(f"OAuth state '{state}' not found in tracked states")
+                else:
+                    logger.error("No OAuth state parameter in callback")
 
-                    # Get client information
-                    client_info = oauth_flow.provider.client_information()
-                    logger.info(f"Client info available: {client_info is not None}")
-                    if client_info:
-                        logger.info("Client information retrieved")
-
-                    if client_info and endpoints.get("token_endpoint"):
-                        # Exchange code for tokens
-                        oauth_flow.exchange_code_for_tokens(endpoints["token_endpoint"], code, client_info)
-                        logger.info("Successfully exchanged authorization code for tokens")
-                        logger.info(f"Tokens saved to: {oauth_flow.provider.server_url_hash}")
-                    else:
-                        missing_parts = []
-                        if not client_info:
-                            missing_parts.append("client info")
-                        if not endpoints.get("token_endpoint"):
-                            missing_parts.append("token endpoint")
-                        logger.error(f"Could not exchange code for tokens: missing {', '.join(missing_parts)}")
+                return HTMLResponse(
+                    """
+                    <html>
+                    <head><title>OAuth Error</title></head>
+                    <body>
+                        <h1>❌ OAuth State Error</h1>
+                        <p>OAuth state not found or missing. The authorization session may have expired.</p>
+                        <p>Please start a new OAuth flow.</p>
+                    </body>
+                    </html>
+                    """,
+                    status_code=400,
+                )
 
             except Exception as e:
                 logger.exception(f"Failed to exchange authorization code for tokens: {e}")
@@ -1926,7 +1952,7 @@ async def run_mcp_server(
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 sock.bind((mcp_settings.bind_host, mcp_settings.port))
-            actual_port = mcp_settings.port  # Use the configured port
+            bridge_port = mcp_settings.port
         except OSError as e:
             error_msg = (
                 f"Port {mcp_settings.port} is not available: {e}. "
@@ -1939,14 +1965,14 @@ async def run_mcp_server(
         config = uvicorn.Config(
             starlette_app,
             host=mcp_settings.bind_host,
-            port=actual_port,
+            port=bridge_port,
             log_level=mcp_settings.log_level.lower(),
             access_log=False,  # Disable uvicorn's default access logging
         )
         http_server = uvicorn.Server(config)
 
         # Print out the SSE URLs for all configured servers
-        base_url = f"http://{mcp_settings.bind_host}:{actual_port}"
+        base_url = f"http://{mcp_settings.bind_host}:{bridge_port}"
         sse_urls = []
 
         # Add default server if configured
@@ -2068,7 +2094,7 @@ async def run_bridge_server(
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.bind((mcp_settings.bind_host, mcp_settings.port))
-        actual_port = mcp_settings.port  # Use the configured port
+        bridge_port = mcp_settings.port
     except OSError as e:
         error_msg = (
             f"Bridge port {mcp_settings.port} is not available: {e}. "
@@ -2091,6 +2117,11 @@ async def run_bridge_server(
                 # Give some time for cleanup
                 with contextlib.suppress(asyncio.CancelledError):
                     await asyncio.sleep(0.1)
+
+        # Set global bridge server configuration BEFORE creating bridge server
+        # This ensures OAuth flows use consistent configuration during server startup
+        oauth_port = getattr(bridge_config.bridge, "oauth_port", bridge_port) if bridge_config.bridge else bridge_port
+        set_bridge_server_config(mcp_settings.bind_host, bridge_port, oauth_port)
 
         # Create and configure the bridge server
         # Initialize internal authentication secret
@@ -2196,9 +2227,7 @@ async def run_bridge_server(
             ]
         )
 
-        # Set global bridge server configuration for OAuth flow and other components
-        # OAuth is now integrated with bridge server, so use bridge port for OAuth
-        set_bridge_server_config(mcp_settings.bind_host, actual_port, actual_port)
+        # Bridge server configuration already set earlier before server creation
 
         # Integrate OAuth routes directly into the main bridge server
         logger.debug("Creating OAuth routes...")
@@ -2268,13 +2297,13 @@ async def run_bridge_server(
                 return
 
         # Use the port determined earlier for OAuth routes
-        # (actual_port was already set above)
+        # (bridge_port was already set above)
 
         # Configure uvicorn server with the available port
         config = uvicorn.Config(
             handle_shutdown_exceptions,  # Use our exception handler
             host=mcp_settings.bind_host,
-            port=actual_port,
+            port=bridge_port,
             log_level="warning",  # Minimal uvicorn logging
             access_log=False,  # Disable access logging
             use_colors=False,  # Disable uvicorn colors to not interfere with Rich
@@ -2282,7 +2311,7 @@ async def run_bridge_server(
         http_server = uvicorn.Server(config)
 
         # Display connection information
-        base_url = f"http://{mcp_settings.bind_host}:{actual_port}"
+        base_url = f"http://{mcp_settings.bind_host}:{bridge_port}"
         logger.info("MCP Foxxy Bridge server is ready!")
         logger.info("SSE endpoint: %s/sse", base_url)
         logger.info("Status endpoint: %s/status", base_url)
@@ -2348,67 +2377,3 @@ async def run_bridge_server(
                 await asyncio.sleep(0.2)
 
             logger.info("Bridge server shutdown complete")
-
-
-async def _exchange_atlassian_oauth_code(
-    auth_code: str, server_config: Any, redirect_uri: str
-) -> dict[str, Any] | None:
-    """Exchange Atlassian OAuth authorization code for access tokens.
-
-    Args:
-        auth_code: Authorization code from OAuth callback
-        server_config: Server configuration with OAuth settings
-        redirect_uri: The redirect URI used in the OAuth flow
-
-    Returns:
-        Dictionary with access_token, refresh_token, etc. or None if failed
-    """
-    try:
-        oauth_config = server_config.oauth_config.to_dict() if server_config.oauth_config else {}
-        token_url = "https://auth.atlassian.com/oauth/token"  # noqa: S105 # URL not a password
-
-        # Prepare token exchange request
-        token_data = {
-            "grant_type": "authorization_code",
-            "client_id": oauth_config.get("client_id"),
-            "client_secret": oauth_config.get("client_secret"),
-            "code": auth_code,
-            "redirect_uri": redirect_uri,
-        }
-
-        # Add code_verifier if using PKCE
-        if "code_verifier" in oauth_config:
-            token_data["code_verifier"] = oauth_config["code_verifier"]
-
-        logger.debug("Exchanging OAuth code for tokens")
-
-        async with create_secure_async_client() as client:
-            response = await client.post(
-                token_url,
-                data=token_data,
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Accept": "application/json",
-                    "User-Agent": OAUTH_USER_AGENT,
-                },
-                timeout=30.0,
-            )
-
-        if response.status_code == 200:
-            tokens = response.json()
-            logger.info("Successfully received OAuth tokens from Atlassian")
-            # Ensure we return a dict
-            if isinstance(tokens, dict):
-                return tokens
-            logger.error("Unexpected token response format: %s", type(tokens))
-            return None
-        logger.error(
-            "Token exchange failed with status %d: %s",
-            response.status_code,
-            response.text,
-        )
-        return None
-
-    except Exception as e:
-        logger.exception("Error exchanging OAuth code: %s", e)
-        return None

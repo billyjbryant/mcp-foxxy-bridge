@@ -131,9 +131,10 @@ async def _oauth_status(
 
                 for server in servers:
                     server_name = server.get("name")
-                    if server_name and server.get("oauth_enabled", False):
+                    if server_name:
                         try:
                             oauth_data = await api_client.get_oauth_status(server_name)
+                            # Only include if it's actually OAuth-enabled (doesn't error)
                             oauth_status[server_name] = oauth_data
                         except aiohttp.ClientError:
                             # Skip servers that don't support OAuth
