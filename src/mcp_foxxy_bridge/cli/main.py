@@ -42,7 +42,7 @@ from mcp_foxxy_bridge.cli.commands.mcp_handlers import (
     handle_mcp_show,
     handle_mcp_status,
 )
-from mcp_foxxy_bridge.cli.commands.oauth import handle_oauth_status
+from mcp_foxxy_bridge.cli.commands.oauth import handle_oauth_login, handle_oauth_logout, handle_oauth_status
 from mcp_foxxy_bridge.cli.commands.security_handlers import handle_security_set, handle_security_show
 from mcp_foxxy_bridge.cli.commands.server import (
     handle_server_list,
@@ -727,11 +727,37 @@ def oauth(ctx: click.Context) -> None:
 @click.option("--format", type=click.Choice(["table", "json"]), default="table", help="Output format")
 @click.pass_context
 def status_oauth(ctx: click.Context, name: str | None, format: str) -> None:  # noqa: A002
-    """Show OAuth status."""
+    """Show OAuth status for all servers or a specific server."""
     args = SimpleNamespace(oauth_command="status", name=name, format=format)
 
     asyncio.run(
         handle_oauth_status(args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"])
+    )
+
+
+@oauth.command("login")
+@click.argument("name")
+@click.option("--force", "-F", is_flag=True, help="Force re-authentication")
+@click.pass_context
+def login_oauth(ctx: click.Context, name: str, force: bool) -> None:
+    """Trigger OAuth login for a server."""
+    args = SimpleNamespace(oauth_command="login", name=name, force=force)
+
+    asyncio.run(
+        handle_oauth_login(args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"])
+    )
+
+
+@oauth.command("logout")
+@click.argument("name")
+@click.option("--all", is_flag=True, help="Clear all OAuth tokens")
+@click.pass_context
+def logout_oauth(ctx: click.Context, name: str, all_tokens: bool) -> None:
+    """Clear OAuth tokens for a server."""
+    args = SimpleNamespace(oauth_command="logout", name=name, all=all_tokens)
+
+    asyncio.run(
+        handle_oauth_logout(args, ctx.obj["config_path"], ctx.obj["config_dir"], ctx.obj["console"], ctx.obj["logger"])
     )
 
 

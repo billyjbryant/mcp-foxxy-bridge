@@ -360,10 +360,13 @@ The bridge implements OAuth 2.0 with PKCE (Proof Key for Code Exchange) for enha
 - **PKCE Support**: Protects against authorization code interception
 - **State Parameter**: Prevents CSRF attacks
 - **Secure Token Storage**: Tokens stored in local filesystem with appropriate permissions
-- **Automatic Discovery**: OAuth endpoints discovered from server metadata
+- **Dynamic Discovery**: OAuth endpoints discovered from multiple server locations
+- **Preflight Validation**: OAuth configuration validated before bridge starts
 - **Token Refresh**: Automatic token renewal when possible
 - **SSL Verification**: Configurable SSL certificate verification (enabled by default)
 - **HTTP/2 Support**: Automatic HTTP/2 usage for better performance and security
+- **No Hardcoded Scopes**: Scopes dynamically determined from server requirements
+- **Transport Awareness**: Different OAuth handling for SSE vs HTTP streaming
 
 ### OAuth Configuration
 
@@ -371,20 +374,21 @@ The bridge implements OAuth 2.0 with PKCE (Proof Key for Code Exchange) for enha
 {
   "mcpServers": {
     "protected-service": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-atlassian"],
+      "url": "https://mcp.example.com/sse",
+      "transport": "sse",
       "oauth": {
         "enabled": true,
-        "issuer": "https://auth.atlassian.com",
+        // Issuer auto-discovered from server URL if not specified
+        // "issuer": "https://auth.example.com",
         "verify_ssl": true  // Default: enabled for security
       }
     },
     "dev-service": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-dev"],
+      "url": "https://dev.local:8443/sse",
+      "transport": "sse",
       "oauth": {
         "enabled": true,
-        "issuer": "https://dev.local:8443",
+        "issuer": "https://dev-auth.local:9443",  // Manual for dev
         "verify_ssl": false  // ONLY for development with self-signed certificates
       }
     }
@@ -399,11 +403,14 @@ The bridge implements OAuth 2.0 with PKCE (Proof Key for Code Exchange) for enha
 
 ### OAuth Flow Security
 
-1. **Authorization Request**: Uses PKCE code challenge
-2. **User Authentication**: Performed in user's browser
-3. **Authorization Code**: Exchanged for tokens using PKCE verifier
-4. **Token Storage**: Stored securely in `~/.foxxy-bridge/auth/`
-5. **Token Usage**: Applied automatically to MCP server requests
+1. **Preflight Check**: OAuth configuration validated before bridge starts
+2. **Dynamic Discovery**: Attempts discovery on multiple endpoints
+3. **Authorization Request**: Uses PKCE code challenge
+4. **User Authentication**: Performed in user's browser
+5. **Authorization Code**: Exchanged for tokens using PKCE verifier
+6. **Token Storage**: Stored securely in `~/.foxxy-bridge/auth/`
+7. **Token Usage**: Applied automatically to MCP server requests
+8. **CLI Management**: Secure `login`, `logout`, and `status` commands
 
 ## Input Validation
 
@@ -428,9 +435,12 @@ WARNING: Potentially unsafe command blocked: rm -rf /
 ERROR: Shell injection attempt detected in command: $(echo test; rm file)
 
 # OAuth events
-INFO: OAuth flow initiated for server 'atlassian'
-INFO: OAuth tokens refreshed for server 'github'
+INFO: OAuth preflight check passed for server 'production'
+INFO: Successfully discovered OAuth issuer: https://auth.example.com
+INFO: OAuth flow initiated for server 'production'
+INFO: OAuth tokens refreshed for server 'staging'
 WARNING: OAuth token expired, user re-authentication required
+ERROR: OAuth preflight check failed - no issuer found
 
 # Network events
 INFO: Bridge server started on 127.0.0.1:8080

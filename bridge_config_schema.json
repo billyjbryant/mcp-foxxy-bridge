@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "MCP Foxxy Bridge Configuration Schema",
-  "description": "Configuration schema for MCP Foxxy Bridge one-to-many server connectivity",
+  "description": "Configuration schema for MCP Foxxy Bridge one-to-many server connectivity with OAuth 2.0 support",
   "type": "object",
   "properties": {
     "$schema": {
@@ -185,7 +185,7 @@
               "type": "string",
               "enum": ["stdio", "sse", "http"],
               "default": "stdio",
-              "description": "Transport mechanism for server communication"
+              "description": "Transport mechanism for server communication. OAuth is supported for SSE and HTTP transports."
             },
             "type": {
               "type": "string",
@@ -195,7 +195,7 @@
             },
             "url": {
               "type": "string",
-              "description": "URL for SSE/HTTP transport (required for non-stdio transports)"
+              "description": "URL for SSE/HTTP transport (required for non-stdio transports). OAuth tokens will be automatically included in requests."
             },
             "headers": {
               "type": "object",
@@ -203,7 +203,7 @@
                 "type": "string"
               },
               "default": {},
-              "description": "HTTP headers for SSE/HTTP transports"
+              "description": "HTTP headers for SSE/HTTP transports (OAuth Authorization header is automatically added when OAuth is enabled)"
             },
             "log_level": {
               "type": "string",
@@ -252,6 +252,59 @@
               },
               "description": "Authentication configuration"
             },
+            "oauth": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable OAuth 2.0 authentication"
+                },
+                "issuer": {
+                  "type": "string",
+                  "description": "OAuth issuer URL for discovery (e.g., https://auth.atlassian.com)"
+                },
+                "verify_ssl": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Whether to verify SSL/TLS certificates for OAuth endpoints"
+                },
+                "keep_alive_interval": {
+                  "type": "number",
+                  "default": 20000,
+                  "description": "Keep-alive ping interval for OAuth servers in milliseconds"
+                },
+                "token_refresh_interval": {
+                  "type": "number",
+                  "default": 1800000,
+                  "description": "Proactive token refresh interval in milliseconds (30 minutes)"
+                },
+                "connection_check_interval": {
+                  "type": "number",
+                  "default": 10000,
+                  "description": "Connection health check interval in milliseconds"
+                },
+                "client_id": {
+                  "type": "string",
+                  "description": "OAuth client ID (for static configuration)"
+                },
+                "authorization_url": {
+                  "type": "string",
+                  "description": "OAuth authorization URL (for static configuration)"
+                },
+                "token_url": {
+                  "type": "string",
+                  "description": "OAuth token URL (for static configuration)"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": ["dynamic", "static"],
+                  "default": "dynamic",
+                  "description": "OAuth flow type - dynamic uses issuer discovery, static uses explicit URLs"
+                }
+              },
+              "description": "OAuth 2.0 configuration for server authentication"
+            },
             "oauth_config": {
               "type": "object",
               "properties": {
@@ -260,13 +313,23 @@
                   "default": false,
                   "description": "Enable OAuth 2.0 authentication (legacy field)"
                 },
+                "issuer": {
+                  "type": "string",
+                  "description": "OAuth issuer URL for discovery (legacy field)"
+                },
+                "verify_ssl": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Whether to verify SSL/TLS certificates (legacy field)"
+                },
                 "type": {
                   "type": "string",
                   "enum": ["dynamic", "static"],
-                  "description": "OAuth flow type (legacy field)"
+                  "default": "dynamic",
+                  "description": "OAuth flow type (legacy field - use 'oauth' instead)"
                 }
               },
-              "description": "Legacy OAuth configuration (use 'oauth' instead)"
+              "description": "Legacy OAuth configuration (use 'oauth' instead for new configurations)"
             },
             "security": {
               "type": "object",
@@ -344,7 +407,7 @@
               "required": ["command"]
             },
             {
-              "description": "SSE transport requires URL",
+              "description": "SSE transport requires URL (supports OAuth authentication)",
               "properties": {
                 "transport": {
                   "const": "sse"
@@ -353,7 +416,7 @@
               "required": ["url"]
             },
             {
-              "description": "HTTP transport requires URL",
+              "description": "HTTP transport requires URL (supports OAuth authentication)",
               "properties": {
                 "transport": {
                   "const": "http"
@@ -449,12 +512,12 @@
         "oauth_port": {
           "type": "number",
           "default": 8090,
-          "description": "Port for OAuth callback server"
+          "description": "Port for OAuth callback server (used for all server OAuth flows)"
         },
         "allow_command_substitution": {
           "type": "boolean",
           "default": false,
-          "description": "Allow command substitution in configuration values"
+          "description": "Allow command substitution in configuration values (useful for OAuth secrets from credential managers)"
         },
         "allowed_commands": {
           "type": "array",

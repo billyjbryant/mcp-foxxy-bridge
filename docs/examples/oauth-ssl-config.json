@@ -7,7 +7,8 @@
       "transport": "sse",
       "oauth": {
         "enabled": true,
-        "issuer": "https://auth.production.com",
+        // issuer will be auto-discovered from the server URL
+        // "issuer": "https://auth.production.com",
         "client_name": "MCP Foxxy Bridge Production",
         "client_uri": "https://github.com/billyjbryant/mcp-foxxy-bridge",
         "verify_ssl": true
@@ -30,7 +31,8 @@
       "transport": "sse",
       "oauth": {
         "enabled": true,
-        "issuer": "https://auth.staging.com",
+        // issuer will be auto-discovered from the server URL
+        // "issuer": "https://auth.staging.com",
         "verify_ssl": true
       },
       "toolNamespace": "staging",
@@ -44,9 +46,10 @@
       "transport": "sse",
       "oauth": {
         "enabled": true,
+        // Manual issuer for development environment
         "issuer": "https://dev-auth.local:9443",
         "client_name": "MCP Foxxy Bridge Dev",
-        "verify_ssl": false
+        "verify_ssl": false  // Only for development with self-signed certificates
       },
       "toolNamespace": "dev",
       "priority": 300,

@@ -165,10 +165,11 @@ OAuth is only used for remote network-based MCP servers (SSE or HTTP streaming),
   "transport": "sse",                        // Must be "sse" or "streamablehttp"
   "oauth": {
     "enabled": true,                         // Enable OAuth 2.0 authentication
-    "issuer": "https://auth.example.com",    // OAuth issuer URL (optional if server supports discovery)
+    "issuer": "https://auth.example.com",    // OAuth issuer URL (optional - auto-discovered if not provided)
     "client_name": "MCP Bridge Client",      // OAuth client name
     "client_uri": "https://your-app.com",    // OAuth client URI
-    "verify_ssl": true                       // Verify SSL certificates (default: true)
+    "verify_ssl": true,                      // Verify SSL certificates (default: true)
+    "scopes": ["read:data"]                  // Optional: specific OAuth scopes (auto-discovered if not provided)
   }
 }
 ```
@@ -178,12 +179,16 @@ OAuth is only used for remote network-based MCP servers (SSE or HTTP streaming),
 - `"transport"` field set to `"sse"` or `"streamablehttp"`
 
 OAuth authentication features:
-- **Auto-discovery**: Bridge attempts to discover OAuth issuer from server endpoints
+- **Dynamic discovery**: Bridge attempts discovery on multiple endpoints (server URL and base URL)
+- **Preflight checks**: Validates OAuth configuration before starting, providing immediate error feedback
 - **PKCE support**: Uses Proof Key for Code Exchange for enhanced security
 - **Token management**: Automatic token storage and refresh
 - **Browser-based flow**: Opens browser for user authentication
 - **SSL verification**: Configurable SSL certificate verification (secure by default)
 - **HTTP/2 support**: Automatic HTTP/2 usage when available for better performance
+- **CLI commands**: Built-in `login`, `logout`, and `status` commands for OAuth management
+- **Transport awareness**: Differentiates between SSE and HTTP streaming OAuth requirements
+- **No hardcoded scopes**: Scopes are dynamically determined from server requirements
 
 ## Bridge Configuration
 
@@ -299,7 +304,8 @@ The bridge includes comprehensive security features to protect against command i
       "transport": "sse",
       "oauth": {
         "enabled": true,
-        "issuer": "https://auth.company.com",
+        // Issuer is optional - will be auto-discovered from the server URL
+        // "issuer": "https://auth.company.com",
         "verify_ssl": true  // Verify SSL certificates (default: true)
       },
       "toolNamespace": "remote",
