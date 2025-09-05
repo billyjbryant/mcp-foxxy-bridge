@@ -159,3 +159,10 @@ JSON config (default: `config.json`) with `${VAR}` env expansion, `$(cmd)` subst
 
 - Always specify timeout/background when running bridge (avoid getting stuck)
 - Don't add emojis to logs (logging module handles this)
+- NEVER ADD MANUAL OAUTH MAPPINGS TO "FIX" DYNAMIC OAUTH! DYNAMIC OAUTH ISNT DYNAMIC IF YOU ARE OVERRIDING IT WITH A MANUAL MAP
+- Always update the configuration schema if we make changes to the configuration management
+
+## Backlog TODOs
+
+- **Config reload bug**: `mcp restart` command doesn't reload configuration from disk, uses cached config in memory. Need to implement config reload in the `/sse/mcp/{server}/reconnect` API endpoint.
+- **Bearer token OAuth**: Complete HTTP OAuth implementation to use Bearer tokens instead of SSE OAuth flow for HTTP/streamablehttp transports.

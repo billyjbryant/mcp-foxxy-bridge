@@ -59,6 +59,7 @@ Example:
 import asyncio
 import base64
 import contextlib
+import re
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -80,36 +81,96 @@ logger = get_logger(__name__, facility="CLIENT")
 oauth_logger = get_logger(f"{__name__}.oauth", facility="OAUTH")
 
 
-def _auto_detect_oauth_issuer(server_url: str) -> str | None:
-    """Auto-detect OAuth issuer for well-known providers.
+async def _perform_auth_preflight_check(url: str, headers: dict[str, str], server_name: str) -> dict[str, Any] | None:
+    """Perform a quick authentication check to detect 401 errors immediately.
+
+    This mimics what curl does - makes a quick request to see if authentication is required,
+    allowing us to fail fast instead of hanging on session initialization.
 
     Args:
-        server_url: The MCP server URL
+        url: The server URL to check
+        headers: Headers to use for the request
+        server_name: Server name for logging
 
     Returns:
-        The detected OAuth issuer URL, or None if not recognized
+        Dictionary with auth check results or None if check failed
     """
-    parsed_url = urlparse(server_url)
-    domain = parsed_url.netloc.lower()
+    try:
+        # Make a quick HEAD request to the server to check auth requirements
+        timeout_config = httpx.Timeout(5.0)  # 5 second timeout for auth check
+        async with httpx.AsyncClient(
+            timeout=timeout_config,
+            verify=True,
+            follow_redirects=False,
+            http2=True,
+        ) as client:
+            logger.debug("Performing auth pre-flight check for %s", server_name)
 
-    # Well-known OAuth issuer mappings
-    issuer_mappings = {
-        "mcp.atlassian.com": "https://auth.atlassian.com",
-        # Add more well-known providers here as needed
-        # 'api.github.com': 'https://github.com',
-        # 'api.google.com': 'https://accounts.google.com',
-    }
+            # For MCP servers, use POST with MCP initialize payload
+            response = None
+            try:
+                # MCP authentication check with minimal initialize request
+                mcp_payload = {
+                    "jsonrpc": "2.0",
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "mcp-auth-check", "version": "1.0"},
+                    },
+                    "id": 1,
+                }
+                response = await client.post(
+                    url,
+                    json=mcp_payload,
+                    headers={
+                        **headers,
+                        "Content-Type": "application/json",
+                        "Accept": "application/json, text/event-stream",
+                    },
+                )
+            except Exception as e:
+                logger.debug("Auth pre-flight check failed: %s", type(e).__name__)
+                return None
 
-    return issuer_mappings.get(domain)
+            logger.debug("Auth pre-flight check response: %s", response.status_code)
+
+            if response.status_code == 401:
+                logger.debug("Auth pre-flight check detected 401 - authentication required")
+
+                # Try to extract OAuth issuer from response
+                auth_server_url = None
+                try:
+                    if response.headers.get("content-type", "").startswith("application/json"):
+                        response_data = response.json()
+                        if isinstance(response_data, dict):
+                            # Check for authorization server in response
+                            error_data = response_data.get("error", {})
+                            if isinstance(error_data, dict):
+                                auth_server_url = error_data.get("data", {}).get("authorization_server")
+                            if not auth_server_url:
+                                auth_server_url = response_data.get("authorization_server")
+                except Exception:  # noqa: S110
+                    pass
+
+                return {
+                    "requires_auth": True,
+                    "status_code": response.status_code,
+                    "authorization_server": auth_server_url,
+                }
+            if response.status_code in (200, 204):
+                logger.debug("Auth pre-flight check passed - no authentication required")
+                return {"requires_auth": False, "status_code": response.status_code}
+            logger.debug("Auth pre-flight check got unexpected status: %s", response.status_code)
+            return {"requires_auth": False, "status_code": response.status_code}
+
+    except Exception as e:
+        logger.debug("Auth pre-flight check failed with exception: %s", type(e).__name__)
+        return None
 
 
 async def _discover_oauth_issuer(server_url: str) -> str | None:
-    """Attempt to dynamically discover OAuth issuer URL from server.
-
-    Tries to discover OAuth configuration through standard mechanisms:
-    1. Check for OpenID Connect discovery endpoints
-    2. Check for OAuth authorization server metadata
-    3. Look for common OAuth issuer patterns
+    """Discover OAuth authorization server using RFC 9728 Protected Resource Metadata.
 
     Args:
         server_url: The MCP server URL to discover OAuth issuer from
@@ -117,48 +178,70 @@ async def _discover_oauth_issuer(server_url: str) -> str | None:
     Returns:
         The discovered OAuth issuer URL, or None if discovery fails
     """
-    # Extract base URL from server URL
     parsed_url = urlparse(server_url)
     base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
 
-    # Standard discovery endpoints to try
+    # RFC 9728 Protected Resource Metadata discovery
     discovery_endpoints = [
+        f"{base_url}/.well-known/oauth-protected-resource",
         f"{base_url}/.well-known/openid_configuration",
         f"{base_url}/.well-known/oauth-authorization-server",
-        # Try parent domain for multi-service providers
-        f"{parsed_url.scheme}://auth.{parsed_url.netloc.split('.', 1)[-1]}/.well-known/openid_configuration"
-        if "." in parsed_url.netloc
-        else None,
     ]
 
-    # Filter out None values
-    discovery_endpoints = [ep for ep in discovery_endpoints if ep is not None]
-
-    # Use security-hardened HTTP client for OAuth discovery
-    async with httpx.AsyncClient(
-        timeout=10.0,
-        verify=True,  # Always verify SSL for discovery
-        trust_env=False,
-        follow_redirects=False,
-        http2=True,  # Enable HTTP/2 support
-    ) as client:
+    async with httpx.AsyncClient(timeout=5.0) as client:
         for endpoint in discovery_endpoints:
-            if not endpoint:  # Skip None endpoints
-                continue
             try:
-                logger.debug("Trying OAuth discovery endpoint")
-                response = await client.get(endpoint)
-                if response.status_code == 200:
-                    config = response.json()
-                    issuer = config.get("issuer")
-                    if issuer and isinstance(issuer, str):
-                        oauth_logger.info("Discovered OAuth issuer")
-                        return str(issuer)  # Explicit cast to satisfy mypy
-            except Exception as e:
-                logger.debug("OAuth discovery failed: %s", type(e).__name__)
+                # Try POST request first (MCP standard), then GET fallback
+                for method in ["POST", "GET"]:
+                    try:
+                        if method == "POST":
+                            # MCP-style discovery with minimal payload
+                            discovery_payload = {
+                                "jsonrpc": "2.0",
+                                "method": "initialize",
+                                "params": {
+                                    "protocolVersion": "2024-11-05",
+                                    "capabilities": {},
+                                    "clientInfo": {"name": "mcp-oauth-discovery", "version": "1.0"},
+                                },
+                                "id": 1,
+                            }
+                            response = await client.post(
+                                endpoint if endpoint != server_url else server_url,
+                                json=discovery_payload,
+                                headers={
+                                    "Content-Type": "application/json",
+                                    "Accept": "application/json, text/event-stream",
+                                },
+                            )
+                        else:
+                            response = await client.get(endpoint)
+
+                        if response.status_code == 401:
+                            # Extract authorization server from 401 response
+                            try:
+                                error_data = response.json()
+                                auth_server = error_data.get("error", {}).get("data", {}).get("authorization_server")
+                                if isinstance(auth_server, str):
+                                    return auth_server
+                            except Exception:  # noqa: S110
+                                pass
+                        elif response.status_code == 200:
+                            # Standard OAuth discovery response
+                            try:
+                                discovery_data = response.json()
+                                issuer = discovery_data.get("issuer") or discovery_data.get("authorization_server")
+                                if isinstance(issuer, str):
+                                    return issuer
+                            except Exception:  # noqa: S110
+                                pass
+
+                    except Exception:  # noqa: S112
+                        continue
+
+            except Exception:  # noqa: S112
                 continue
 
-    logger.debug("OAuth issuer discovery failed")
     return None
 
 
@@ -391,6 +474,34 @@ async def sse_client_with_logging(
             if oauth_enabled:
                 logger.debug("OAuth enabled, loading tokens...")
                 await _handle_oauth_authentication(url, connection_headers, server_name, oauth_config)
+
+                # For dynamic OAuth, do pre-flight auth check to fail fast
+                if oauth_config and oauth_config.get("type") == "dynamic":
+                    logger.debug("Dynamic OAuth detected - performing pre-flight authentication check")
+                    auth_check_result = await _perform_auth_preflight_check(url, connection_headers, server_name)
+                    if auth_check_result and auth_check_result.get("requires_auth"):
+                        logger.info(
+                            "Pre-flight check detected authentication requirement for SSE - triggering OAuth flow"
+                        )
+
+                        # Update OAuth config with discovered authorization server if available
+                        updated_oauth_config = oauth_config.copy()
+                        if auth_check_result.get("authorization_server"):
+                            updated_oauth_config["issuer"] = auth_check_result["authorization_server"]
+                            logger.debug("Using authorization server from pre-flight check for SSE")
+
+                        # Immediately trigger OAuth without attempting connection
+                        if await _handle_oauth_flow_and_retry(
+                            url, server_name, connection_headers, updated_oauth_config
+                        ):
+                            logger.debug("OAuth completed via pre-flight check - proceeding with SSE connection")
+                        else:
+                            _log_oauth_failure_guidance(server_name)
+                            raise ConnectionError("OAuth authentication failed for SSE")
+                    elif auth_check_result and not auth_check_result.get("requires_auth"):
+                        logger.debug(
+                            "Pre-flight check indicates no authentication required for SSE - proceeding directly"
+                        )
             else:
                 logger.debug("OAuth not enabled")
 
@@ -443,7 +554,9 @@ async def sse_client_with_logging(
 
                     oauth_retry_attempted = True
                     try:
-                        if await _handle_oauth_flow_and_retry(url, server_name, connection_headers, oauth_config):
+                        # Use original oauth_config or copy it
+                        retry_oauth_config = oauth_config.copy() if oauth_config else {}
+                        if await _handle_oauth_flow_and_retry(url, server_name, connection_headers, retry_oauth_config):
                             # Retry connection with updated tokens in a new context
                             try:
                                 async with sse_client(url=url, headers=connection_headers) as streams:
@@ -595,14 +708,8 @@ async def _attempt_token_refresh_and_retry(
             temp_flow = OAuthFlow(oauth_options_temp)
             stored_oauth_issuer = temp_flow.provider.stored_oauth_issuer()
 
-            # Use stored OAuth issuer if available, otherwise fall back to auto-detection
+            # Use stored OAuth issuer if available
             oauth_issuer = stored_oauth_issuer
-            if oauth_issuer:
-                oauth_logger.debug("Using stored OAuth issuer for token refresh")
-            else:
-                oauth_issuer = _auto_detect_oauth_issuer(url)
-                if oauth_issuer:
-                    oauth_logger.debug("Using auto-detected OAuth issuer for token refresh")
 
             oauth_options = OAuthProviderOptions(
                 server_url=url,
@@ -762,11 +869,14 @@ async def _handle_oauth_authentication(
                 # TODO: Pass actual bridge port from server startup
 
             # Extract OAuth issuer from config if explicitly configured
-            # Do NOT auto-detect for initial auth as it breaks the working flow
             oauth_issuer = None
             if oauth_config and oauth_config.get("issuer"):
                 oauth_issuer = oauth_config["issuer"]
-                oauth_logger.debug("Found configured OAuth issuer.")
+            else:
+                # No explicit issuer - try RFC 9728 discovery
+                oauth_issuer = await _discover_oauth_issuer(url)
+                if not oauth_issuer:
+                    return
 
             # Extract SSL verification setting (default: True for security)
             verify_ssl = oauth_config.get("verify_ssl", True) if oauth_config else True
@@ -786,21 +896,12 @@ async def _handle_oauth_authentication(
             )
             oauth_flow = OAuthFlow(oauth_options)
             tokens = oauth_flow.provider.tokens()
-            oauth_logger.debug("Loaded OAuth tokens: %s", tokens is not None)
 
             if tokens:
-                # Check token expiration for debugging
-                if hasattr(tokens, "expires_in") and tokens.expires_in:
-                    oauth_logger.debug("Token expires in: %s seconds", tokens.expires_in)
-                oauth_logger.debug("Token type: %s", getattr(tokens, "token_type", "Bearer"))
-                # Use the create_oauth_headers function for proper token formatting
                 oauth_headers = create_oauth_headers(tokens)
                 if oauth_headers:
                     headers.update(oauth_headers)
                     oauth_logger.info("Using existing OAuth tokens for authentication")
-                    oauth_logger.debug("OAuth authorization header added successfully")
-                    # Log safely without exposing any credential information
-                    oauth_logger.debug("Authorization header configured with token type")
                 else:
                     oauth_logger.warning("Failed to create OAuth headers from tokens")
             else:
@@ -843,10 +944,8 @@ async def _initiate_automatic_oauth_flow(
                 oauth_issuer = oauth_config["issuer"]
                 oauth_logger.debug("Found configured OAuth issuer for automatic flow")
             else:
-                # For token refresh scenarios, we can auto-detect the OAuth issuer
-                oauth_issuer = _auto_detect_oauth_issuer(server_url)
-                if oauth_issuer:
-                    oauth_logger.debug("Auto-detected OAuth issuer for token refresh")
+                # No issuer configured - will use discovery
+                oauth_issuer = None
 
             client_config = get_oauth_client_config()
 
@@ -1001,6 +1100,75 @@ async def _handle_oauth_flow_and_retry(
         return False
 
 
+def _extract_auth_server_from_error(exception: Exception) -> str | None:
+    """Extract authorization server URL from HTTP error response.
+
+    Args:
+        exception: The HTTP exception that may contain auth server info
+
+    Returns:
+        Authorization server URL if found in error response, None otherwise
+    """
+    try:
+        # Handle httpx.HTTPStatusError
+        if hasattr(exception, "response"):
+            try:
+                # Try to get JSON response data
+                response_data = exception.response.json()
+
+                # Check multiple possible locations for authorization server
+                auth_server_candidates = []
+
+                if isinstance(response_data, dict):
+                    # Standard MCP error format: error.data.authorization_server
+                    error_data = response_data.get("error", {})
+                    if isinstance(error_data, dict):
+                        auth_server = error_data.get("data", {}).get("authorization_server")
+                        if auth_server:
+                            auth_server_candidates.append(auth_server)
+
+                    # Also check top-level authorization_server field
+                    if response_data.get("authorization_server"):
+                        auth_server_candidates.append(response_data["authorization_server"])
+
+                # Extract any OAuth-looking URLs from the response text
+                response_text = str(response_data) if response_data else ""
+                if hasattr(exception.response, "text"):
+                    response_text += " " + exception.response.text
+
+                # Look for OAuth authorization server URLs in the response
+                oauth_url_patterns = [
+                    r'https?://[^/\s"\']+/oauth[^/\s"\']*',
+                    r'https?://auth\.[^/\s"\']+',
+                    r'https?://[^/\s"\']*auth[^/\s"\']*\.com[^/\s"\']*',
+                    r'"authorization_server":\s*"([^"]+)"',
+                ]
+
+                for pattern in oauth_url_patterns:
+                    matches = re.findall(pattern, response_text, re.IGNORECASE)
+                    auth_server_candidates.extend(matches)
+
+                # Return first valid-looking authorization server
+                for candidate in auth_server_candidates:
+                    if isinstance(candidate, str) and "://" in candidate:
+                        return candidate
+
+            except Exception:  # noqa: S110
+                pass
+
+        # Handle ExceptionGroup containing HTTP errors
+        if hasattr(exception, "exceptions"):
+            for sub_exc in exception.exceptions:
+                auth_server = _extract_auth_server_from_error(sub_exc)
+                if isinstance(auth_server, str):
+                    return auth_server
+
+    except Exception:
+        oauth_logger.debug("Could not extract authorization server from error response")
+
+    return None
+
+
 def _log_oauth_failure_guidance(server_name: str) -> None:
     """Log helpful guidance when OAuth flow fails.
 
@@ -1124,8 +1292,32 @@ async def http_client_with_logging(
         # Handle OAuth-enabled servers
         if oauth_enabled:
             await _handle_oauth_authentication(url, connection_headers, server_name, oauth_config)
+            logger.debug("OAuth authentication handling completed")
+
+        # For OAuth discovery, do a quick auth check first to fail fast
+        if oauth_enabled and oauth_config and oauth_config.get("type") == "dynamic":
+            logger.debug("Dynamic OAuth detected - performing pre-flight authentication check")
+            auth_check_result = await _perform_auth_preflight_check(url, connection_headers, server_name)
+            if auth_check_result and auth_check_result.get("requires_auth"):
+                logger.info("Pre-flight check detected authentication requirement - triggering OAuth flow")
+
+                # Update OAuth config with discovered authorization server if available
+                updated_oauth_config = oauth_config.copy()
+                if auth_check_result.get("authorization_server"):
+                    updated_oauth_config["issuer"] = auth_check_result["authorization_server"]
+                    logger.debug("Using authorization server from pre-flight check")
+
+                # Trigger OAuth flow for HTTP transport with proper scopes
+                if await _handle_oauth_flow_and_retry(url, server_name, connection_headers, updated_oauth_config):
+                    logger.debug("OAuth completed via pre-flight check - proceeding with connection")
+                else:
+                    _log_oauth_failure_guidance(server_name)
+                    raise ConnectionError("OAuth authentication failed")
+            elif auth_check_result and not auth_check_result.get("requires_auth"):
+                logger.debug("Pre-flight check indicates no authentication required - proceeding directly")
 
         # Attempt HTTP connection with automatic OAuth handling
+        logger.debug("Attempting streamablehttp connection to %s", url)
         try:
             async with streamablehttp_client(url=url, headers=connection_headers) as connection_result:
                 read_stream, write_stream = connection_result[:2]  # Extract first two elements safely
@@ -1142,12 +1334,20 @@ async def http_client_with_logging(
             # Handle authentication errors with automatic OAuth flow
             if oauth_enabled and _is_authentication_error(http_error):
                 logger.warning(
-                    f"HTTP authentication failed for OAuth-enabled server '{server_name}' - "
-                    "initiating automatic OAuth flow"
+                    "HTTP authentication failed for OAuth-enabled server '%s' - initiating automatic OAuth flow",
+                    server_name,
                 )
 
+                # Extract authorization server from error response for dynamic OAuth
+                updated_oauth_config = oauth_config.copy() if oauth_config else {}
+                auth_server_url = _extract_auth_server_from_error(http_error)
+                if auth_server_url and oauth_config and oauth_config.get("type") == "dynamic":
+                    # Update OAuth config with discovered authorization server
+                    updated_oauth_config["issuer"] = auth_server_url
+                    logger.debug("Discovered authorization server for dynamic OAuth: %s", auth_server_url)
+
                 # Attempt automatic OAuth flow and retry
-                if await _handle_oauth_flow_and_retry(url, server_name, connection_headers, oauth_config):
+                if await _handle_oauth_flow_and_retry(url, server_name, connection_headers, updated_oauth_config):
                     # Retry connection with updated OAuth tokens
                     async with streamablehttp_client(url=url, headers=connection_headers) as connection_result:
                         read_stream, write_stream = connection_result[:2]  # Extract first two elements safely

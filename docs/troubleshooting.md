@@ -476,32 +476,57 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081
 
 #### OAuth Authentication Failures
 
-**Error:** `OAuth flow failed` or `Token exchange error`
+**Error:** `OAuth preflight check failed` or `OAuth discovery failed`
 
 **Solutions:**
 
-1. **Check OAuth configuration**:
+1. **Check OAuth preflight logs** (errors are detected immediately):
+
+   ```bash
+   foxxy-bridge --debug server start
+   # Look for:
+   # ERROR: OAuth preflight check failed for server 'example'
+   # ERROR: OAuth discovery failed for all endpoints
+   ```
+
+2. **Verify OAuth discovery attempts** (bridge tries multiple endpoints):
+
+   ```bash
+   # Server-specific discovery
+   curl https://mcp.example.com/sse/.well-known/openid_configuration
+   curl https://mcp.example.com/sse/.well-known/oauth-authorization-server
+
+   # Base URL discovery
+   curl https://mcp.example.com/.well-known/openid_configuration
+   curl https://mcp.example.com/.well-known/oauth-authorization-server
+   ```
+
+3. **Manual OAuth configuration** (if discovery fails):
 
    ```json
    {
      "oauth": {
        "enabled": true,
-       "issuer": "https://auth.example.com",
-       "client_name": "MCP Foxxy Bridge",
+       "issuer": "https://auth.example.com",  // Specify issuer manually
        "verify_ssl": true
      }
    }
    ```
 
-2. **Verify OAuth issuer discovery**:
+4. **Use CLI OAuth commands**:
 
    ```bash
-   # Test OAuth discovery endpoints
-   curl https://auth.example.com/.well-known/openid-configuration
-   curl https://auth.example.com/.well-known/oauth-authorization-server
+   # Check OAuth status
+   foxxy-bridge oauth status
+
+   # Force re-authentication
+   foxxy-bridge oauth login production-api --force
+
+   # Clear stored tokens
+   foxxy-bridge oauth logout production-api
    ```
 
-3. **Check OAuth callback port**:
+5. **Check OAuth callback port**:
 
    ```json
    {
@@ -515,12 +540,6 @@ mcp-foxxy-bridge --bridge-config config.json --port 8081
    # Check if port is in use
    lsof -i :8090
    netstat -tlnp | grep 8090
-   ```
-
-4. **Clear stored tokens** (force re-authentication):
-
-   ```bash
-   rm ~/.foxxy-bridge/auth/server-hash-*.json
    ```
 
 #### HTTP/2 Connection Issues
@@ -587,7 +606,13 @@ foxxy-bridge mcp mcp-list --format table
 foxxy-bridge mcp mcp-show github --format json
 
 # Check OAuth status
-foxxy-bridge oauth oauth-status
+foxxy-bridge oauth status
+
+# Initiate OAuth login
+foxxy-bridge oauth login <server>
+
+# Clear OAuth tokens
+foxxy-bridge oauth logout <server>
 ```
 
 **📄 REST API approach:**

@@ -15,11 +15,12 @@ This enables integration with remote services like:
 ## OAuth Flow Overview
 
 1. **Configuration**: Define OAuth settings in your bridge config
-2. **Discovery**: Bridge auto-discovers OAuth endpoints from the server
-3. **Authorization**: User authenticates via browser
-4. **Token Exchange**: Bridge exchanges authorization code for tokens using PKCE
-5. **Token Storage**: Tokens are stored securely for future use
-6. **Auto-Refresh**: Tokens are automatically refreshed when needed
+2. **Discovery**: Bridge dynamically discovers OAuth endpoints from the server
+3. **Preflight Check**: Bridge validates OAuth configuration before starting
+4. **Authorization**: User authenticates via browser (automatic or CLI-initiated)
+5. **Token Exchange**: Bridge exchanges authorization code for tokens using PKCE
+6. **Token Storage**: Tokens are stored securely for future use
+7. **Auto-Refresh**: Tokens are automatically refreshed when needed
 
 ## Configuration
 
@@ -66,8 +67,9 @@ For connecting to a remote MCP server via SSE with OAuth:
 | `client_name` | OAuth client name | No | `"MCP Foxxy Bridge"` |
 | `client_uri` | OAuth client URI | No | Bridge GitHub URL |
 | `verify_ssl` | Verify SSL/TLS certificates | No | `true` |
+| `scopes` | OAuth scopes to request | No | Server-defined |
 
-*The `issuer` field is optional if the OAuth server supports dynamic registration and discovery.
+*The `issuer` field is optional. The bridge will attempt to discover it dynamically from the server URL if not provided.
 
 **Security Note**: The `verify_ssl` option controls SSL certificate verification. It is enabled by default for security. Only disable this for development environments with self-signed certificates.
 
@@ -84,16 +86,23 @@ For connecting to a remote MCP server via SSE with OAuth:
 
 ## OAuth Issuer Discovery
 
-The bridge can automatically discover OAuth configuration from the MCP server using standard mechanisms:
+The bridge uses dynamic discovery to automatically find OAuth configuration from the MCP server:
 
 ### Automatic Discovery
 
-When connecting to a remote MCP server, the bridge attempts to discover OAuth endpoints:
+When connecting to a remote MCP server, the bridge attempts discovery in this order:
 
-1. **OpenID Connect Discovery**: `/.well-known/openid_configuration`
-2. **OAuth Authorization Server Metadata**: `/.well-known/oauth-authorization-server`
+1. **Server-Specific Discovery**: Checks the exact server URL first
+   - `https://mcp.example.com/sse/.well-known/openid_configuration`
+   - `https://mcp.example.com/sse/.well-known/oauth-authorization-server`
 
-The discovery is attempted on the base URL of the MCP server endpoint.
+2. **Base URL Discovery**: Falls back to the base domain
+   - `https://mcp.example.com/.well-known/openid_configuration`
+   - `https://mcp.example.com/.well-known/oauth-authorization-server`
+
+3. **Issuer Field**: Uses the configured `issuer` field if discovery fails
+
+This dynamic approach ensures OAuth works with various server configurations without manual mapping.
 
 ### Manual Issuer Configuration
 
@@ -129,18 +138,27 @@ If auto-discovery fails or is not supported by the OAuth server, you can specify
 ### First-Time Setup
 
 1. **Start Bridge**: Run with OAuth-enabled configuration
-2. **Automatic Flow**: Bridge detects missing tokens and initiates OAuth flow
-3. **Browser Opens**: Default browser opens to OAuth authorization page
-4. **User Authentication**: User logs in and authorizes the application
-5. **Callback Handling**: Bridge receives authorization code via callback
-6. **Token Exchange**: Bridge exchanges code for access/refresh tokens using PKCE
-7. **Token Storage**: Tokens are stored in `~/.foxxy-bridge/auth/`
+2. **Preflight Check**: Bridge validates OAuth configuration immediately
+3. **Automatic Flow**: Bridge detects missing tokens and initiates OAuth flow
+4. **Browser Opens**: Default browser opens to OAuth authorization page
+5. **User Authentication**: User logs in and authorizes the application
+6. **Callback Handling**: Bridge receives authorization code via callback
+7. **Token Exchange**: Bridge exchanges code for access/refresh tokens using PKCE
+8. **Token Storage**: Tokens are stored in `~/.foxxy-bridge/auth/`
+
+**Note**: OAuth errors are detected immediately during preflight checks, providing clear error messages before the bridge fully starts.
 
 ### Subsequent Usage
 
 - **Automatic**: Bridge automatically uses stored tokens
 - **Refresh**: Tokens are refreshed automatically when needed
 - **Re-authentication**: User is prompted if refresh fails
+- **CLI Management**: Use CLI commands to manage OAuth sessions:
+  ```bash
+  foxxy-bridge oauth login <server>     # Manually initiate OAuth flow
+  foxxy-bridge oauth logout <server>    # Clear stored tokens
+  foxxy-bridge oauth status [server]    # Check OAuth status
+  ```
 
 ## Token Management
 
@@ -172,6 +190,8 @@ Tokens are stored in the user's home directory:
 - Files are created with restricted permissions (600)
 - Tokens are never logged or exposed in error messages
 - Storage location is configurable via config directory
+- Scopes are dynamically determined from server requirements (no hardcoded scopes)
+- OAuth differentiation between SSE and HTTP streaming transports
 
 ## Examples
 
@@ -293,7 +313,18 @@ netstat -tlnp | grep 8090
 **Problem**: Bridge cannot discover OAuth configuration.
 
 **Solutions**:
-1. **Manual Configuration**:
+1. **Check Discovery Attempts**: The bridge tries multiple discovery URLs:
+   ```bash
+   # Server-specific discovery
+   curl https://mcp.example.com/sse/.well-known/openid_configuration
+   curl https://mcp.example.com/sse/.well-known/oauth-authorization-server
+
+   # Base URL discovery
+   curl https://mcp.example.com/.well-known/openid_configuration
+   curl https://mcp.example.com/.well-known/oauth-authorization-server
+   ```
+
+2. **Manual Configuration** (if discovery fails):
    ```json
    {
      "oauth": {
@@ -303,10 +334,9 @@ netstat -tlnp | grep 8090
    }
    ```
 
-2. **Check Discovery Endpoints**:
+3. **Enable Debug Mode**: See all discovery attempts:
    ```bash
-   curl https://yourservice.com/.well-known/openid_configuration
-   curl https://yourservice.com/.well-known/oauth-authorization-server
+   foxxy-bridge --debug server start
    ```
 
 #### 4. Token Refresh Fails
@@ -348,19 +378,38 @@ Debug logs include:
 
 **Successful OAuth Flow**:
 ```
-INFO: OAuth-enabled server detected. Checking for existing OAuth tokens.
-DEBUG: Trying OAuth discovery endpoint: https://auth.atlassian.com/.well-known/openid_configuration
-INFO: Discovered OAuth issuer via https://auth.atlassian.com/.well-known/openid_configuration: https://auth.atlassian.com
-INFO: 🌐 OAuth flow initiated for server 'atlassian'. Please check your browser to complete authorization.
-INFO: OAuth flow completed successfully for server 'atlassian'
+INFO: OAuth-enabled server detected. Running OAuth preflight check.
+DEBUG: Attempting OAuth discovery for URL: https://mcp.example.com/sse
+DEBUG: Trying discovery endpoint: https://mcp.example.com/sse/.well-known/openid_configuration
+DEBUG: Trying discovery endpoint: https://mcp.example.com/.well-known/openid_configuration
+INFO: Successfully discovered OAuth issuer: https://auth.example.com
+INFO: OAuth preflight check passed for server 'example'
+INFO: OAuth flow initiated for server 'example'. Please check your browser to complete authorization.
+INFO: OAuth flow completed successfully for server 'example'
 INFO: OAuth tokens loaded successfully for server URL hash: 123456789
 ```
 
-**OAuth Errors**:
+**OAuth Errors (with immediate detection)**:
 ```
-ERROR: OAuth discovery failed for all endpoints for server URL: https://mcp.example.com
-WARNING: OAuth tokens missing for server 'example', initiating automatic flow
-ERROR: OAuth callback failed: Token exchange error
+ERROR: OAuth preflight check failed for server 'example'
+ERROR: OAuth discovery failed for all endpoints:
+  - https://mcp.example.com/sse/.well-known/openid_configuration (404)
+  - https://mcp.example.com/sse/.well-known/oauth-authorization-server (404)
+  - https://mcp.example.com/.well-known/openid_configuration (404)
+  - https://mcp.example.com/.well-known/oauth-authorization-server (404)
+ERROR: No issuer configured and discovery failed for server 'example'
+```
+
+**CLI OAuth Management**:
+```
+$ foxxy-bridge oauth status
+╭─────────────┬──────────────┬─────────────────────╮
+│ Server      │ OAuth Status │ Token Expiry        │
+├─────────────┼──────────────┼─────────────────────┤
+│ production  │ ✓ Valid      │ 2024-01-15 14:30:00 │
+│ staging     │ ⚠ Expired    │ 2024-01-10 10:15:00 │
+│ development │ ✗ No tokens  │ -                   │
+╰─────────────┴──────────────┴─────────────────────╯
 ```
 
 ## Security Considerations
@@ -438,6 +487,37 @@ When building MCP servers that support OAuth:
 
 3. **Support PKCE**: Ensure OAuth server supports PKCE for enhanced security
 
+## CLI OAuth Commands
+
+The bridge provides CLI commands for managing OAuth authentication:
+
+### Login Command
+```bash
+# Initiate OAuth flow for a specific server
+foxxy-bridge oauth login <server>
+
+# Example
+foxxy-bridge oauth login production-api
+```
+
+### Logout Command
+```bash
+# Clear stored tokens for a server
+foxxy-bridge oauth logout <server>
+
+# Example
+foxxy-bridge oauth logout staging-api
+```
+
+### Status Command
+```bash
+# Check OAuth status for all servers
+foxxy-bridge oauth status
+
+# Check status for a specific server
+foxxy-bridge oauth status production-api
+```
+
 ## Advanced Configuration
 
 ### Custom OAuth Client Configuration
@@ -450,6 +530,7 @@ When building MCP servers that support OAuth:
     "client_name": "My Custom MCP Bridge",
     "client_uri": "https://mycompany.com/tools/mcp-bridge",
     "verify_ssl": true,  // Keep enabled for production
+    "scopes": ["read:data", "write:data"],  // Optional: specific scopes
     "additional_params": {
       "audience": "https://api.mycompany.com",
       "resource": "myapp"
@@ -457,6 +538,8 @@ When building MCP servers that support OAuth:
   }
 }
 ```
+
+**Note**: Scopes are typically discovered dynamically from the server. Only specify them if you need specific scopes that differ from the server's defaults.
 
 ### Development with Self-Signed Certificates
 

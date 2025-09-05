@@ -743,3 +743,33 @@ def setup_signal_handlers(cleanup_func: Callable[[], None]) -> None:
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+
+
+def clear_tokens(server_url_hash: str, server_name: str | None = None) -> None:
+    """Clear OAuth tokens for a specific server.
+
+    Args:
+        server_url_hash: Hash of the server URL
+        server_name: Optional server name
+    """
+    cleanup_auth_files(server_url_hash, server_name)
+
+
+def clear_all_tokens() -> None:
+    """Clear all OAuth tokens for all servers."""
+    config_dir = get_oauth_config_dir()
+
+    if not config_dir.exists():
+        return
+
+    # Remove all server-specific directories
+    for item in config_dir.iterdir():
+        if item.is_dir():
+            with contextlib.suppress(OSError):
+                shutil.rmtree(item)
+
+    # Remove any legacy files in the root config directory
+    for pattern in ["tokens-*.json", "client-*.json", "verifier-*.txt", "*.lock"]:
+        for file_path in config_dir.glob(pattern):
+            with contextlib.suppress(FileNotFoundError):
+                file_path.unlink()
