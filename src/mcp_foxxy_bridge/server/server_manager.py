@@ -40,6 +40,7 @@ from mcp.types import ErrorData
 from pydantic import AnyUrl
 
 from mcp_foxxy_bridge.clients.sse_client_wrapper import (
+    get_oauth_tokens,
     http_client_with_logging,
     sse_client_with_logging,
 )
@@ -496,11 +497,12 @@ class ServerManager:
                 # Initialize the session with timeout - this is critical for OAuth discovery
                 init_timeout = 8.0  # Fixed 8-second timeout for all session initialization
 
-                # Check if this is a dynamic OAuth discovery attempt
+                # Check if this is a dynamic OAuth discovery attempt (only when no tokens exist yet)
                 is_oauth_discovery = (
                     server.config.is_oauth_enabled()
                     and server.config.oauth_config
                     and server.config.oauth_config.type == "dynamic"
+                    and not self._has_existing_oauth_tokens(server)
                 )
 
                 if is_oauth_discovery:
@@ -2162,6 +2164,25 @@ class ServerManager:
             if current_time - last_refresh >= refresh_interval:
                 await self._refresh_oauth_token(server)
                 self._oauth_token_refresh_times[server.name] = current_time
+
+    def _has_existing_oauth_tokens(self, server: ManagedServer) -> bool:
+        """Check if OAuth tokens already exist for the server."""
+        if not server.config.is_oauth_enabled():
+            return False
+
+        try:
+            # Get server URL for token lookup
+            server_url = getattr(server.config, "url", None)
+            if not server_url:
+                return False
+
+            # Check if tokens exist
+            tokens = get_oauth_tokens(server_url, server.name)
+            return tokens is not None and tokens.access_token is not None
+
+        except Exception:
+            # If there's any error checking tokens, assume they don't exist
+            return False
 
     async def _refresh_oauth_token(self, server: ManagedServer) -> None:
         """Refresh OAuth token for a specific server."""

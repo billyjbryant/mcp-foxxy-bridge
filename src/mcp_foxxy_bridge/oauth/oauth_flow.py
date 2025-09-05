@@ -173,6 +173,13 @@ class OAuthFlow:
         if not code_verifier:
             raise RuntimeError("Code verifier not found")
 
+        # Debug logging for token exchange
+        logger.debug(f"Token exchange - Authorization code length: {len(auth_code)}")
+        logger.debug(f"Token exchange - Code verifier length: {len(code_verifier)}")
+        logger.debug(f"Token exchange - Redirect URI: {self.provider.redirect_url}")
+        logger.debug(f"Token exchange - Client ID: {client_info.client_id}")
+        logger.debug(f"Token exchange - Token endpoint: {token_endpoint}")
+
         data = {
             "grant_type": "authorization_code",
             "code": auth_code,
@@ -181,10 +188,18 @@ class OAuthFlow:
             "code_verifier": code_verifier,
         }
 
-        # Add client authentication
+        # CRITICAL FIX: Some OAuth servers require client_secret in POST body, not Basic auth
+        # Try POST body authentication first for broader compatibility
         auth = None
         if client_info.client_secret:
-            auth = (client_info.client_id, client_info.client_secret)
+            logger.debug("Using client secret in POST body for token exchange")
+            data["client_secret"] = client_info.client_secret
+        else:
+            logger.debug("Using public client authentication (PKCE only)")
+
+        # Enhanced debug logging for the actual request
+        logger.debug(f"Token exchange request data: {data}")
+        logger.debug(f"Token exchange auth method: {'post_body' if client_info.client_secret else 'public'}")
 
         try:
             verify_ssl = getattr(self.options, "verify_ssl", True)
@@ -197,6 +212,10 @@ class OAuthFlow:
                 verify=verify_ssl,
             )
 
+            # Enhanced debug logging for response
+            logger.debug(f"Token exchange response status: {response.status_code}")
+            logger.debug(f"Token exchange response headers: {dict(response.headers)}")
+
             if response.status_code == 200:
                 token_data = response.json()
                 tokens = OAuthTokens(
@@ -208,12 +227,17 @@ class OAuthFlow:
                 )
 
                 self.provider.save_tokens(tokens)
+                logger.info("Token exchange successful")
                 return tokens
 
+            # Enhanced error logging
+            logger.error(f"Token exchange failed with status {response.status_code}")
+            logger.error(f"Response body: {response.text}")
             msg = f"Token exchange failed: {response.status_code} - {response.text}"
             raise RuntimeError(msg)
 
         except httpx.HTTPError as e:
+            logger.exception("HTTP error during token exchange: %s", e)
             msg = f"Failed to exchange code for tokens: {e}"
             raise RuntimeError(msg) from e
 

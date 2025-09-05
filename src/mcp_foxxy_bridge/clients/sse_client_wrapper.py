@@ -965,6 +965,21 @@ async def _initiate_automatic_oauth_flow(
                 verify_ssl=verify_ssl,
             )
             oauth_flow = OAuthFlow(oauth_options)
+
+            try:
+                from mcp_foxxy_bridge.server.mcp_server import _oauth_states  # noqa: PLC0415
+
+                _oauth_states[oauth_flow.provider.state] = {
+                    "server_name": server_name,
+                    "server_id": server_name,
+                    "server_config": None,  # Config not available in client wrapper
+                    "oauth_flow": oauth_flow,
+                    "timestamp": time.time(),
+                }
+                oauth_logger.debug("Stored automatic OAuth state for bridge server callback coordination")
+            except Exception as e:
+                oauth_logger.warning("Could not coordinate automatic OAuth with bridge server: %s", e)
+
             tokens = await oauth_flow.authenticate(skip_browser=False)
             access_token = tokens.access_token if tokens else None
 

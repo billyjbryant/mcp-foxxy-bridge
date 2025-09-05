@@ -359,7 +359,7 @@ class OAuthConfig:
 
     Attributes:
         enabled: Whether OAuth is enabled for this server
-        issuer: OAuth issuer URL (e.g., https://auth.atlassian.com)
+        issuer: OAuth issuer URL
         verify_ssl: Whether to verify SSL/TLS certificates
         keep_alive_interval: Keep-alive ping interval for OAuth servers in milliseconds
         token_refresh_interval: Proactive token refresh interval in milliseconds
@@ -691,8 +691,8 @@ def normalize_server_name(server_name: str) -> str:
     Example:
         >>> normalize_server_name("File System")
         'file_system'
-        >>> normalize_server_name("GitHub API")
-        'github_api'
+        >>> normalize_server_name("Example API")
+        'example_api'
         >>> normalize_server_name("My_Special Server!")
         'my_special_server'
     """
@@ -1538,7 +1538,7 @@ def _load_bridge_settings(config_data: dict[str, Any], allow_command_substitutio
         config_reload=config_reload,
         host=bridge_data.get("host", "127.0.0.1"),
         port=bridge_data.get("port", 8080),
-        oauth_port=bridge_data.get("oauth_port", 8090),
+        oauth_port=bridge_data.get("oauth_port", bridge_data.get("port", 8080)),
         mcp_log_level=bridge_data.get("mcp_log_level", "ERROR"),
         allow_command_substitution=effective_allow_substitution,
         allowed_commands=bridge_data.get("allowed_commands"),

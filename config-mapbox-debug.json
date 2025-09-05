@@ -1,0 +1,27 @@
+{
+  "$schema": "/Users/billybryant/.config/foxxy-bridge/bridge_config_schema.json",
+  "mcpServers": {
+    "mapbox": {
+      "transport": "http",
+      "url": "https://mcp.mapbox.com/mcp",
+      "tags": [
+        "mapbox",
+        "geospatial",
+        "api"
+      ],
+      "enabled": true,
+      "log_level": "DEBUG",
+      "oauth_config": {
+        "enabled": true,
+        "verify_ssl": true
+      }
+    }
+  },
+  "bridge": {
+    "host": "127.0.0.1",
+    "port": 9001,
+    "conflictResolution": "namespace",
+    "log_level": "DEBUG",
+    "oauth_port": 9091
+  }
+}
