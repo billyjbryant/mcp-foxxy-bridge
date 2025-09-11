@@ -325,15 +325,60 @@ foxxy-bridge tool tool-list --tag development
 
 ## OAuth Authentication
 
+### OAuth Login
+
+```bash
+foxxy-bridge oauth login SERVER [OPTIONS]
+```
+
+Initiates OAuth authentication flow for a specific server.
+
+**Options:**
+
+- `--force` - Force re-authentication even if tokens exist
+
+**Examples:**
+
+```bash
+# Initiate OAuth flow
+foxxy-bridge oauth login production-api
+
+# Force re-authentication
+foxxy-bridge oauth login production-api --force
+```
+
+### OAuth Logout
+
+```bash
+foxxy-bridge oauth logout SERVER [OPTIONS]
+```
+
+Clears stored OAuth tokens for a specific server.
+
+**Options:**
+
+- `--confirm` - Skip confirmation prompt
+
+**Examples:**
+
+```bash
+# Clear tokens for a server
+foxxy-bridge oauth logout staging-api
+
+# Clear without confirmation
+foxxy-bridge oauth logout staging-api --confirm
+```
+
 ### OAuth Status
 
 ```bash
-foxxy-bridge oauth oauth-status [SERVER] [OPTIONS]
+foxxy-bridge oauth status [SERVER] [OPTIONS]
 ```
 
 **Options:**
 
 - `--format [table|json]` - Output format
+- `--detailed` - Show additional token information
 
 Shows OAuth authentication status for servers with OAuth enabled.
 
@@ -341,10 +386,25 @@ Shows OAuth authentication status for servers with OAuth enabled.
 
 ```bash
 # Show all OAuth statuses
-foxxy-bridge oauth oauth-status
+foxxy-bridge oauth status
 
 # Show status for specific server
-foxxy-bridge oauth oauth-status remote-api
+foxxy-bridge oauth status remote-api
+
+# Detailed status in JSON format
+foxxy-bridge oauth status --format json --detailed
+```
+
+**Output Example:**
+
+```
+╭─────────────┬──────────────┬─────────────────────╮
+│ Server      │ OAuth Status │ Token Expiry        │
+├─────────────┼──────────────┼─────────────────────┤
+│ production  │ ✓ Valid      │ 2024-01-15 14:30:00 │
+│ staging     │ ⚠ Expired    │ 2024-01-10 10:15:00 │
+│ development │ ✗ No tokens  │ -                   │
+╰─────────────┴──────────────┴─────────────────────╯
 ```
 
 ## Monitoring & Logs

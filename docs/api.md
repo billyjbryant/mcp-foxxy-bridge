@@ -83,6 +83,44 @@ Returns detailed status information about the bridge and all configured MCP serv
 - `connecting` - Server is currently connecting
 - `disabled` - Server is disabled in configuration
 
+### OAuth Endpoints
+
+#### OAuth status for configured servers
+
+```http
+GET /oauth/{server}/status
+```
+
+Returns OAuth authentication status for a specific server.
+
+**Response Format:**
+
+```json
+{
+  "server": "production-api",
+  "oauth_enabled": true,
+  "authenticated": true,
+  "token_expires": "2024-01-15T14:30:00Z",
+  "issuer": "https://auth.example.com"
+}
+```
+
+**Status Codes:**
+
+- `200` - OAuth status retrieved successfully
+- `404` - Server not found or OAuth not configured
+- `500` - Internal server error
+
+#### OAuth callback endpoint
+
+```http
+GET /oauth/callback
+```
+
+Internal endpoint used for OAuth authorization code callback. This endpoint is automatically handled by the bridge during the OAuth flow.
+
+**Note:** This endpoint runs on a separate port (default: 8090) configured via `bridge.oauth_port`.
+
 ## MCP Protocol Support
 
 The bridge implements the full MCP (Model Context Protocol) specification and supports:
@@ -338,11 +376,17 @@ mcp-foxxy-bridge --bridge-config config.json --debug
 
 ### Authentication
 
-The bridge doesn't implement authentication itself. Use these approaches:
+The bridge supports multiple authentication approaches:
 
-1. **Network-level security** - Bind to localhost, use firewall rules
-2. **Reverse proxy authentication** - Add auth at nginx/Caddy level
-3. **VPN or private networks** - Restrict network access
+1. **OAuth 2.0 with PKCE** - For remote MCP servers (SSE/HTTP streaming)
+   - Dynamic issuer discovery
+   - Automatic token refresh
+   - CLI management commands (`login`, `logout`, `status`)
+2. **Network-level security** - Bind to localhost, use firewall rules
+3. **Reverse proxy authentication** - Add auth at nginx/Caddy level
+4. **VPN or private networks** - Restrict network access
+
+For OAuth configuration, see the [OAuth Authentication Guide](oauth.md).
 
 ### Environment Variables
 

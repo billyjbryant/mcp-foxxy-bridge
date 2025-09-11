@@ -21,13 +21,12 @@
 import argparse
 import json
 import logging
-import shutil
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import aiohttp
 from rich.console import Console
-from rich.prompt import Confirm
 
 from mcp_foxxy_bridge.cli.api_client import get_api_client_from_config
 from mcp_foxxy_bridge.cli.formatters import OAuthFormatter
@@ -86,9 +85,9 @@ async def handle_oauth_command(
     if args.oauth_command == "status":
         await _oauth_status(args, config_path, console, logger)
     elif args.oauth_command == "login":
-        await _oauth_login(args, config_path, console, logger)
+        await handle_oauth_login(args, config_path, config_dir, console, logger)
     elif args.oauth_command == "logout":
-        await _oauth_logout(args, config_path, config_dir, console, logger)
+        await handle_oauth_logout(args, config_path, config_dir, console, logger)
     else:
         console.print(f"[red]Unknown OAuth command: {args.oauth_command}[/red]")
 
@@ -132,9 +131,10 @@ async def _oauth_status(
 
                 for server in servers:
                     server_name = server.get("name")
-                    if server_name and server.get("oauth_enabled", False):
+                    if server_name:
                         try:
                             oauth_data = await api_client.get_oauth_status(server_name)
+                            # Only include if it's actually OAuth-enabled (doesn't error)
                             oauth_status[server_name] = oauth_data
                         except aiohttp.ClientError:
                             # Skip servers that don't support OAuth
@@ -158,131 +158,104 @@ async def _oauth_status(
         logger.exception("Failed to get OAuth status")
 
 
-async def _oauth_login(
-    args: argparse.Namespace,
-    config_path: Path,
-    console: Console,
-    logger: logging.Logger,
-) -> None:
-    """Initiate OAuth authentication flow for a server.
-
-    Args:
-        args: Command line arguments containing server name
-        config_path: Path to the configuration file
-        console: Rich console for output
-        logger: Logger for error reporting
-
-    Note: This is a placeholder implementation. Full OAuth login
-    functionality requires integration with the OAuth authentication system.
-    """
-    """Trigger OAuth login flow."""
-    try:
-        # Check if server is configured for OAuth
-        try:
-            bridge_config = load_bridge_config_from_file(str(config_path), {})
-            server_config = bridge_config.servers.get(args.name)
-
-            if not server_config:
-                console.print(f"[red]Server '{args.name}' not found in configuration[/red]")
-                return
-
-            if not server_config.oauth_config or not server_config.oauth_config.get("enabled", False):
-                console.print(f"[red]OAuth is not enabled for server '{args.name}'[/red]")
-                console.print("Enable OAuth in your configuration file first.")
-                return
-
-        except Exception as e:
-            console.print(f"[red]Failed to load configuration: {e}[/red]")
-            return
-
-        # Check current OAuth status
-        api_client = get_api_client_from_config(str(config_path), console)
-
-        try:
-            current_status = await api_client.get_oauth_status(args.name)
-
-            if current_status.get("authenticated", False) and not args.force:
-                console.print(f"[yellow]Server '{args.name}' is already authenticated[/yellow]")
-                if not Confirm.ask("Re-authenticate anyway?"):
-                    console.print("[yellow]Operation cancelled[/yellow]")
-                    return
-
-        except aiohttp.ClientError:
-            # Server might not be running, continue with login attempt
-            pass
-
-        console.print(f"[cyan]Starting OAuth login for server '[white]{args.name}[/white]'[/cyan]")
-        console.print("[dim]This will open your browser to complete authentication[/dim]")
-
-        # For now, provide instructions since we don't have direct API endpoints for login
-        console.print("\n[bold]To authenticate:[/bold]")
-        console.print("1. Ensure the bridge daemon is running")
-        console.print(f"2. The OAuth flow will be triggered when the server '{args.name}' first connects")
-        console.print("3. Follow the browser prompts to complete authentication")
-
-        # TODO: Implement direct OAuth flow triggering via API
-        # This would require adding an endpoint to trigger OAuth flow on demand
-
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
-        logger.exception("Failed to trigger OAuth login")
-
-
-async def _oauth_logout(
-    args: argparse.Namespace,
+async def handle_oauth_login(
+    args: argparse.Namespace | SimpleNamespace,
     config_path: Path,
     config_dir: Path,
     console: Console,
     logger: logging.Logger,
 ) -> None:
-    """Revoke OAuth authentication for a server.
-
-    Args:
-        args: Command line arguments containing server name
-        config_path: Path to the configuration file
-        config_dir: Configuration directory for OAuth token storage
-        console: Rich console for output
-        logger: Logger for error reporting
-
-    Note: This is a placeholder implementation. Full OAuth logout
-    functionality requires integration with the OAuth authentication system.
-    """
+    """Handle OAuth login command to initiate authentication for a server."""
     try:
-        auth_dir = config_dir / "auth"
+        # Load bridge config to get bridge URL
+        bridge_config = load_bridge_config_from_file(str(config_path), {})
+        if not bridge_config or not bridge_config.bridge:
+            console.print("[red]Error: Invalid or missing bridge configuration[/red]")
+            return
 
+        bridge_host = bridge_config.bridge.host
+        bridge_port = bridge_config.bridge.port
+
+        # Check if server exists and has OAuth enabled
+        server_config = bridge_config.servers.get(args.name)
+        if not server_config:
+            console.print(f"[red]Server '{args.name}' not found in configuration[/red]")
+            return
+
+        if not server_config.oauth_config or not server_config.oauth_config.enabled:
+            console.print(f"[red]OAuth is not enabled for server '{args.name}'[/red]")
+            return
+
+        # Construct OAuth start URL
+        if bridge_host == "0.0.0.0":  # noqa: S104
+            auth_url = f"http://127.0.0.1:{bridge_port}/oauth/{args.name}/start"
+        else:
+            auth_url = f"http://{bridge_host}:{bridge_port}/oauth/{args.name}/start"
+
+        console.print(f"[blue]Starting OAuth authentication for server '[cyan]{args.name}[/cyan]'...[/blue]")
+        console.print("[green]Open this URL in your browser:[/green]")
+        console.print(f"[bold]{auth_url}[/bold]")
+
+        # Try to open browser automatically
+        try:
+            import webbrowser
+
+            webbrowser.open(auth_url)
+            console.print("[green]✓[/green] Browser opened automatically")
+        except Exception:
+            console.print("[yellow]Could not open browser automatically - please open the URL manually[/yellow]")
+
+    except Exception as e:
+        console.print(f"[red]Error initiating OAuth login: {e}[/red]")
+        logger.exception("Failed to initiate OAuth login")
+
+
+async def handle_oauth_logout(
+    args: argparse.Namespace | SimpleNamespace,
+    config_path: Path,
+    config_dir: Path,
+    console: Console,
+    logger: logging.Logger,
+) -> None:
+    """Handle OAuth logout command to clear authentication tokens."""
+    try:
         if args.all:
             # Clear all OAuth tokens
-            if not Confirm.ask("Clear [red]ALL[/red] OAuth tokens?"):
-                console.print("[yellow]Operation cancelled[/yellow]")
-                return
+            from mcp_foxxy_bridge.oauth.utils import clear_all_tokens
 
-            if auth_dir.exists():
-                shutil.rmtree(auth_dir)
-                auth_dir.mkdir(parents=True, exist_ok=True)
-                console.print("[green]✓[/green] Cleared all OAuth tokens")
-            else:
-                console.print("[yellow]No OAuth tokens found[/yellow]")
+            try:
+                clear_all_tokens()
+                console.print("[green]✓[/green] All OAuth tokens cleared")
+            except Exception as e:
+                console.print(f"[red]Error clearing all tokens: {e}[/red]")
         else:
             # Clear tokens for specific server
-            if not Confirm.ask(f"Clear OAuth tokens for '[cyan]{args.name}[/cyan]'?"):
-                console.print("[yellow]Operation cancelled[/yellow]")
+            from mcp_foxxy_bridge.oauth.utils import clear_tokens, get_server_url_hash
+
+            # Load config to get server URL for token lookup
+            bridge_config = load_bridge_config_from_file(str(config_path), {})
+            if not bridge_config:
+                console.print("[red]Error: Invalid bridge configuration[/red]")
                 return
 
-            # Look for token files for this server
-            token_files = list(auth_dir.glob(f"{args.name}*")) if auth_dir.exists() else []
+            server_config = bridge_config.servers.get(args.name)
+            if not server_config:
+                console.print(f"[red]Server '{args.name}' not found in configuration[/red]")
+                return
 
-            if token_files:
-                for token_file in token_files:
-                    try:
-                        token_file.unlink()
-                        logger.debug(f"Removed token file: {token_file}")
-                    except Exception as e:
-                        logger.warning(f"Failed to remove {token_file}: {e}")
+            server_url = getattr(server_config, "url", "")
+            if not server_url:
+                console.print(f"[red]No URL found for server '{args.name}'[/red]")
+                return
 
-                console.print(f"[green]✓[/green] Cleared OAuth tokens for '[cyan]{args.name}[/cyan]'")
-            else:
-                console.print(f"[yellow]No OAuth tokens found for '[cyan]{args.name}[/cyan]'[/yellow]")
+            # Clear tokens for this server
+            server_url_hash = get_server_url_hash(server_url)
+            try:
+                clear_tokens(server_url_hash, args.name)
+                console.print(f"[green]✓[/green] OAuth tokens cleared for server '[cyan]{args.name}[/cyan]'")
+            except Exception as e:
+                console.print(f"[red]Error clearing tokens for '{args.name}': {e}[/red]")
 
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
-        logger.exception("Failed to clear OAuth tokens")
+        logger.exception("Failed to handle OAuth logout")

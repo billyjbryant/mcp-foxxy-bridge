@@ -36,9 +36,11 @@ if TYPE_CHECKING:
 from mcp import types
 from mcp.client.session import ClientSession
 from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData
 from pydantic import AnyUrl
 
 from mcp_foxxy_bridge.clients.sse_client_wrapper import (
+    get_oauth_tokens,
     http_client_with_logging,
     sse_client_with_logging,
 )
@@ -380,8 +382,6 @@ class ServerManager:
             if server.config.needs_oauth_proxy():
                 oauth_env = _get_oauth_env_vars(server.name)
                 server_env.update(oauth_env)
-                if oauth_env:
-                    logger.debug("Added OAuth environment variables")
 
             # Connect with timeout and manage lifetime with context stack
             async with asyncio.timeout(server.config.timeout):
@@ -389,6 +389,7 @@ class ServerManager:
                 self._get_effective_log_level(server.config)
 
                 # Handle different transport types
+                logger.debug(f"Server '{server.name}' transport_type: {server.config.transport_type}")
                 if server.config.transport_type == "sse":
                     if not server.config.url:
                         msg = f"SSE transport requires 'url' field for server '{server.name}'"
@@ -464,6 +465,7 @@ class ServerManager:
                             server.name,
                             headers=headers or None,
                             oauth_enabled=server.config.is_oauth_enabled(),
+                            oauth_config=server.config.oauth_config.to_dict() if server.config.oauth_config else None,
                             authentication=server.config.authentication,
                             verify_ssl=server.config.verify_ssl,
                         ),
@@ -492,32 +494,68 @@ class ServerManager:
                 )
                 server.session = session
 
-                # Initialize the session with timeout
-                logger.debug(
-                    "Initializing session for server '%s' with timeout of %.1f seconds",
-                    server.name,
-                    server.config.timeout * 0.8,
+                # Initialize the session with timeout - this is critical for OAuth discovery
+                init_timeout = 8.0  # Fixed 8-second timeout for all session initialization
+
+                # Check if this is a dynamic OAuth discovery attempt (only when no tokens exist yet)
+                is_oauth_discovery = (
+                    server.config.is_oauth_enabled()
+                    and server.config.oauth_config
+                    and server.config.oauth_config.type == "dynamic"
+                    and not self._has_existing_oauth_tokens(server)
                 )
+
+                if is_oauth_discovery:
+                    init_timeout = 3.0  # Very short timeout for OAuth discovery attempts
+                    logger.debug(
+                        "OAuth discovery attempt for server '%s' with %.1f second timeout",
+                        server.name,
+                        init_timeout,
+                    )
+                else:
+                    logger.debug(
+                        "Initializing session for server '%s' with %.1f second timeout",
+                        server.name,
+                        init_timeout,
+                    )
+
                 init_start_time = time.time()
 
                 try:
-                    # Use server's configured timeout for initialization
-                    init_timeout = server.config.timeout * 0.8  # Use 80% of server timeout for init
-                    async with asyncio.timeout(init_timeout):
-                        result = await session.initialize()
+                    # Use asyncio.wait_for with immediate cancellation on timeout
+                    result = await asyncio.wait_for(session.initialize(), timeout=init_timeout)
 
                     init_duration = time.time() - init_start_time
                     logger.debug("Session initialized for server '%s' in %.3f seconds", server.name, init_duration)
 
                 except TimeoutError:
                     init_duration = time.time() - init_start_time
-                    logger.exception(
-                        "Session initialization timed out for server '%s' after %.3f seconds (timeout: %.1f)",
+
+                    # For OAuth discovery attempts, treat timeout as authentication failure
+                    if is_oauth_discovery:
+                        logger.info(
+                            "OAuth discovery timeout for server '%s' after %.3f seconds - "
+                            "server likely needs authentication",
+                            server.name,
+                            init_duration,
+                        )
+                        # Create authentication error to trigger OAuth flow
+                        auth_error = McpError(
+                            ErrorData(
+                                code=-32001,
+                                message="Authentication required - OAuth discovery timeout",
+                                data={"requires_oauth": True, "server_url": server.config.url},
+                            )
+                        )
+                        raise auth_error from None
+
+                    logger.warning(
+                        "Session initialization timed out for server '%s' after %.3f seconds (timeout: %.1fs)",
                         server.name,
                         init_duration,
                         init_timeout,
                     )
-                    raise
+                    raise TimeoutError(f"Session initialization timeout after {init_duration:.3f}s") from None
 
                 # Update server state
                 server.health.status = ServerStatus.CONNECTED
@@ -541,6 +579,30 @@ class ServerManager:
                     logging.INFO,
                 )
 
+        except McpError as e:
+            # Handle MCP-specific errors (including our OAuth discovery timeout)
+            if e.error.code == -32001 and "OAuth discovery timeout" in e.error.message:
+                logger.info("OAuth discovery timeout for server '%s' - triggering OAuth flow", server.name)
+                # This is an authentication error - let the OAuth system handle it
+                server.health.status = ServerStatus.FAILED
+                server.health.failure_count += 1
+                server.health.consecutive_failures += 1
+                server.health.last_error = "OAuth authentication required"
+                server.session = None
+            else:
+                logger.exception("MCP error connecting to server '%s'", server.name)
+                server.health.status = ServerStatus.FAILED
+                server.health.failure_count += 1
+                server.health.consecutive_failures += 1
+                server.health.last_error = str(e)
+                server.session = None
+
+            # Log connection failure to server's file
+            log_to_file(
+                server.name,
+                f"Failed to connect to MCP server: {e}",
+                logging.WARNING if "OAuth" in str(e) else logging.ERROR,
+            )
         except Exception as e:
             logger.exception("Failed to connect to server '%s'", server.name)
             server.health.status = ServerStatus.FAILED
@@ -2057,8 +2119,6 @@ class ServerManager:
         3. Attempts to reconnect with OAuth token refresh
         """
         try:
-            logger.debug("Attempting OAuth SSE reconnection")
-
             # Disconnect current failed connection
             await self._disconnect_server(server)
 
@@ -2102,15 +2162,32 @@ class ServerManager:
             refresh_interval = server.config.oauth_config.token_refresh_interval / 1000.0
 
             if current_time - last_refresh >= refresh_interval:
-                logger.debug("Proactively refreshing OAuth token for server '%s'", server.name)
                 await self._refresh_oauth_token(server)
                 self._oauth_token_refresh_times[server.name] = current_time
+
+    def _has_existing_oauth_tokens(self, server: ManagedServer) -> bool:
+        """Check if OAuth tokens already exist for the server."""
+        if not server.config.is_oauth_enabled():
+            return False
+
+        try:
+            # Get server URL for token lookup
+            server_url = getattr(server.config, "url", None)
+            if not server_url:
+                return False
+
+            # Check if tokens exist
+            tokens = get_oauth_tokens(server_url, server.name)
+            return tokens is not None and tokens.access_token is not None
+
+        except Exception:
+            # If there's any error checking tokens, assume they don't exist
+            return False
 
     async def _refresh_oauth_token(self, server: ManagedServer) -> None:
         """Refresh OAuth token for a specific server."""
         with server_context(server.name):
             if not server.config.oauth_config or not server.config.oauth_config.enabled:
-                logger.debug("OAuth not enabled for server, skipping token refresh")
                 return
 
             try:
@@ -2142,11 +2219,9 @@ class ServerManager:
                 # Check if we have existing tokens with refresh capability
                 existing_tokens = oauth_flow.provider.tokens_including_expired()
                 if not existing_tokens or not existing_tokens.refresh_token:
-                    logger.debug("No refresh token available for server, cannot proactively refresh")
                     return
 
                 # Attempt to refresh the token
-                logger.debug("Proactively refreshing OAuth token for server")
                 refreshed_tokens = oauth_flow.refresh_tokens(existing_tokens.refresh_token)
 
                 if refreshed_tokens and refreshed_tokens.access_token:

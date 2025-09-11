@@ -316,7 +316,7 @@ class OAuthFormatter:
         table.add_column("Expires", style="yellow")
 
         for server_name, oauth_info in oauth_data.items():
-            status = "✓ Authenticated" if oauth_info.get("authenticated", False) else "✗ Not authenticated"
+            status = "✓ Authenticated" if oauth_info.get("status") == "authenticated" else "✗ Not authenticated"
             issuer = oauth_info.get("issuer", "Unknown")
             expires = oauth_info.get("expires_at", "Unknown")
 

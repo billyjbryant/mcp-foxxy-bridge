@@ -359,7 +359,7 @@ class OAuthConfig:
 
     Attributes:
         enabled: Whether OAuth is enabled for this server
-        issuer: OAuth issuer URL (e.g., https://auth.atlassian.com)
+        issuer: OAuth issuer URL
         verify_ssl: Whether to verify SSL/TLS certificates
         keep_alive_interval: Keep-alive ping interval for OAuth servers in milliseconds
         token_refresh_interval: Proactive token refresh interval in milliseconds
@@ -691,8 +691,8 @@ def normalize_server_name(server_name: str) -> str:
     Example:
         >>> normalize_server_name("File System")
         'file_system'
-        >>> normalize_server_name("GitHub API")
-        'github_api'
+        >>> normalize_server_name("Example API")
+        'example_api'
         >>> normalize_server_name("My_Special Server!")
         'my_special_server'
     """
@@ -1413,10 +1413,10 @@ def load_bridge_config_from_file(
     """
     logger.info(f"Loading bridge configuration from: {config_file_path}")
 
-    # Step 0: Ensure schema is available in config directory for IDE support
+    # Ensure schema is available in config directory for IDE support
     _ensure_config_schema()
 
-    # Step 1: Load and parse JSON file
+    # Load and parse JSON file
     try:
         with Path(config_file_path).open() as f:
             config_data = json.load(f)
@@ -1436,40 +1436,71 @@ def load_bridge_config_from_file(
         logger.error(msg)
         raise ValueError(msg)
 
-    # Step 1.5: Ensure config has schema reference for IDE support
+    # Ensure config has schema reference for IDE support
     schema_updated = _ensure_schema_reference(config_file_path, config_data)
 
-    # Step 1.6: Migrate legacy oauth field names
+    # Migrate legacy oauth field names
     oauth_migrated = _migrate_oauth_fields(config_data)
 
-    # Step 1.7: Write config back to disk if oauth migration happened (but schema wasn't updated)
-    if oauth_migrated and not schema_updated:
-        _write_config_to_disk(config_file_path, config_data)
+    # If either migration happened, reload to get the current state and apply all changes
+    if schema_updated or oauth_migrated:
+        # Reload to get schema reference that was written to disk
+        try:
+            with Path(config_file_path).open() as f:
+                temp_config = json.load(f)
 
-    # Step 2: Load bridge configuration first to get settings
+            # Apply oauth migration to the reloaded config (in case schema was updated)
+            if oauth_migrated:
+                _migrate_oauth_fields(temp_config)
+
+            # Write the complete updated config
+            _write_config_to_disk(config_file_path, temp_config)
+            config_data = temp_config
+        except Exception as e:
+            logger.warning(f"Failed to consolidate migrations: {e}")
+
+    # Reload config from disk if it was modified to ensure we have the updated version
+    config_needs_reload = schema_updated or oauth_migrated
+    if config_needs_reload:
+        logger.debug("Reloading config from disk after migrations to prevent expansion persistence bug")
+        try:
+            with Path(config_file_path).open() as f:
+                config_data = json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to reload config after migrations: {e}")
+
+    # CRITICAL: Preserve original config data to prevent expansions from being persisted to disk
+    original_config_data = json.loads(json.dumps(config_data))
+
+    # Load bridge configuration settings
     bridge_config = _load_bridge_settings(config_data, allow_command_substitution)
     logger.debug(f"Bridge config loaded: substitution={bridge_config.allow_command_substitution}")
 
-    # Step 3: Now expand environment variables using bridge settings
+    # Expand environment variables for internal use only
     logger.debug("Expanding environment variables in server configurations")
     default_allowed_commands = get_default_allowed_commands()
-    config_data = expand_env_vars(config_data, bridge_config.allow_command_substitution, default_allowed_commands)
+    expanded_config_data = expand_env_vars(
+        config_data, bridge_config.allow_command_substitution, default_allowed_commands
+    )
 
-    # Step 4: Validate configuration against schema (if jsonschema is available)
+    # Validate configuration against schema
     try:
-        validate_bridge_config(config_data)
+        validate_bridge_config(expanded_config_data)
     except ValueError:
         logger.exception(f"Configuration validation failed for {config_file_path}")
         raise
 
-    # Step 5: Load server configurations with expanded variables
-    servers, config_updated = _load_server_configurations(config_data, config_file_path, base_env)
+    # Load server configurations with expanded variables
+    servers, config_updated, name_mappings = _load_server_configurations(
+        expanded_config_data, config_file_path, base_env
+    )
 
-    # Step 6: Save normalized config if server names were updated
+    # Save normalized config if server names were updated (use original data to preserve expansions)
     if config_updated:
-        _save_normalized_config(config_data, config_file_path)
+        _apply_server_name_mappings(original_config_data, name_mappings)
+        _save_normalized_config(original_config_data, config_file_path)
 
-    # Step 7: Show warning if dangerous commands are enabled via config
+    # Show warning if dangerous commands are enabled via config
     if bridge_config.allow_dangerous_commands:
         logger.warning("DANGER: UNSAFE MODE ENABLED via configuration!")
         logger.warning("'allow_dangerous_commands: true' found in bridge config")
@@ -1538,7 +1569,7 @@ def _load_bridge_settings(config_data: dict[str, Any], allow_command_substitutio
         config_reload=config_reload,
         host=bridge_data.get("host", "127.0.0.1"),
         port=bridge_data.get("port", 8080),
-        oauth_port=bridge_data.get("oauth_port", 8090),
+        oauth_port=bridge_data.get("oauth_port", bridge_data.get("port", 8080)),
         mcp_log_level=bridge_data.get("mcp_log_level", "ERROR"),
         allow_command_substitution=effective_allow_substitution,
         allowed_commands=bridge_data.get("allowed_commands"),
@@ -1582,7 +1613,7 @@ def _load_bridge_security_config(security_data: dict[str, Any]) -> "BridgeSecuri
 
 def _load_server_configurations(
     config_data: dict[str, Any], config_file_path: str, base_env: dict[str, str]
-) -> tuple[dict[str, BridgeServerConfig], bool]:
+) -> tuple[dict[str, BridgeServerConfig], bool, dict[str, str]]:
     """Load and parse server configurations from config data.
 
     Args:
@@ -1591,12 +1622,13 @@ def _load_server_configurations(
         base_env: Base environment variables for servers
 
     Returns:
-        Tuple of (dictionary mapping server names to BridgeServerConfig objects, config_updated flag)
+        Tuple of (server configs dict, config_updated flag, name_mappings dict)
     """
     servers = {}
     config_updated = False
     mcp_servers = config_data.get("mcpServers", {})
     normalized_servers = {}
+    name_mappings = {}  # Track original_name -> normalized_name mappings
 
     for name, server_config in mcp_servers.items():
         if not isinstance(server_config, dict):
@@ -1647,6 +1679,7 @@ def _load_server_configurations(
         if normalized_name != name:
             config_updated = True
             logger.debug(f"Normalized server name '{name}' -> '{normalized_name}'")
+            name_mappings[name] = normalized_name
 
         # Store normalized server config for potential config file update
         normalized_servers[normalized_name] = server_config
@@ -1713,11 +1746,28 @@ def _load_server_configurations(
         servers[normalized_name] = server
         logger.debug(f'MCP Server configured: {name} - "{server.command}" {" ".join(server.args)}')
 
-    # Update config_data with normalized server names if any were changed
-    if config_updated:
-        config_data["mcpServers"] = normalized_servers
+    return servers, config_updated, name_mappings
 
-    return servers, config_updated
+
+def _apply_server_name_mappings(config_data: dict[str, Any], name_mappings: dict[str, str]) -> None:
+    """Apply server name normalizations to config data.
+
+    Args:
+        config_data: The configuration data to modify
+        name_mappings: Dictionary mapping original_name -> normalized_name
+    """
+    if not name_mappings:
+        return
+
+    mcp_servers = config_data.get("mcpServers", {})
+    new_mcp_servers = {}
+
+    for original_name, server_config in mcp_servers.items():
+        # Use normalized name if available, otherwise keep original
+        normalized_name = name_mappings.get(original_name, original_name)
+        new_mcp_servers[normalized_name] = server_config
+
+    config_data["mcpServers"] = new_mcp_servers
 
 
 def _save_normalized_config(config_data: dict[str, Any], config_file_path: str) -> None:

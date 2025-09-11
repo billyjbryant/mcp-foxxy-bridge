@@ -113,7 +113,7 @@ class OAuthClientProvider:
             token_endpoint_auth_method="client_secret_basic",  # noqa: S106
             grant_types=["authorization_code"],
             response_types=["code"],
-            scope="openid profile",
+            scope=None,  # Let OAuth server determine appropriate scopes
             software_id=self.software_id,
             software_version=self.software_version,
         )
@@ -206,7 +206,6 @@ class OAuthClientProvider:
             "response_type": "code",
             "client_id": client_id,
             "redirect_uri": self.redirect_url,
-            "scope": "openid profile",
             "state": self.state,
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
