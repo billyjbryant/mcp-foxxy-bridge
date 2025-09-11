@@ -1707,7 +1707,9 @@ def create_oauth_routes(bridge_config: BridgeConfiguration, base_url: str) -> li
                     try:
                         # Discover endpoints using the original OAuth flow
                         endpoints = oauth_flow.discover_endpoints()
-                        logger.info(f"Discovered endpoints for '{actual_server_name}': {endpoints}")
+                        logger.info(
+                            f"Discovered endpoint keys for '{actual_server_name}': {list(endpoints.keys())}"
+                        )
 
                         # Get client information from the original flow
                         client_info = oauth_flow.provider.client_information()
