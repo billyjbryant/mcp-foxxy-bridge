@@ -21,6 +21,7 @@
 import argparse
 import asyncio
 import builtins
+import shlex
 from importlib.metadata import version
 from pathlib import Path
 from types import SimpleNamespace
@@ -301,8 +302,7 @@ def mcp(ctx: click.Context) -> None:
 
 @mcp.command()
 @click.argument("name")
-@click.argument("server_command", required=False)
-@click.argument("server_args", nargs=-1)
+@click.argument("command", required=False)
 @click.option(
     "--env",
     multiple=True,
@@ -356,8 +356,7 @@ def mcp(ctx: click.Context) -> None:
 def add(
     ctx: click.Context,
     name: str,
-    server_command: str | None,
-    server_args: tuple[str, ...],
+    command: str | None,
     env: tuple[tuple[str, str], ...],
     cwd: str | None,
     tags: tuple[str, ...],
@@ -382,11 +381,33 @@ def add(
     block_tool: tuple[str, ...],
     classify_tool: tuple[tuple[str, str], ...],
 ) -> None:
-    """Add new MCP server."""
+    """Add new MCP server.
+
+    For stdio transport, provide the complete command as a single string.
+
+    Examples:
+      foxxy-bridge mcp add fs 'npx @modelcontextprotocol/server-filesystem .'
+      foxxy-bridge mcp add context7 'npx -y mcp-remote https://mcp.context7.com/se'
+      foxxy-bridge mcp add github 'uvx mcp-server-github' --env GITHUB_TOKEN mytoken
+    """
     # Normalize server name for consistency with OAuth token storage
     normalized_name = _validate_server_name(name)
     if normalized_name != name:
         ctx.obj["console"].print(f"[yellow]Server name normalized: '{name}' → '{normalized_name}'[/yellow]")
+
+    # Parse command string into command and args for stdio transport
+    server_command = None
+    server_args = []
+
+    if command:
+        try:
+            command_parts = shlex.split(command)
+            if command_parts:
+                server_command = command_parts[0]
+                server_args = command_parts[1:]
+        except ValueError as e:
+            ctx.obj["console"].print(f"[red]Error: Invalid command string: {e}[/red]")
+            raise click.Abort from e
 
     # Validate transport-specific requirements
     if transport in ("sse", "http", "streamablehttp"):
@@ -395,13 +416,12 @@ def add(
             raise click.Abort
         if server_command is not None and server_command != "":
             ctx.obj["console"].print(
-                f"[yellow]Warning: server_command '{server_command}' ignored for {transport} transport "
-                f"(using URL)[/yellow]"
+                f"[yellow]Warning: command '{command}' ignored for {transport} transport (using URL)[/yellow]"
             )
     else:
         # stdio transport
         if not server_command:
-            ctx.obj["console"].print("[red]Error: server_command is required for stdio transport[/red]")
+            ctx.obj["console"].print("[red]Error: command is required for stdio transport[/red]")
             raise click.Abort
         if url:
             ctx.obj["console"].print("[yellow]Warning: --url ignored for stdio transport[/yellow]")
@@ -409,7 +429,7 @@ def add(
     args = SimpleNamespace(
         name=normalized_name,
         server_command=server_command,
-        server_args=builtins.list(server_args),
+        server_args=server_args,
         env=[builtins.list(e) for e in env],  # Convert tuples to lists
         cwd=cwd,
         tags=builtins.list(tags),
