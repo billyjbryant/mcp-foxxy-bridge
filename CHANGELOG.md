@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.7.0...v1.7.1) (2025-09-15)
+
+
+### 🐛 Bug Fixes
+
+* **mcp-add:** fixes the 'mcp add' command to properly parse server commands for stdio servers ([44153f9](https://github.com/billyjbryant/mcp-foxxy-bridge/commit/44153f9d927c29faed513abb8776f27e7e2c3919))
+
 ## [1.7.0](https://github.com/billyjbryant/mcp-foxxy-bridge/compare/v1.6.2...v1.7.0) (2025-09-11)
 
 
