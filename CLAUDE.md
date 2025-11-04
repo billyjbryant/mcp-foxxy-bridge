@@ -7,7 +7,8 @@ AI assistant reference for MCP Foxxy Bridge development.
 **Common:**
 
 - Setup: `uv sync`
-- Run: `uv run foxxy-bridge --bridge-config config.json`
+- Run SSE: `uv run foxxy-bridge --config config.json`
+- Run stdio: `uv run foxxy-bridge server start --stdio` or `uvx mcp-foxxy-bridge server start --stdio`
 - Test: `pytest`
 - Lint: `ruff check --fix && mypy src/`
 - Format: `ruff format`
@@ -19,7 +20,9 @@ AI assistant reference for MCP Foxxy Bridge development.
 
 ## Commands
 
-**Run:** `uv run foxxy-bridge --bridge-config config.json` (primary), `uv run mcp-foxxy-bridge` (alias), `uv run -m mcp_foxxy_bridge` (legacy)
+**Run SSE Mode:** `uv run foxxy-bridge --config config.json` (primary), `uv run mcp-foxxy-bridge` (alias), `uv run -m mcp_foxxy_bridge` (legacy)
+
+**Run stdio Mode:** `uv run mcp-foxxy-bridge server start --stdio` (CLI flag), or set `"stdio": true` in bridge config
 
 **Test:** `pytest`, `pytest -v`, `pytest tests/test_config_loader.py`, `coverage run -m pytest && coverage report`
 
@@ -135,6 +138,22 @@ JSON config (default: `config.json`) with `${VAR}` env expansion, `$(cmd)` subst
     "allow_command_substitution": true,
     "allowed_commands": ["op", "vault"],
     "oauth_port": 8090
+  }
+}
+```
+
+**With stdio Transport:**
+
+```json
+{
+  "servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"]
+    }
+  },
+  "bridge": {
+    "stdio": true
   }
 }
 ```

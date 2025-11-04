@@ -604,6 +604,50 @@ jobs:
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
 
+  # MCP Registry publishing
+  publish-mcp-registry:
+    needs: semantic-release
+    runs-on: ubuntu-latest
+    if: |
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      needs.semantic-release.result == 'success' &&
+      needs.semantic-release.outputs.has_release == 'true' &&
+      needs.semantic-release.outputs.version != ''
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+    - name: Debug MCP Registry publishing conditions
+      run: |
+        echo "🔍 Publishing to MCP Registry - Debug Info:"
+        echo "  branch: ${{ github.ref }}"
+        echo "  event: ${{ github.event_name }}"
+        echo "  semantic-release result: ${{ needs.semantic-release.result }}"
+        echo "  has_release: ${{ needs.semantic-release.outputs.has_release }}"
+        echo "  version: ${{ needs.semantic-release.outputs.version }}"
+
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: main
+
+    - name: Update server.json version
+      run: |
+        sed -i 's/"version": "[^"]*"/"version": "${{ needs.semantic-release.outputs.version }}"/g' server.json
+
+    - name: Install MCP Publisher
+      run: |
+        curl -L "https://github.com/modelcontextprotocol/registry/releases/download/v1.0.0/mcp-publisher_1.0.0_linux_amd64.tar.gz" | tar xz mcp-publisher
+        chmod +x mcp-publisher
+        sudo mv mcp-publisher /usr/local/bin/
+
+    - name: Login to MCP Registry
+      run: mcp-publisher login github
+
+    - name: Publish to MCP Registry
+      run: mcp-publisher publish
+
   # Docker publishing
   publish-docker:
     needs: semantic-release

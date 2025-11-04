@@ -633,6 +633,7 @@ class BridgeConfig:
     allowed_commands: list[str] | None = None  # Whitelist of allowed commands for substitution
     allow_dangerous_commands: bool = False  # UNSAFE: Allow any command without validation
     read_only_mode: bool = True  # Block write operations when True (defaults to True for security)
+    stdio: bool = False  # Enable stdio transport mode (overrides host/port settings)
     security: "BridgeSecurityConfig | None" = None  # Security configuration for the bridge
 
     def __post_init__(self) -> None:

@@ -57,6 +57,31 @@ async def handle_server_start(
 
     daemon_manager = DaemonManager(config_dir, console, daemon_name)
 
+    # Check for stdio mode from CLI flag or config file
+    stdio_mode = getattr(args, "stdio", False)
+
+    # If not set via CLI, check config file for stdio setting
+    if not stdio_mode:
+        try:
+            import os
+
+            from mcp_foxxy_bridge.config.config_loader import load_bridge_config_from_file
+
+            config_file = getattr(args, "config", None) or str(config_path)
+            bridge_base_env = dict(os.environ)
+            bridge_config = load_bridge_config_from_file(config_file, bridge_base_env)
+
+            if bridge_config.bridge and bridge_config.bridge.stdio:
+                stdio_mode = True
+                console.print("[dim]Using stdio mode from configuration file[/dim]")
+        except Exception:
+            # If config loading fails, continue with normal mode
+            pass
+
+    if stdio_mode:
+        await _stdio_start(args, config_path, console, logger)
+        return
+
     # Convert to argparse-style namespace for compatibility
     argparse_args = argparse.Namespace(
         daemon_command="start",
@@ -656,6 +681,59 @@ async def _daemon_restart(
     except Exception as e:
         console.print(f"[red]Error restarting daemon: {e}[/red]")
         logger.exception("Failed to restart daemon")
+
+
+async def _stdio_start(
+    args: Any,
+    config_path: Path,
+    console: Console,
+    logger: logging.Logger,
+) -> None:
+    """Start the bridge server in stdio mode for direct MCP client communication.
+
+    Args:
+        args: Command line arguments with config file option
+        config_path: Default path to configuration file
+        console: Rich console for output
+        logger: Logger for error reporting
+
+    Runs the bridge server in stdio transport mode, reading MCP requests from stdin
+    and writing responses to stdout. This mode is suitable for direct integration
+    with MCP clients like Claude Desktop or other tools that expect stdio transport.
+    """
+    import os
+
+    from mcp.server.stdio import stdio_server
+
+    from mcp_foxxy_bridge.config.config_loader import load_bridge_config_from_file
+    from mcp_foxxy_bridge.server.bridge_server import create_bridge_server
+
+    try:
+        # Use config file from args or default config path
+        config_file = getattr(args, "config", None) or str(config_path)
+
+        console.print(f"[dim]Loading configuration from: {config_file}[/dim]")
+
+        # Load bridge configuration
+        bridge_base_env = dict(os.environ)
+        bridge_config = load_bridge_config_from_file(config_file, bridge_base_env)
+
+        console.print(f"[green]✓[/green] Loaded configuration with {len(bridge_config.servers)} servers")
+
+        console.print("[green]✓[/green] Configuration loaded, starting stdio transport...")
+        console.print("[dim]Ready for MCP client communication via stdin/stdout[/dim]")
+
+        # Create and run the bridge MCP server with stdio transport
+        bridge_server = await create_bridge_server(bridge_config)
+        async with stdio_server() as (read_stream, write_stream):
+            await bridge_server.run(read_stream, write_stream, bridge_server.create_initialization_options())
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Received interrupt signal, shutting down...[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error starting stdio server: {e}[/red]")
+        logger.exception("Failed to start stdio server")
+        raise
 
 
 async def _daemon_status(

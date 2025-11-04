@@ -651,11 +651,31 @@ def status(ctx: click.Context, name: str | None, format: str, watch: bool, api: 
 @click.option("--host", help="Server host")
 @click.option("--name", "-n", help="Daemon name (auto-generated from config if not provided)")
 @click.option("--detach", is_flag=True, help="Run in background")
+@click.option("--stdio", is_flag=True, help="Run in stdio mode for direct MCP client communication")
 @click.pass_context
 def start(
-    ctx: click.Context, config_file: str | None, port: int | None, host: str | None, name: str | None, detach: bool
+    ctx: click.Context,
+    config_file: str | None,
+    port: int | None,
+    host: str | None,
+    name: str | None,
+    detach: bool,
+    stdio: bool,
 ) -> None:
     """Start bridge server."""
+    # Validate stdio mode conflicts
+    if stdio:
+        conflicts = []
+        if port is not None:
+            conflicts.append("--port")
+        if host is not None:
+            conflicts.append("--host")
+        if detach:
+            conflicts.append("--detach")
+
+        if conflicts:
+            ctx.fail(f"Cannot use {', '.join(conflicts)} with --stdio mode")
+
     args = SimpleNamespace(
         daemon_command="start",
         config=config_file,
@@ -663,6 +683,7 @@ def start(
         host=host,
         name=name,
         detach=detach,
+        stdio=stdio,
         debug=ctx.obj["debug"],
     )
 

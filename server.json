@@ -1,0 +1,81 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.billyjbryant/mcp-foxxy-bridge",
+  "description": "Forward proxy bridge for aggregating multiple MCP servers into a single endpoint",
+  "status": "active",
+  "repository": {
+    "url": "https://github.com/billyjbryant/mcp-foxxy-bridge",
+    "source": "github"
+  },
+  "version": "1.7.0",
+  "packages": [
+    {
+      "registry_type": "pypi",
+      "registry_base_url": "https://pypi.org",
+      "identifier": "mcp-foxxy-bridge",
+      "version": "1.7.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtime_hint": "uvx",
+      "runtime_arguments": [
+        {
+          "type": "positional",
+          "value": "run"
+        },
+        {
+          "type": "positional",
+          "value": "mcp-foxxy-bridge"
+        },
+        {
+          "type": "positional",
+          "value": "server"
+        },
+        {
+          "type": "positional",
+          "value": "start"
+        },
+        {
+          "type": "named",
+          "name": "--stdio"
+        }
+      ],
+      "environment_variables": []
+    },
+    {
+      "registry_type": "pypi",
+      "registry_base_url": "https://pypi.org",
+      "identifier": "mcp-foxxy-bridge",
+      "version": "1.7.0",
+      "transport": {
+        "type": "sse",
+        "url": "http://localhost:9000/sse"
+      },
+      "runtime_hint": "uvx",
+      "runtime_arguments": [
+        {
+          "type": "positional",
+          "value": "run"
+        },
+        {
+          "type": "positional",
+          "value": "mcp-foxxy-bridge"
+        },
+        {
+          "type": "positional",
+          "value": "server"
+        },
+        {
+          "type": "positional",
+          "value": "start"
+        },
+        {
+          "type": "named",
+          "name": "--port",
+          "value": "9000"
+        }
+      ],
+      "environment_variables": []
+    }
+  ]
+}

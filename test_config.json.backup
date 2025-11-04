@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "./"
+      ]
+    },
+    "context7": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.context7.com/se"
+      ],
+      "enabled": true
+    }
+  },
+  "bridge": {
+    "conflictResolution": "namespace",
+    "defaultNamespace": true,
+    "aggregation": {
+      "tools": true,
+      "resources": true,
+      "prompts": true
+    }
+  }
+}

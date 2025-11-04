@@ -550,6 +550,28 @@ def main() -> None:
     # Set OAuth config directory (auth subdirectory of config directory)
     oauth_config_dir = str(config_dir / "auth")
 
+    # Check if stdio mode is enabled in config
+    if bridge_config.bridge and bridge_config.bridge.stdio:
+        from mcp.server.stdio import stdio_server
+
+        from .server.bridge_server import create_bridge_server
+
+        logger.info("Starting in stdio mode from configuration")
+
+        async def run_stdio_bridge() -> None:
+            bridge_server = await create_bridge_server(bridge_config)
+            async with stdio_server() as (read_stream, write_stream):
+                await bridge_server.run(read_stream, write_stream, bridge_server.create_initialization_options())
+
+        try:
+            asyncio.run(run_stdio_bridge())
+        except KeyboardInterrupt:
+            logger.info("Received interrupt signal, shutting down gracefully...")
+        except Exception:
+            logger.exception("Stdio bridge server error")
+            return
+        return
+
     try:
         asyncio.run(run_bridge_server(mcp_settings, bridge_config, config_path_str, oauth_config_dir))
     except KeyboardInterrupt:
