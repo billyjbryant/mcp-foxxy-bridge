@@ -1,5 +1,3 @@
-[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/billyjbryant-mcp-foxxy-bridge-badge.png)](https://mseep.ai/app/billyjbryant-mcp-foxxy-bridge)
-
 # MCP Foxxy Bridge
 
 <!-- BADGIE TIME -->
@@ -98,6 +96,11 @@ Point your MCP-compatible client to: `http://localhost:8080/sse`
 - [Discussions](https://github.com/billyjbryant/mcp-foxxy-bridge/discussions)
 
 ---
+
+## Badges
+
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/billyjbryant-mcp-foxxy-bridge-badge.png)](https://mseep.ai/app/billyjbryant-mcp-foxxy-bridge)
+
 
 ## License
 
