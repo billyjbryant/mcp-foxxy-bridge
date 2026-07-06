@@ -101,6 +101,7 @@ Point your MCP-compatible client to: `http://localhost:8080/sse`
 
 [![MseeP.ai Security Assessment Badge](https://mseep.net/pr/billyjbryant-mcp-foxxy-bridge-badge.png)](https://mseep.ai/app/billyjbryant-mcp-foxxy-bridge)
 
+[![Verified on MseeP](https://mseep.ai/badge.svg)](https://mseep.ai/app/0ebca7d0-f29c-4460-a8c1-1e8f14a6263e)
 
 ## License
 
