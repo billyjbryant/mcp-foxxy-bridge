@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/billyjbryant-mcp-foxxy-bridge-badge.png)](https://mseep.ai/app/billyjbryant-mcp-foxxy-bridge)
+
 # MCP Foxxy Bridge
 
 <!-- BADGIE TIME -->
